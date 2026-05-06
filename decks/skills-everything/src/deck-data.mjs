@@ -1,0 +1,173 @@
+export const sources = {
+  openaiHelp: "OpenAI Help Center：Skills in ChatGPT，2026-04",
+  openaiCodex: "OpenAI Help Center：Using Codex with your ChatGPT plan，2026-04",
+  apiSkills: "OpenAI Developers：API Tools / Skills",
+  agentOverview: "Agent Skills：Overview",
+  agentSpec: "Agent Skills：Specification",
+  bestPractices: "Agent Skills：Best practices for skill creators",
+  descriptions: "Agent Skills：Optimizing skill descriptions",
+  scripts: "Agent Skills：Using scripts in skills",
+};
+
+export const sourceLinks = [
+  ["OpenAI Skills Help", "https://help.openai.com/en/articles/20001066-skills-in-chatgpt"],
+  ["OpenAI Codex Help", "https://help.openai.com/en/articles/11369540-codex-in-chatgpt"],
+  ["OpenAI API Skills", "https://developers.openai.com/api/docs/guides/tools-skills"],
+  ["Agent Skills Overview", "https://agentskills.io/home"],
+  ["Agent Skills Specification", "https://agentskills.io/specification"],
+  ["Agent Skills Best Practices", "https://agentskills.io/skill-creation/best-practices"],
+  ["Description Guidance", "https://agentskills.io/skill-creation/optimizing-descriptions"],
+  ["Scripts Guidance", "https://agentskills.io/skill-creation/using-scripts"],
+];
+
+export const slides = [
+  {
+    kind: "cover",
+    title: "关于 Skills 的一切",
+    subtitle: "把一次聪明的执行，沉淀成可复用、可共享、可审计的 Agent 能力",
+    meta: "CrewHire deck · 2026-04-28",
+    source: `${sources.openaiHelp}；${sources.agentOverview}`,
+  },
+  {
+    kind: "definition",
+    title: "Skill 不是提示词库",
+    lead: "它是可安装的工作方法：把说明、资源、脚本和边界一起打包。",
+    points: [
+      ["Reusable", "同类任务下次自动带上正确做法"],
+      ["Shareable", "团队可以共享强工作流，不必每个人重写"],
+      ["Executable", "需要时可附带脚本、模板和参考资料"],
+    ],
+    source: sources.openaiHelp,
+  },
+  {
+    kind: "why",
+    title: "为什么 Agent 需要 Skills",
+    thesis: "模型会推理，组织需要稳定执行。",
+    lanes: [
+      ["没有 Skill", "靠临场提示，结果依赖上下文和表达质量"],
+      ["有 Skill", "把项目约束、步骤、示例、脚本装进一个可版本化单元"],
+    ],
+    source: sources.agentOverview,
+  },
+  {
+    kind: "anatomy",
+    title: "Skill 的组成",
+    folder: "my-skill/",
+    rows: [
+      ["SKILL.md", "必需：name、description、执行说明"],
+      ["scripts/", "可选：可运行代码，处理重复或脆弱步骤"],
+      ["references/", "可选：按需加载的领域文档"],
+      ["assets/", "可选：模板、图片、数据或示例资源"],
+    ],
+    source: sources.agentSpec,
+  },
+  {
+    kind: "frontmatter",
+    title: "先让 Agent 找得到",
+    code: ["---", "name: code-review", "description: Review code for bugs, regressions, risks, and missing tests.", "---"],
+    rules: ["name：小写、数字和连字符，且与目录名匹配", "description：同时说明“做什么”和“什么时候用”", "正文：写步骤、示例、边界和验收方式"],
+    source: sources.agentSpec,
+  },
+  {
+    kind: "progressive",
+    title: "Progressive Disclosure",
+    lead: "真正好的 Skill 不会一上来把所有资料塞进上下文。",
+    steps: [
+      ["1", "Discovery", "只加载名称和描述"],
+      ["2", "Activation", "任务匹配时读取 SKILL.md"],
+      ["3", "Execution", "按需读取 references / assets / scripts"],
+    ],
+    source: sources.agentSpec,
+  },
+  {
+    kind: "trigger",
+    title: "Description 决定触发质量",
+    left: ["太泛：Helps with PDFs.", "问题：Agent 不知道何时该用，也不知道用它做什么。"],
+    right: ["更好：Extracts text and tables from PDF files, fills PDF forms, and merges multiple PDFs.", "关键：动词、对象、场景、边界都写出来。"],
+    source: sources.descriptions,
+  },
+  {
+    kind: "chatgpt",
+    title: "在 ChatGPT 里怎么用",
+    steps: ["安装共享 Skill", "用编辑器创建或上传", "分享到 workspace", "由管理员控制启用、发布、安装权限"],
+    note: "OpenAI Help Center 说明：Skills 处于 beta，支持 ChatGPT Business / Enterprise / Edu / Teachers / Healthcare，也支持 Codex 和 API。",
+    source: sources.openaiHelp,
+  },
+  {
+    kind: "codex",
+    title: "Codex 里的 Skill",
+    lead: "Codex 能读代码、改代码、运行命令；Skill 把“怎么做”固定成可复用流程。",
+    examples: ["Presentations：生成、渲染、验证 PPT", "Review：先列风险，再给证据和行号", "Browser：打开本地页面并做 E2E 检查", "Docs：按模板生成并渲染文档"],
+    source: `${sources.openaiCodex}；本地已安装 Skills 列表`,
+  },
+  {
+    kind: "compare",
+    title: "四个概念的分工",
+    rows: [
+      ["Prompt", "一次性意图", "快，但难复用"],
+      ["Skill", "工作方法", "让 Agent 按稳定步骤行动"],
+      ["MCP / Connector", "外部能力和数据", "连接工具、服务、仓库和系统"],
+      ["Plugin", "打包能力集合", "技能、工具和连接器的产品化组合"],
+    ],
+    source: `${sources.apiSkills}；${sources.openaiCodex}`,
+  },
+  {
+    kind: "writing",
+    title: "好 Skill 的写法",
+    rules: [
+      ["从真实任务提炼", "记录成功步骤、纠偏、输入输出和边界"],
+      ["加入 Agent 不知道的东西", "项目约定、脆弱命令、失败模式、验收证据"],
+      ["默认路径优先", "给默认方案，不把所有选项摆成菜单"],
+      ["执行后再迭代", "看 trace，删掉无用指令，补漏触发条件"],
+    ],
+    source: sources.bestPractices,
+  },
+  {
+    kind: "scripts",
+    title: "Scripts 何时放",
+    lead: "当任务重复、易错、格式严格，脚本比长篇指令更稳。",
+    doList: ["自包含或清楚写依赖", "错误信息要能指导修复", "覆盖边界情况", "输出能被 Agent 继续使用"],
+    avoidList: ["一次性脚本污染 Skill", "把密钥或环境假设写死", "脚本成功但没有验证输出", "让脚本替代所有判断"],
+    source: `${sources.agentSpec}；${sources.scripts}`,
+  },
+  {
+    kind: "governance",
+    title: "团队治理",
+    points: [
+      ["Access", "管理员控制创建、安装、发布"],
+      ["Audit", "企业环境可看到创建、分享、更新、安装等元数据"],
+      ["Residency", "ChatGPT Business 数据默认不用于训练，遵循组织数据设置"],
+      ["Portability", "OpenAI Skills 遵循 Agent Skills 开放标准，但跨产品暂未自动同步"],
+    ],
+    source: sources.openaiHelp,
+  },
+  {
+    kind: "risk",
+    title: "别让 Skill 变成负资产",
+    risks: [
+      ["过宽", "一个 Skill 管所有事，触发混乱"],
+      ["过长", "SKILL.md 像百科，挤占上下文"],
+      ["过假", "没有真实项目材料，只有空泛最佳实践"],
+      ["过脆", "硬编码环境、路径、密钥或不可复现命令"],
+    ],
+    source: sources.bestPractices,
+  },
+  {
+    kind: "roadmap",
+    title: "团队落地路线",
+    steps: [
+      ["Week 1", "挑 3 个高频任务：Review / E2E / 文档"],
+      ["Week 2", "从真实执行记录提炼 Skill v0"],
+      ["Week 3", "加脚本、模板、gotchas 和验证闭环"],
+      ["Week 4", "共享到团队，按失败样本迭代"],
+    ],
+    source: "综合官方规范与本地工作流实践",
+  },
+  {
+    kind: "closing",
+    title: "Skill 的本质",
+    line: "不是让 Agent 记住更多，而是让它在关键场景少犯同一种错。",
+    cta: "把你最稳定的一次执行，变成团队下一次的默认能力",
+    links: sourceLinks.slice(0, 5),
+  },
+];

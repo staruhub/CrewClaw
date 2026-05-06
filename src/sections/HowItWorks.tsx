@@ -1,0 +1,141 @@
+import { ScrollReveal } from "@/components/ScrollReveal";
+
+const steps = [
+  {
+    step: "01",
+    title: "Set Up Your Template",
+    desc: "Install Progra In Just A Few Clicks. Customize Layouts, Colors, And Content Without Writing Complex Code.",
+    preview: "template",
+  },
+  {
+    step: "02",
+    title: "Power Up With AI",
+    desc: "Leverage AI-Driven Coding Features To Structure, Debug, And Optimize Your Project Faster Than Ever.",
+    preview: "ai",
+  },
+  {
+    step: "03",
+    title: "Launch & Scale",
+    desc: "Go Live Instantly With Webflow CMS. Expand Your Website With Blogs, And Integrations As Your Project Grows.",
+    preview: "launch",
+  },
+];
+
+function TemplatePreview() {
+  return (
+    <div className="relative h-full overflow-hidden bg-[#191816]">
+      <div className="absolute inset-x-0 top-0 h-16 bg-[linear-gradient(90deg,rgba(255,255,255,0.2),rgba(239,103,52,0.5)_48%,rgba(255,255,255,0.04))] blur-2xl" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(220,111,62,0.16),transparent_42%)]" />
+      <div className="relative p-6 text-sm text-white">Template</div>
+      <div className="absolute inset-x-6 bottom-8 grid grid-cols-4 gap-2">
+        {[0, 1, 2, 3].map((item) => (
+          <div
+            key={item}
+            className={`h-[96px] border bg-white/[0.025] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${
+              item === 2 ? "border-[#8C3E27] bg-white/[0.045]" : "border-white/8"
+            }`}
+          >
+            <div className="mt-16 mx-2 h-1 bg-white/8" />
+            <div className="mt-2 mx-2 h-1 w-1/2 bg-white/6" />
+          </div>
+        ))}
+      </div>
+      <div className="absolute bottom-4 left-6 h-px w-24 bg-white/12" />
+      <div className="absolute bottom-4 right-6 h-px w-16 bg-white/10" />
+    </div>
+  );
+}
+
+function AiPreview() {
+  return (
+    <div className="relative flex h-full items-center justify-center overflow-hidden bg-[#151513]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(226,110,60,0.08),transparent_52%)]" />
+      <div className="absolute h-36 w-36 rounded-full border border-[#8E442B]/18 bg-[radial-gradient(circle,rgba(255,224,205,0.42),rgba(230,111,58,0.44)_34%,rgba(143,55,30,0.16)_58%,transparent_75%)] blur-[1px]" />
+      <div className="absolute h-20 w-20 rounded-full border border-white/12 bg-[radial-gradient(circle,rgba(255,255,255,0.68),rgba(239,158,112,0.66)_42%,rgba(151,58,32,0.24)_72%,transparent_100%)] shadow-[0_0_34px_rgba(218,101,55,0.28)]" />
+      <div className="absolute h-10 w-10 rounded-full bg-white/14 blur-xl" />
+      <div className="absolute bottom-7 text-center">
+        <p className="text-[11px] text-white">Generating preview</p>
+        <p className="mt-1 text-[8px] text-white/40">Thinking...</p>
+        <div className="mt-3 flex justify-center gap-1">
+          <span className="h-1 w-1 rounded-full bg-white/35" />
+          <span className="h-1 w-1 rounded-full bg-white/18" />
+          <span className="h-1 w-1 rounded-full bg-white/10" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LaunchPreview() {
+  return (
+    <div className="relative h-full overflow-hidden bg-[#181715]">
+      <div className="absolute inset-x-0 top-0 h-16 bg-[linear-gradient(90deg,rgba(255,255,255,0.18),rgba(235,101,50,0.5)_58%,rgba(255,255,255,0.035))] blur-2xl" />
+      <div className="absolute left-[-6px] top-[58px] font-sans text-[50px] tracking-[-0.06em] text-white/[0.045]">LAUNCH SCALE</div>
+      <div className="absolute left-4 top-[86px] h-16 w-20 border-l border-white/7" />
+      <div className="absolute right-[28px] top-[48px] h-[78px] w-[132px] border border-white/16 bg-[#242220]/92 shadow-[18px_20px_50px_rgba(0,0,0,0.35)]" />
+      <div className="absolute right-[44px] top-[66px] h-[78px] w-[132px] border border-white/14 bg-[#242220]/95 shadow-[14px_18px_42px_rgba(0,0,0,0.35)]" />
+      <div className="absolute right-[60px] top-[84px] h-[78px] w-[132px] border border-white/12 bg-[#242220] shadow-[12px_16px_34px_rgba(0,0,0,0.32)]" />
+      <div className="absolute right-[84px] bottom-[28px] h-[76px] w-[150px] border border-white/16 bg-[#211F1D] shadow-[0_18px_42px_rgba(0,0,0,0.45)]">
+        <div className="absolute bottom-4 left-5 h-1 w-16 bg-white/10" />
+        <div className="absolute bottom-4 right-5 h-1 w-8 bg-white/8" />
+        <div className="absolute top-4 left-5 h-px w-20 bg-white/8" />
+      </div>
+      <div className="absolute bottom-10 right-36 h-px w-20 bg-white/10" />
+      <div className="absolute bottom-7 right-14 h-px w-28 bg-white/8" />
+    </div>
+  );
+}
+
+function StepPreview({ type }: { type: string }) {
+  if (type === "template") return <TemplatePreview />;
+  if (type === "ai") return <AiPreview />;
+  return <LaunchPreview />;
+}
+
+export function HowItWorks() {
+  return (
+    <section
+      id="how-it-works"
+      className="section-shell bg-[radial-gradient(ellipse_at_center,rgba(70,29,16,0.44)_0%,rgba(24,14,12,0.78)_46%,#0A0908_100%)]"
+    >
+      <div className="site-container max-w-[1060px]">
+        <ScrollReveal className="text-center">
+          <h2 className="font-sans text-[34px] font-light leading-[1.04] text-crew-heading md:text-[52px]">
+            <span>( How It </span>
+            <span className="text-crew-copper">Works )</span>
+          </h2>
+          <p className="mt-4 text-[14px] leading-7 text-white/52">
+            Launch Your Coding AI Website In 3 Simple Steps.
+          </p>
+        </ScrollReveal>
+
+        <div className="polished-panel mt-12 grid grid-cols-1 bg-[#0E0B0A] md:grid-cols-3">
+          {steps.map((step, index) => (
+            <ScrollReveal key={step.step} delay={index * 0.1}>
+              <article
+                className={`min-h-[430px] border-white/10 ${
+                  index < steps.length - 1 ? "md:border-r" : ""
+                }`}
+              >
+                <div className="flex min-h-[228px] flex-col px-7 pt-8">
+                  <p className="text-[13px] text-white/58">
+                    (Step<span className="text-crew-copper">{step.step}</span>)
+                  </p>
+                  <h3 className="mt-10 font-sans text-[24px] font-light leading-tight text-white md:text-[26px]">
+                    {step.title}
+                  </h3>
+                  <p className="mt-4 max-w-[270px] text-[14px] leading-7 text-white/46">
+                    {step.desc}
+                  </p>
+                </div>
+                <div className="h-[202px] border-t border-white/8">
+                  <StepPreview type={step.preview} />
+                </div>
+              </article>
+            </ScrollReveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}

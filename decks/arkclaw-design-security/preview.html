@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ArkClaw 艺术叙事版 PPT 预览</title>
+    <style>
+      body { margin: 0; background: #0d1117; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+      header { position: sticky; top: 0; padding: 18px 28px; background: rgba(13,17,23,.9); border-bottom: 1px solid #263244; backdrop-filter: blur(10px); }
+      h1 { margin: 0; font-size: 20px; }
+      main { display: grid; gap: 28px; padding: 28px; }
+      img { width: min(100%, 1280px); margin: 0 auto; display: block; border: 1px solid #263244; border-radius: 8px; }
+      a { color: #00ff88; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>ArkClaw 艺术叙事版 PPT 预览 · <a href="output/output.pptx">下载 PPTX</a></h1>
+    </header>
+    <main>
+      <script>
+        for (let i = 1; i <= 16; i += 1) {
+          const img = document.createElement("img");
+          img.src = `scratch/previews/slide-${String(i).padStart(2, "0")}.png`;
+          img.alt = `slide ${i}`;
+          document.currentScript.before(img);
+        }
+      </script>
+    </main>
+  </body>
+</html>

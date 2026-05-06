@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 20 14% 4%;
+    --foreground: 30 14% 90%;
+    --card: 20 12% 7%;
+    --card-foreground: 30 14% 90%;
+    --popover: 20 12% 7%;
+    --popover-foreground: 30 14% 90%;
+    --primary: 24 55% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 20 12% 7%;
+    --secondary-foreground: 30 14% 90%;
+    --muted: 20 12% 7%;
+    --muted-foreground: 24 12% 45%;
+    --accent: 20 12% 7%;
+    --accent-foreground: 30 14% 90%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 20 10% 14%;
+    --input: 20 10% 14%;
+    --ring: 24 55% 52%;
+    --radius: 0.625rem;
+    --sidebar-background: 20 14% 4%;
+    --sidebar-foreground: 30 14% 90%;
+    --sidebar-primary: 24 55% 52%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 20 12% 7%;
+    --sidebar-accent-foreground: 30 14% 90%;
+    --sidebar-border: 20 10% 14%;
+    --sidebar-ring: 24 55% 52%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    width: 100%;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-crew-bg text-crew-heading font-sans antialiased;
+    width: 100%;
+    overflow-x: hidden;
+  }
+  #root {
+    min-height: 100%;
+    width: 100%;
+    overflow-x: hidden;
+  }
+}
+
+@layer utilities {
+  .site-container {
+    @apply mx-auto w-full max-w-[1120px] px-5 sm:px-6 md:px-10;
+  }
+  .section-shell {
+    @apply py-20 md:py-24 lg:py-28;
+  }
+  .polished-panel {
+    @apply overflow-hidden rounded-[8px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.026),rgba(255,255,255,0.01))] shadow-[0_24px_70px_rgba(0,0,0,0.28)];
+  }
+  .soft-divider {
+    @apply border-white/10;
+  }
+  .gradient-text {
+    background: linear-gradient(135deg, #C87941, #D4853A, #E8A87C);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .rainbow-bar {
+    background: linear-gradient(90deg, #C87941, #D4853A, #E8A87C, #8B6F4E);
+  }
+  .glass {
+    background: rgba(10, 9, 8, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  .glow-copper {
+    box-shadow: 0 0 40px rgba(200, 121, 65, 0.12), 0 0 80px rgba(200, 121, 65, 0.06);
+  }
+}

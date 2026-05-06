@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node src/build-deck.mjs",
+    "inspect": "node src/inspect-deck.mjs"
+  }
+}
