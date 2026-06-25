@@ -735,7 +735,11 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
   const dim = (s) => `\x1b[2m${s}\x1b[0m`;
   const label = magenta(`${name} › `);
   const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-  const sys = system + AGENT_GUIDE;
+  const today = new Date().toISOString().slice(0, 10);
+  const sys =
+    system +
+    AGENT_GUIDE +
+    `\n\n# 时间锚点\n今天是 ${today}。你的训练知识可能截止得更早——所以**日期/模型/事件比你印象中新，并不代表它是假的**，很可能就是真实的近期信息。判断真假要看**来源是否可信**（官方域名、HTTP 200 的正文就是可信来源），而不是"日期超出我的认知就当成虚构/污染"。该存疑时标 [需核实]、尽量交叉验证，但别把真实的最新信息误判成假的。`;
   let renderCount = 0; // browser_render is capped per task (Step 3 safety)
   // Step 5 — Budget Guard: stop flailing (cost / repeated empty search / JS shells).
   let spentPrompt = 0, spentCompletion = 0, searchEmpty = 0, fetchShell = 0, costOkd = false;
