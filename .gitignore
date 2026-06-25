@@ -50,3 +50,6 @@ coverage/
 
 # compiled CLI binary (rebuild via cargo)
 /crewclaw.exe
+
+# session persistence (runtime state)
+.sessions/
