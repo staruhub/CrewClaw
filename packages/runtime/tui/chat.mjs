@@ -63,10 +63,10 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef }) {
       <${Static} items=${state.messages}>
         ${(m, i) => m.role === "user"
           ? html`<${UserMessage} key=${i} text=${m.text} />`
-          : html`<${AssistantMessage} key=${i} name=${agentName} lines=${renderLines(m.text)} tools=${m.tools} />`}
+          : html`<${AssistantMessage} key=${i} name=${agentName} parts=${m.parts} renderLines=${renderLines} />`}
       </>
       ${state.live
-        ? html`<${AssistantMessage} name=${agentName} lines=${renderLines(state.live.text)} tools=${state.live.tools} caret=${true} />`
+        ? html`<${AssistantMessage} name=${agentName} parts=${state.live.parts} renderLines=${renderLines} caret=${true} />`
         : null}
       <${Box} marginTop=${1} flexDirection="column">
         <${StatusBar} name=${agentName} status=${state.status} tokens=${tokens} />

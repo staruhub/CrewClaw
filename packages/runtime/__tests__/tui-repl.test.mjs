@@ -46,7 +46,7 @@ import { buildRunTurn, historyToMessages } from "../tui/repl.mjs";
   assert.equal(msgs[0].role, "user");
   assert.equal(msgs[0].text, "hi");
   assert.equal(msgs[1].role, "assistant");
-  assert.equal(msgs[1].text, "答案");
+  assert.equal(msgs[1].parts[0].text, "答案");
 }
 
 console.log("tui-repl tests passed");

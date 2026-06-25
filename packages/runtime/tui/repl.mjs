@@ -13,9 +13,9 @@ export function historyToMessages(history) {
   const out = [];
   for (const m of history || []) {
     if (m.role === "user") {
-      out.push({ role: "user", text: typeof m.content === "string" ? m.content : "（含附件）", tools: [] });
+      out.push({ role: "user", text: typeof m.content === "string" ? m.content : "（含附件）" });
     } else if (m.role === "assistant" && m.content && !m.tool_calls) {
-      out.push({ role: "assistant", text: m.content, tools: [] });
+      out.push({ role: "assistant", parts: [{ type: "text", text: m.content }] });
     }
   }
   return out;

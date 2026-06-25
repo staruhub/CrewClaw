@@ -1,8 +1,10 @@
 // tui/components.mjs — the Ink view layer for `crew chat`. Message bodies are PRE-RENDERED
-// ANSI strings (from the existing ui-* renderers via ui-markdown.renderMessage), one
-// <Text> per physical line: Ink preserves the ANSI styling + CJK width and gives us the
-// flicker-free compositor + Static scrollback + flexbox shell for free. Components take
-// already-rendered `lines` (string[]) so they stay pure and testable.
+// ANSI strings (from the ui-* renderers via ui-markdown.renderMessage), one <Text> per
+// physical line: Ink preserves the ANSI styling + CJK width and gives us the flicker-free
+// compositor + Static scrollback + flexbox shell for free.
+//
+// An assistant turn is an ORDERED parts list (text/tool), rendered in sequence so tool
+// calls appear exactly where they happened (OpenCode-style), never dumped after the prose.
 import React from "react";
 import { Box, Text } from "ink";
 import htm from "htm";
@@ -22,15 +24,17 @@ export function MessageBody({ lines, caret }) {
   </>`;
 }
 
-// One compact dim tool-activity line (opencode-style). `text` is the toolLine() summary;
-// `status` tints only blocked/error states.
-export function ToolLine({ text, status }) {
-  const color = status === "blocked" ? theme.warn : status === "error" ? theme.err : undefined;
-  return html`<${Text} dimColor=${!color} color=${color} wrap="truncate">${"   " + text}</>`;
+// One compact dim tool-activity line (OpenCode-style): <glyph> <cleaned label>. The label
+// is the audit summary with the present-continuous "正在" stripped (it's a finished call).
+export function ToolLine({ tool }) {
+  const t = tool || {};
+  const glyph = glyphs.tool[t.toolName] || glyphs.tool.default;
+  const label = String(t.action || t.toolName || "tool").replace(/^正在/, "");
+  const color = t.status === "blocked" ? theme.warn : t.status === "error" ? theme.err : undefined;
+  return html`<${Text} dimColor=${!color} color=${color} wrap="truncate">${"   " + glyph + " " + label}</>`;
 }
 
-// The user's turn: an accent left-rail "bubble" (rail-only; clean in append-only
-// scrollback). Multi-line input keeps the rail on every line.
+// The user's turn: an accent left-rail "bubble" (rail-only). Multi-line keeps the rail.
 export function UserMessage({ text }) {
   const lines = String(text).split("\n");
   return html`<${Box} flexDirection="row" marginTop=${1}>
@@ -39,25 +43,29 @@ export function UserMessage({ text }) {
   </>`;
 }
 
-// The assistant's turn: role header + rendered body (+ streaming caret when live) +
-// any tool-activity lines folded under it.
-export function AssistantMessage({ name, lines, tools, caret }) {
+// The assistant's turn: role header + ordered parts (text bodies + interleaved tool lines).
+// `renderLines(text) -> string[]` is injected (ui-markdown.renderMessage). The streaming
+// caret rides the LAST text part.
+export function AssistantMessage({ name, parts, renderLines, caret }) {
+  const items = parts || [];
+  const lastIdx = items.length - 1;
   return html`<${Box} flexDirection="column" marginTop=${1}>
     <${Text} color=${theme.assistant}>${name} ${glyphs.assistant}</>
-    <${MessageBody} lines=${lines} caret=${!!caret} />
-    ${tools && tools.length
-      ? tools.map((t, i) => html`<${ToolLine} key=${i} text=${t.action || t.text} status=${t.status} />`)
-      : null}
+    ${items.length
+      ? items.map((p, i) =>
+          p.type === "tool"
+            ? html`<${ToolLine} key=${i} tool=${p.tool} />`
+            : html`<${MessageBody} key=${i} lines=${renderLines(p.text)} caret=${!!caret && i === lastIdx} />`)
+      : (caret ? html`<${MessageBody} lines=${[""]} caret=${true} />` : null)}
   </>`;
 }
 
-// Sticky BOTTOM status bar (Ink's Static reserves the bottom region): a live state dot +
-// session token/ctx/cost on the right. Sits right above the input composer.
+// Sticky BOTTOM status bar: a live state dot + session token/ctx/cost on the right.
 export function StatusBar({ name, status = "idle", tokens = 0, ctxPct = 0, costText = "$0.00" }) {
   const dotColor = { idle: theme.dim, thinking: theme.warn, streaming: theme.assistant, tool: theme.accent, error: theme.err }[status] || theme.dim;
-  const label = { idle: "就绪", thinking: "思考中", streaming: "回答中", tool: "调用工具", error: "中断" }[status] || status;
+  const labelText = { idle: "就绪", thinking: "思考中", streaming: "回答中", tool: "调用工具", error: "中断" }[status] || status;
   return html`<${Box} justifyContent="space-between" paddingX=${1}>
-    <${Box}><${Text} color=${dotColor}>${"● "}</><${Text} dimColor>${name + " · " + label}</></>
+    <${Box}><${Text} color=${dotColor}>${"● "}</><${Text} dimColor>${name + " · " + labelText}</></>
     <${Text} dimColor>${`${(tokens || 0).toLocaleString()} tok · ${ctxPct || 0}% · ${costText}`}</>
   </>`;
 }
