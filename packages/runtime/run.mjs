@@ -355,12 +355,26 @@ function createMdPrinter(render) {
   // Show the in-progress (not-yet-newlined) line with a dim ● caret, in place.
   // Conservative: TTY only, single terminal row only (skip if it would wrap),
   // never inside a fence/table — so a stray \r can't garble wrapped output.
+  // Truncate raw text to a display width (ANSI-free, CJK-aware) for the caret line.
+  const truncToWidth = (s, max) => {
+    let w = 0, out = "";
+    for (const ch of s) {
+      const cw = visibleLen(ch);
+      if (w + cw > max) break;
+      w += cw;
+      out += ch;
+    }
+    return out;
+  };
   const showPartial = () => {
     if (!caretOn) return;
     if (!buf.length || state.inFence || isTableRow(buf)) return clearPartial();
-    const text = GUTTER + buf;
     const cols = process.stdout.columns || 80;
-    if (visibleLen(text) + 2 > cols) return clearPartial(); // would wrap → wait for \n
+    let text = GUTTER + buf;
+    // A line that would wrap onto >1 row used to be cleared — it VANISHED mid-stream
+    // until the \n arrived. Instead show a truncated single-row preview (head + …) so
+    // streaming text stays visible; the full wrapped line is re-emitted on the newline.
+    if (visibleLen(text) + 2 > cols) text = truncToWidth(text, cols - 4) + "…";
     process.stdout.write("\r\x1b[K" + text + " \x1b[2m●\x1b[0m");
     partialShown = true;
   };
