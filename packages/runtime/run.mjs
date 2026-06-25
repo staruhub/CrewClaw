@@ -27,6 +27,7 @@ import { saveSession, loadSession } from "./session-store.mjs";
 import { highlightCode } from "./ui-highlight.mjs";
 import { isCommand, runCommand } from "./commands.mjs";
 import { renderTable, isTableRow } from "./ui-table.mjs";
+import { createMdPrinter as makeMdPrinter } from "./ui-stream.mjs";
 import { GUTTER, contentWidth, wrapText, prefixLines, reindent } from "./ui-layout.mjs";
 import { makeGateway, auditRecord } from "./tool-gateway.mjs";
 import { newTaskRun, transition, addEvent, saveTaskRun } from "./task-state.mjs";
@@ -326,77 +327,9 @@ function renderMdLine(line, state) {
 
 // Buffers streamed text and prints each line rendered once it completes.
 // render=false (non-TTY / piped) → pass-through raw so captured output stays clean.
+// Delegates to the dependency-injected, unit-tested printer in ui-stream.mjs.
 function createMdPrinter(render) {
-  let buf = "";
-  const state = { inFence: false, fenceLang: "", table: [] };
-  const caretOn = render && !!process.stdout.isTTY; // live ● caret only on a real TTY
-  let partialShown = false;
-  const clearPartial = () => {
-    if (partialShown) {
-      process.stdout.write("\r\x1b[K");
-      partialShown = false;
-    }
-  };
-  const flushTable = () => {
-    if (state.table.length) {
-      process.stdout.write(renderTable(state.table, { color: true }) + "\n");
-      state.table = [];
-    }
-  };
-  const emit = (line) => {
-    // buffer consecutive markdown table rows, then render the whole table aligned
-    if (!state.inFence && isTableRow(line)) {
-      state.table.push(line);
-      return;
-    }
-    flushTable();
-    process.stdout.write(renderMdLine(line, state).join("\n") + "\n");
-  };
-  // Show the in-progress (not-yet-newlined) line with a dim ● caret, in place.
-  // Conservative: TTY only, single terminal row only (skip if it would wrap),
-  // never inside a fence/table — so a stray \r can't garble wrapped output.
-  // Truncate raw text to a display width (ANSI-free, CJK-aware) for the caret line.
-  const truncToWidth = (s, max) => {
-    let w = 0, out = "";
-    for (const ch of s) {
-      const cw = visibleLen(ch);
-      if (w + cw > max) break;
-      w += cw;
-      out += ch;
-    }
-    return out;
-  };
-  const showPartial = () => {
-    if (!caretOn) return;
-    if (!buf.length || state.inFence || isTableRow(buf)) return clearPartial();
-    const cols = process.stdout.columns || 80;
-    let text = GUTTER + buf;
-    // A line that would wrap onto >1 row used to be cleared — it VANISHED mid-stream
-    // until the \n arrived. Instead show a truncated single-row preview (head + …) so
-    // streaming text stays visible; the full wrapped line is re-emitted on the newline.
-    if (visibleLen(text) + 2 > cols) text = truncToWidth(text, cols - 4) + "…";
-    process.stdout.write("\r\x1b[K" + text + " \x1b[2m●\x1b[0m");
-    partialShown = true;
-  };
-  return {
-    push(delta) {
-      if (!render) { process.stdout.write(delta); return; }
-      buf += delta;
-      let nl;
-      while ((nl = buf.indexOf("\n")) >= 0) {
-        clearPartial();
-        emit(buf.slice(0, nl));
-        buf = buf.slice(nl + 1);
-      }
-      showPartial();
-    },
-    end() {
-      clearPartial();
-      if (render && buf.length) emit(buf);
-      flushTable();
-      buf = "";
-    },
-  };
+  return makeMdPrinter(render, { renderMdLine, renderTable, isTableRow, visibleLen, GUTTER });
 }
 
 // --- Tools the agent can call (OpenAI function-calling format) ---
