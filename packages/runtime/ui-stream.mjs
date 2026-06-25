@@ -30,18 +30,21 @@ export function createMdPrinter(render, deps = {}) {
   };
   const flushTable = () => {
     if (state.table.length) {
-      out.write(renderTable(state.table, { color: true }) + "\n");
+      const table = renderTable(state.table, { color: true });
+      if (partialShown) {
+        out.write("\r\x1b[K" + table + "\n");
+        partialShown = false;
+      } else {
+        out.write(table + "\n");
+      }
       state.table = [];
     }
   };
   const emit = (line) => {
     // buffer consecutive markdown table rows, then render the whole table aligned
     if (!state.inFence && isTableRow(line)) {
-      // A streamed first row can leave a caret on screen: the partial "| a" had a single
-      // pipe so it wasn't yet a table row and got a caret. Clear it before holding the row,
-      // else flushTable() writes the aligned table INTO that stale caret row (garbled).
-      // This clear is the table-build pause — prose still overwrites in place, no flash.
-      clearPartial();
+      // Keep the current table preview visible while rows are batched; flushTable()
+      // clears/replaces it in the same write that draws the aligned table.
       state.table.push(line);
       return;
     }
@@ -71,7 +74,11 @@ export function createMdPrinter(render, deps = {}) {
   };
   const showPartial = () => {
     if (!caretOn) return;
-    if (!buf.length || state.inFence || isTableRow(buf)) return clearPartial();
+    if (!buf.length) {
+      if (!state.table.length) clearPartial();
+      return;
+    }
+    if (state.inFence) return clearPartial();
     let text = GUTTER + buf;
     // A line that would wrap onto >1 row used to be cleared — it VANISHED mid-stream
     // until the \n arrived. Show a truncated single-row preview (head + …) instead;
