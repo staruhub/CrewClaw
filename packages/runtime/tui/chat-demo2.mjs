@@ -21,6 +21,7 @@ const { submit, unmount, waitUntilExit } = mountChat({
   runTurn: fakeRunTurn,
   agentName: "鲸",
   renderLines: stub,
+  meta: { role: "落地顾问", mode: "Chat", model: "anthropic/claude-opus-4.8" },
 });
 
 setTimeout(() => submit("查一下最近发布"), 120);

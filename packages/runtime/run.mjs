@@ -806,6 +806,7 @@ async function interactiveChat({ agentId, profile, apiKey, baseUrl, resume }) {
       },
       history: inkHistory,
       agentName: name,
+      meta: { role: title, mode: "Chat", model },
       renderLines: (t) => renderMessage(t),
       saveSession: () => saveSession(ROOT, currentAgentId, inkHistory),
     });
