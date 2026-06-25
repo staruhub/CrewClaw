@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { createMdPrinter } from "../ui-stream.mjs";
 import { visibleLen } from "../ui.mjs";
+import { isTableRow as realIsTableRow } from "../ui-table.mjs";
 
 function mockOut() {
   return {
@@ -77,6 +78,37 @@ const deps = (out) => ({ out, isTTY: true, renderMdLine, renderTable: (rows) => 
   const md = createMdPrinter(false, deps(out));
   md.push("raw text");
   assert.equal(out.all(), "raw text");
+}
+
+// 7) realistic multi-paragraph stream (short line + long line + final partial) fed in
+//    small chunks like a real model. The disappear signature is clearPartial's exact
+//    output "\r\x1b[K" (blank the row) — with the fix it is NEVER emitted during a
+//    normal stream, because completed lines overwrite in place instead.
+{
+  const out = mockOut();
+  const md = createMdPrinter(true, deps(out));
+  for (const c of ["计", "划\n查最近的大模型", "发布动态，然后给你一个结构化的列表。", "\n先搜一下。"]) md.push(c);
+  md.end();
+  const raw = out.all();
+  assert.ok(raw.includes("计划"), "the short line is rendered");
+  assert.ok(raw.includes("先搜一下"), "the final line is rendered");
+  assert.ok(!raw.includes("\r\x1b[K"), "no row is ever blanked mid-stream (the 不见→又出现 is gone)");
+}
+
+// 8) a markdown table row that completes right after a caret was drawn (the partial
+//    "| a" had a single pipe, so it wasn't yet a table row) must not strand that caret —
+//    the aligned table would otherwise flush INTO the stale caret row (garbled output).
+//    With the fix, the caret is cleared (\r\x1b[K) and the table renders on a clean row.
+{
+  const out = mockOut();
+  const tdeps = { out, isTTY: true, renderMdLine, renderTable: (rows) => "TBL[" + rows.join(";") + "]", isTableRow: realIsTableRow, visibleLen, GUTTER: "   " };
+  const md = createMdPrinter(true, tdeps);
+  md.push("| a");          // one pipe → not a table row yet → a caret is drawn
+  md.push(" |\nnext\n");   // becomes a table row AND completes in one delta, then a normal line
+  const raw = out.all();
+  assert.ok(raw.includes("TBL[| a |]"), "the table is rendered");
+  assert.ok(raw.includes("\r\x1b[KTBL["), "the stale caret is cleared before the table flushes (no garble)");
+  assert.ok(raw.includes("next"), "the line after the table is rendered");
 }
 
 console.log("ui-stream tests passed");

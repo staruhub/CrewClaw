@@ -37,6 +37,11 @@ export function createMdPrinter(render, deps = {}) {
   const emit = (line) => {
     // buffer consecutive markdown table rows, then render the whole table aligned
     if (!state.inFence && isTableRow(line)) {
+      // A streamed first row can leave a caret on screen: the partial "| a" had a single
+      // pipe so it wasn't yet a table row and got a caret. Clear it before holding the row,
+      // else flushTable() writes the aligned table INTO that stale caret row (garbled).
+      // This clear is the table-build pause — prose still overwrites in place, no flash.
+      clearPartial();
       state.table.push(line);
       return;
     }
