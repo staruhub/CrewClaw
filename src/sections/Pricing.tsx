@@ -11,27 +11,27 @@ const plans = [
   {
     name: "Free",
     price: "$0",
-    desc: "For individual developers",
+    desc: "For MVP preview users",
     accent: "#8B8175",
-    features: ["Open-source CLI", "Community catalog", "Basic packages", "Unlimited installs"],
+    features: ["Two certified experts", "Local Hermes install", "Static registry", "Validator included"],
     cta: "Get Started",
     featured: false,
   },
   {
     name: "Pro",
-    price: "$15/mo",
-    desc: "For power users & teams",
+    price: "Preview",
+    desc: "For repeat workflows",
     accent: "#C87941",
-    features: ["Premium agents", "Private registry", "Team collaboration", "Priority support"],
+    features: ["More expert profiles", "Profile update flow", "Usage feedback loop", "Priority tuning"],
     cta: "Coming Soon",
     featured: true,
   },
   {
     name: "Enterprise",
     price: "Custom",
-    desc: "For organizations at scale",
+    desc: "For private expert crews",
     accent: "#9A8B7A",
-    features: ["Custom agents", "Security audit", "On-prem deploy + SLA", "Dedicated manager"],
+    features: ["Private registry", "Permission review", "Internal certification", "Dedicated tuning"],
     cta: "Contact Us",
     featured: false,
   },
@@ -43,7 +43,7 @@ export function Pricing({ onGetStarted, onContact }: PricingProps) {
       <div className="site-container">
         <SectionHeader
           label="PRICING"
-          title="Start Free. Scale When Ready."
+          title="Free Preview. Paid Later."
           centered
         />
 

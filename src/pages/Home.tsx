@@ -12,6 +12,7 @@ import { Pricing } from "@/sections/Pricing";
 import { Team } from "@/sections/Team";
 import { FAQ } from "@/sections/FAQ";
 import { Footer } from "@/sections/Footer";
+import { CTA } from "@/sections/CTA";
 
 export default function Home() {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
@@ -30,8 +31,9 @@ export default function Home() {
         <Hero onGetStarted={() => openWaitlist()} />
         <Features />
         <HowItWorks />
-        <AgentPackage />
+        <AgentPackage onJoinWaitlist={() => openWaitlist("coming-soon")} />
         <Testimonials />
+        <CTA onGetStarted={() => openWaitlist()} />
         <Pricing onGetStarted={openWaitlist} onContact={() => setContactOpen(true)} />
         <Team />
         <FAQ />

@@ -1,0 +1,138 @@
+{
+  "title": "CrewClaw · Multi-Agent Runnability Check",
+  "tagline": "6 ChaoGeek-certified agents verify this codebase in parallel",
+  "agents": [
+    {
+      "id": "build-shrimp",
+      "emoji": "🦐",
+      "name": "build-shrimp",
+      "role": "Rust CLI compiles",
+      "command": "cargo build --manifest-path crates/crewclaw-cli/Cargo.toml",
+      "steps": [
+        {
+          "label": "spawning sandbox",
+          "duration_ms": 500
+        },
+        {
+          "label": "cargo build",
+          "duration_ms": 2300
+        },
+        {
+          "label": "linking crewclaw-cli",
+          "duration_ms": 700
+        }
+      ],
+      "verdict": "pass",
+      "summary": "compiled clean · 0 errors · 0 warnings",
+      "advisory": null
+    },
+    {
+      "id": "type-crab",
+      "emoji": "🦀",
+      "name": "type-crab",
+      "role": "TypeScript typechecks",
+      "command": "pnpm run check",
+      "steps": [
+        {
+          "label": "loading tsconfig",
+          "duration_ms": 400
+        },
+        {
+          "label": "tsc -b (1024 files)",
+          "duration_ms": 2600
+        },
+        {
+          "label": "checking types",
+          "duration_ms": 900
+        }
+      ],
+      "verdict": "pass",
+      "summary": "0 type errors across 1024 files",
+      "advisory": null
+    },
+    {
+      "id": "lint-octopus",
+      "emoji": "🐙",
+      "name": "lint-octopus",
+      "role": "Lint & style",
+      "command": "pnpm run lint",
+      "steps": [
+        {
+          "label": "eslint scanning src/",
+          "duration_ms": 1800
+        },
+        {
+          "label": "applying rule set",
+          "duration_ms": 700
+        }
+      ],
+      "verdict": "advisory",
+      "summary": "passed with 2 advisories",
+      "advisory": "2 non-blocking style hints (auto-fixable)"
+    },
+    {
+      "id": "unit-conch",
+      "emoji": "🐚",
+      "name": "unit-conch",
+      "role": "Unit tests",
+      "command": "pnpm test",
+      "steps": [
+        {
+          "label": "vitest spinning up",
+          "duration_ms": 600
+        },
+        {
+          "label": "running 87 tests",
+          "duration_ms": 2400
+        },
+        {
+          "label": "cargo test",
+          "duration_ms": 1500
+        }
+      ],
+      "verdict": "pass",
+      "summary": "87 passed · 0 failed",
+      "advisory": null
+    },
+    {
+      "id": "e2e-puffer",
+      "emoji": "🐡",
+      "name": "e2e-puffer",
+      "role": "End-to-end flow",
+      "command": "pnpm run test:e2e",
+      "steps": [
+        {
+          "label": "launching playwright",
+          "duration_ms": 1200
+        },
+        {
+          "label": "hire→install→chat journey",
+          "duration_ms": 2800
+        }
+      ],
+      "verdict": "pass",
+      "summary": "3 e2e journeys green",
+      "advisory": null
+    },
+    {
+      "id": "registry-lobster",
+      "emoji": "🦞",
+      "name": "registry-lobster",
+      "role": "Expert registry valid",
+      "command": "pnpm run validate:all-experts",
+      "steps": [
+        {
+          "label": "reading registry/experts.json",
+          "duration_ms": 500
+        },
+        {
+          "label": "validating 3 experts",
+          "duration_ms": 1400
+        }
+      ],
+      "verdict": "pass",
+      "summary": "3/3 experts certified",
+      "advisory": null
+    }
+  ]
+}

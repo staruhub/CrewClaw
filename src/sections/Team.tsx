@@ -9,13 +9,13 @@ const founder = {
 
 const advisors = [
   { name: "RICHARD", title: "ADVISOR", bio: "OneOneTalk Co-founder · Business & Market Strategy" },
-  { name: "ZENETH", title: "ADVISOR", bio: "ClawTime Co-organizer · Community & Ecosystem · World AI Conference 2026 Exhibitor" },
+  { name: "ZENETH", title: "ADVISOR", bio: "ClawTime Founder · Community & Ecosystem · World AI Conference 2026 Co-Organiser" },
 ];
 
 const achievements = [
   "Beyond Expo Pitch Finals",
   "NVIDIA Outstanding Exhibitor",
-  "World AI Conference 2026 Exhibitor",
+  "World AI Conference 2026 Co-Organiser",
   "ClawTime HK Speaker",
 ];
 

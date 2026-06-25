@@ -7,9 +7,9 @@ interface NavigationProps {
 }
 
 const navLinks = [
-  { label: "Features", href: "#why" },
-  { label: "Workflow", href: "#how-it-works" },
-  { label: "Package", href: "#market" },
+  { label: "Certified", href: "#why" },
+  { label: "Install Flow", href: "#how-it-works" },
+  { label: "Expert Crew", href: "#market" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
 ];
@@ -70,12 +70,16 @@ export function Navigation({ onGetStarted }: NavigationProps) {
               onClick={onGetStarted}
               className="border border-white/10 bg-white/[0.04] text-crew-heading font-sans text-[13px] px-5 py-2.5 rounded-sm hover:border-crew-copper/40 hover:bg-white/[0.06] transition-all"
             >
-              Try CrewClaw
+              Hire an expert
             </button>
           </div>
 
           {/* Mobile toggle */}
-          <button className="md:hidden text-crew-heading" onClick={() => setMobileOpen(!mobileOpen)}>
+          <button
+            className="md:hidden text-crew-heading"
+            onClick={() => setMobileOpen(!mobileOpen)}
+            aria-label={mobileOpen ? "Close navigation menu" : "Open navigation menu"}
+          >
             {mobileOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
         </div>
@@ -97,7 +101,7 @@ export function Navigation({ onGetStarted }: NavigationProps) {
                 onClick={() => { onGetStarted(); setMobileOpen(false); }}
                 className="border border-white/10 bg-white/[0.04] text-crew-heading font-sans text-sm px-6 py-2.5 rounded-sm hover:border-crew-copper/40 hover:bg-white/[0.06] transition-all w-full mt-2"
               >
-                Try CrewClaw
+                Hire an expert
               </button>
             </div>
           </div>

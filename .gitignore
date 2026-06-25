@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+target
 dist
 dist-ssr
 *.local
@@ -26,6 +27,7 @@ dist-ssr
 
 # Local agent/runtime state
 .omx/
+.crewclaw/
 scratch/
 # Environment variables
 .env
@@ -41,6 +43,10 @@ db/migrations/*.sql
 # Build outputs
 dist/
 build/
+target/
 # Test coverage
 coverage/
 .nyc_output/
+
+# compiled CLI binary (rebuild via cargo)
+/crewclaw.exe

@@ -1,0 +1,13 @@
+model:
+  default: ""
+
+temperature: 0.3
+
+toolsets:
+  default:
+    - terminal
+    - read_file
+    - skills
+
+terminal:
+  cwd: null

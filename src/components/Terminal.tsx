@@ -1,4 +1,6 @@
 import { useEffect, useState, useRef } from "react";
+import { Check, Copy } from "lucide-react";
+import { writeClipboard } from "@/lib/clipboard";
 
 interface TerminalProps {
   command: string;
@@ -9,7 +11,14 @@ interface TerminalProps {
 export function Terminal({ command, className = "", triggerOnView = false }: TerminalProps) {
   const [displayed, setDisplayed] = useState("");
   const [started, setStarted] = useState(!triggerOnView);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const ref = useRef<HTMLDivElement>(null);
+
+  const copyCommand = async () => {
+    const ok = await writeClipboard(command);
+    setCopyState(ok ? "copied" : "failed");
+    window.setTimeout(() => setCopyState("idle"), 1800);
+  };
 
   useEffect(() => {
     if (!triggerOnView) {
@@ -54,9 +63,15 @@ export function Terminal({ command, className = "", triggerOnView = false }: Ter
               Execution Preview
             </span>
           </div>
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-crew-copper/90">
-            Live
-          </span>
+          <button
+            type="button"
+            onClick={copyCommand}
+            className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-white/8 bg-white/[0.03] px-2 font-mono text-[10px] uppercase tracking-[0.18em] text-crew-copper/90 transition-colors hover:border-crew-copper/35 hover:bg-crew-copper/10"
+            aria-label="Copy CrewClaw command"
+          >
+            {copyState === "copied" ? <Check size={12} /> : <Copy size={12} />}
+            {copyState === "failed" ? "Failed" : copyState === "copied" ? "Copied" : "Copy"}
+          </button>
         </div>
         {/* Content */}
         <div className="relative p-4 font-mono sm:p-5">

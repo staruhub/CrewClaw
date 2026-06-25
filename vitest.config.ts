@@ -14,6 +14,14 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["api/**/*.test.ts", "api/**/*.spec.ts"],
+    include: [
+      "api/**/*.test.ts",
+      "api/**/*.spec.ts",
+      "packages/**/*.test.ts",
+      "packages/**/*.spec.ts",
+      "contracts/**/*.test.ts",
+      "contracts/**/*.spec.ts",
+    ],
+    exclude: ["**/node_modules/**", "**/.git/**", "**/._*"],
   },
 });

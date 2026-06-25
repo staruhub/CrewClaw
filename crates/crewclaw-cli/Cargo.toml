@@ -1,0 +1,12 @@
+[package]
+name = "crewclaw-cli"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+ctrlc = "3.5.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+indicatif = "0.17"
+console = "0.15"

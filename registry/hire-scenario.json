@@ -1,0 +1,69 @@
+{
+  "agents": [
+    {
+      "id": "ai-adoption-whale",
+      "name": "AI 落地鲸",
+      "emoji": "🐳",
+      "title": "企业大模型落地顾问",
+      "version": "0.1.0",
+      "source": "ClawHub",
+      "manifest_path": "experts/ai-adoption-whale/hire.yaml",
+      "sla": "落地方案 24 小时内交付",
+      "certification": "C2",
+      "skills": ["model-selector", "agent-workflow-designer", "adoption-roadmap", "roi-estimator"],
+      "permissions": ["public_web:read", "internal_docs:read:with_consent", "code:write:disabled", "production:deploy:human_confirmation_required"]
+    },
+    {
+      "id": "zeneth",
+      "name": "社群运营美人鱼 Zeneth",
+      "emoji": "🧜‍♀️",
+      "title": "社群运营专家",
+      "version": "0.1.0",
+      "source": "ClawHub",
+      "manifest_path": "experts/zeneth/hire.yaml",
+      "sla": "社群周报 / 活动方案 24h",
+      "certification": "C2",
+      "skills": ["content-calendar", "engagement-playbook", "member-onboarding", "community-health"],
+      "permissions": ["public_web:read", "community_data:read:with_consent", "broadcast:send:human_confirmation_required", "member_data:write:disabled"]
+    },
+    {
+      "id": "code-review-shrimp",
+      "name": "Code Review Shrimp",
+      "emoji": "🦐",
+      "title": "PR Review & Security Specialist",
+      "version": "0.1.0",
+      "source": "ClawHub",
+      "manifest_path": "experts/code-review-shrimp/distribution.yaml",
+      "sla": "review within one PR",
+      "certification": "C2",
+      "skills": ["code-review-checklist", "pr-summary-writer", "review-comment-style", "security-risk-scan"],
+      "permissions": ["repo:read", "github:read"]
+    },
+    {
+      "id": "product-prd-crab",
+      "name": "Product PRD Crab",
+      "emoji": "🦀",
+      "title": "PRD Reviewer",
+      "version": "0.1.0",
+      "source": "ClawHub",
+      "manifest_path": "experts/product-prd-crab/distribution.yaml",
+      "sla": "PRD review within 24h",
+      "certification": "C2",
+      "skills": ["prd-review-framework", "edge-case-mapper", "acceptance-criteria-writer", "metrics-and-events-planner"],
+      "permissions": ["docs:read"]
+    },
+    {
+      "id": "macao-networking-agent",
+      "name": "Macao Networking Agent",
+      "emoji": "🦞",
+      "title": "Macao Networking Specialist",
+      "version": "0.1.0",
+      "source": "ClawHub",
+      "manifest_path": "experts/macao-networking-agent/hire.yaml",
+      "sla": "networking report within 24h",
+      "certification": "C2",
+      "skills": ["icebreaker", "lead-matcher", "follow-up-writer", "dinner-recommender"],
+      "permissions": ["public_web:read", "contacts:read:disabled_by_default", "crm:write:disabled", "outbound_messages:human_confirmation_required"]
+    }
+  ]
+}
