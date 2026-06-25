@@ -34,7 +34,7 @@ export function SectionLabel({ label, title, description, className = "", center
   );
 }
 
-interface SectionHeaderProps extends SectionLabelProps {}
+type SectionHeaderProps = SectionLabelProps;
 
 export function SectionHeader(props: SectionHeaderProps) {
   return <SectionLabel {...props} />;

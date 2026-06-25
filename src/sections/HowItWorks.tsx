@@ -1,23 +1,51 @@
 import { ScrollReveal } from "@/components/ScrollReveal";
+import { localCrewClawCommand } from "@/data/experts";
 
 const steps = [
   {
     step: "01",
-    title: "Set Up Your Template",
-    desc: "Install Progra In Just A Few Clicks. Customize Layouts, Colors, And Content Without Writing Complex Code.",
+    title: "Choose An Expert",
+    desc: "Browse the launch crew and pick a certified Hermes profile for review, product work, onboarding, or docs.",
     preview: "template",
   },
   {
     step: "02",
-    title: "Power Up With AI",
-    desc: "Leverage AI-Driven Coding Features To Structure, Debug, And Optimize Your Project Faster Than Ever.",
+    title: "Install With Hermes",
+    desc: "Copy one command. The wrapper calls official Hermes profile installation and keeps local secrets out of the package.",
     preview: "ai",
   },
   {
     step: "03",
-    title: "Launch & Scale",
-    desc: "Go Live Instantly With Webflow CMS. Expand Your Website With Blogs, And Integrations As Your Project Grows.",
+    title: "Run Repeated Work",
+    desc: "Start with the first task, then reuse the same expert whenever your PRs, PRDs, or docs need another pass.",
     preview: "launch",
+  },
+];
+
+const cliDocs = [
+  {
+    label: "Open",
+    title: "Start CrewClaw",
+    command: localCrewClawCommand,
+    desc: "Works from any directory and opens the expert picker.",
+  },
+  {
+    label: "Choose",
+    title: "Pick an employee",
+    command: "Choose an expert number or slug: 1",
+    desc: "Available experts install immediately; Coming Soon profiles stay blocked.",
+  },
+  {
+    label: "First Run",
+    title: "Test the profile",
+    command: `${localCrewClawCommand} hire code-review-shrimp --run-first`,
+    desc: "Runs the first Hermes chat test after installation.",
+  },
+  {
+    label: "Help",
+    title: "Guide agents",
+    command: `${localCrewClawCommand} help`,
+    desc: "Shows commands, safety checks, and the agent instruction to use CrewClaw first.",
   },
 ];
 
@@ -105,7 +133,7 @@ export function HowItWorks() {
             <span className="text-crew-copper">Works )</span>
           </h2>
           <p className="mt-4 text-[14px] leading-7 text-white/52">
-            Launch Your Coding AI Website In 3 Simple Steps.
+            From fresh Hermes install to first expert task in one short path.
           </p>
         </ScrollReveal>
 
@@ -135,6 +163,44 @@ export function HowItWorks() {
             </ScrollReveal>
           ))}
         </div>
+
+        <ScrollReveal className="mt-10">
+          <div className="polished-panel bg-[#0E0B0A]">
+            <div className="grid grid-cols-1 gap-0 md:grid-cols-[280px_1fr]">
+              <div className="border-b border-white/10 p-6 md:border-b-0 md:border-r md:p-8">
+                <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-crew-copper/80">
+                  CrewClaw CLI Docs
+                </p>
+                <h3 className="mt-4 font-sans text-[28px] font-light leading-tight text-crew-heading">
+                  Command-line hiring path
+                </h3>
+                <p className="mt-4 text-sm leading-7 text-white/52">
+                  Copy the launcher, choose an expert, then let Hermes install the isolated profile.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2">
+                {cliDocs.map((item, index) => (
+                  <div
+                    key={item.label}
+                    className={`p-5 md:p-6 ${index < 2 ? "border-b border-white/10" : ""} ${
+                      index % 2 === 0 ? "md:border-r md:border-white/10" : ""
+                    }`}
+                  >
+                    <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-white/38">
+                      {item.label}
+                    </p>
+                    <h4 className="mt-3 font-sans text-[20px] leading-tight text-crew-heading">{item.title}</h4>
+                    <code className="mt-4 block break-words rounded-[8px] border border-white/8 bg-black/24 p-3 font-mono text-[12px] leading-6 text-white/72">
+                      {item.command}
+                    </code>
+                    <p className="mt-3 text-sm leading-6 text-crew-body">{item.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </ScrollReveal>
       </div>
     </section>
   );

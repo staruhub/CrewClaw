@@ -5,23 +5,23 @@ import { FeatureIcon } from "@/components/BrandAssets";
 const features = [
   {
     icon: "review" as const,
-    title: "AI-Powered Code Review",
-    desc: "Hire specialized code review agents that analyze PRs, detect bugs, and suggest improvements alongside your team.",
+    title: "Tuned SOUL",
+    desc: "Each expert ships with a role, workflow, boundaries, and escalation rules instead of a loose prompt snippet.",
   },
   {
     icon: "devops" as const,
-    title: "Autonomous DevOps Agents",
-    desc: "Deploy CI/CD agents that monitor pipelines, automate releases, and handle rollback logic without handholding.",
+    title: "Reusable Skills",
+    desc: "Hermes skills turn repeated work like PR review or PRD evaluation into predictable operating procedures.",
   },
   {
     icon: "docs" as const,
-    title: "Documentation Writers",
-    desc: "Generate API docs, changelogs, and onboarding material that evolve with your product and engineering workflow.",
+    title: "Safe Tool Defaults",
+    desc: "MCP access starts from minimal permissions, with explicit env hints and no packaged user secrets or memory.",
   },
   {
     icon: "qa" as const,
-    title: "Testing & QA Legion",
-    desc: "Run unit, integration, E2E, and security coverage with a coordinated set of specialized testing agents.",
+    title: "Certified Examples",
+    desc: "Every available expert includes examples, eval notes, known limitations, and a ChaoGeek certification file.",
   },
 ];
 
@@ -31,8 +31,8 @@ export function Features() {
       <div className="site-container">
         <SectionHeader
           label="OUR FEATURES"
-          title="Hire Your AI Crew"
-          description="Each agent is a specialized team member. Hire them individually or deploy an entire crew at once."
+          title="Not Just Prompts"
+          description="Every ChaoGeek-certified expert is a tested Hermes profile with tuned behavior, skills, examples, and boundaries."
           centered
         />
 

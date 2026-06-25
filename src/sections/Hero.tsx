@@ -1,12 +1,16 @@
+import { Link } from "react-router";
 import { Terminal } from "@/components/Terminal";
 import { ScrollReveal } from "@/components/ScrollReveal";
 import { AsciiCanvas } from "@/components/AsciiCanvas";
+import { findInstallCommand } from "@/data/experts";
 
 interface HeroProps {
   onGetStarted: () => void;
 }
 
 export function Hero({ onGetStarted }: HeroProps) {
+  const installCommand = findInstallCommand("code-review-shrimp") ?? "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw";
+
   return (
     <section className="relative isolate flex min-h-[760px] flex-col items-center justify-center overflow-hidden bg-crew-bg px-4 pt-24 pb-14 sm:px-6 lg:min-h-[820px]">
       {/* ASCII Agent Canvas Background */}
@@ -56,21 +60,27 @@ export function Hero({ onGetStarted }: HeroProps) {
 
         <ScrollReveal delay={0.1} className="relative z-10">
           <p className="mx-auto mt-5 max-w-[calc(100vw-2rem)] px-1 text-[15px] leading-7 text-[#D8CEC5] drop-shadow-[0_4px_18px_rgba(0,0,0,0.95)] sm:max-w-[560px] md:text-[16px]">
-            The world's first AI agent talent market. Hire specialized agents
-            for code review, testing, DevOps, docs — your AI crew awaits.
+            Hire ChaoGeek-certified Hermes experts in 60 seconds. Skip hand-writing
+            SOUL.md, stitching skills, and wiring MCP from scratch.
           </p>
         </ScrollReveal>
 
         <ScrollReveal delay={0.2} className="relative z-10 mt-8 flex w-full flex-wrap justify-center gap-3">
+          <Link
+            to="/marketplace"
+            className="inline-flex w-full max-w-[260px] items-center justify-center rounded-[8px] bg-gradient-to-r from-crew-copper to-crew-bronze px-8 py-3.5 font-mono text-sm font-semibold text-white shadow-[0_18px_48px_rgba(0,0,0,0.28)] transition-all hover:-translate-y-0.5 hover:brightness-110 sm:w-auto"
+          >
+            Hire AI employees / 进入市场
+          </Link>
           <button
             onClick={onGetStarted}
-            className="w-full max-w-[240px] rounded-[8px] bg-gradient-to-r from-crew-copper to-crew-bronze px-8 py-3.5 font-mono text-sm font-semibold text-white shadow-[0_18px_48px_rgba(0,0,0,0.28)] transition-all hover:-translate-y-0.5 hover:brightness-110 sm:w-auto"
+            className="w-full max-w-[240px] rounded-[8px] border border-crew-border bg-black/20 px-8 py-3.5 font-mono text-sm text-crew-muted shadow-[0_18px_48px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-all hover:border-crew-copper hover:text-crew-heading sm:w-auto"
           >
-            Get Started — Free
+            Hire your first expert
           </button>
           <button
             onClick={() => {
-              const el = document.querySelector("#how-it-works");
+              const el = document.querySelector("#market");
               if (el) {
                 const offset = 80;
                 const top = el.getBoundingClientRect().top + window.scrollY - offset;
@@ -79,7 +89,7 @@ export function Hero({ onGetStarted }: HeroProps) {
             }}
             className="w-full max-w-[240px] rounded-[8px] border border-crew-border bg-black/20 px-8 py-3.5 font-mono text-sm text-crew-muted shadow-[0_18px_48px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-all hover:border-crew-copper hover:text-crew-heading sm:w-auto"
           >
-            View Demo
+            View expert crew
           </button>
         </ScrollReveal>
       </div>
@@ -94,7 +104,7 @@ export function Hero({ onGetStarted }: HeroProps) {
           }}
         />
         <ScrollReveal delay={0.3} className="w-full min-w-0">
-          <Terminal command="npx crewclaw run --plan --parallel --verify" className="mx-auto" />
+          <Terminal command={installCommand} className="mx-auto" />
         </ScrollReveal>
       </div>
     </section>

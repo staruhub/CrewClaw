@@ -1,7 +1,8 @@
-interface RequestConfig extends RequestInit {
+interface RequestConfig extends Omit<RequestInit, "body"> {
   baseUrl?: string;
   params?: Record<string, string | number>;
   timeout?: number;
+  body?: unknown;
 }
 
 export class HttpClient {
@@ -55,8 +56,8 @@ export class HttpClient {
       }
 
       return (await response.json()) as T;
-    } catch (error: any) {
-      if (error.name === "AbortError") {
+    } catch (error: unknown) {
+      if (error instanceof DOMException && error.name === "AbortError") {
         throw new Error("Request timeout");
       }
       throw error;
@@ -71,7 +72,7 @@ export class HttpClient {
     return this.request<T>(url, { ...config, method: "GET", params });
   }
 
-  post<T>(url: string, body?: any, config?: RequestConfig) {
+  post<T>(url: string, body?: unknown, config?: RequestConfig) {
     return this.request<T>(url, { ...config, method: "POST", body });
   }
 }

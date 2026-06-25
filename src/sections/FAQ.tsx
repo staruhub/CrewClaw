@@ -5,24 +5,24 @@ import { ArrowUpRight, ChevronRight } from "lucide-react";
 
 const faqs = [
   {
-    q: "What type of AI agents can I hire?",
-    a: "CrewClaw offers specialized agents for code review, DevOps automation, testing, documentation, product management, security audits, and architecture design.",
+    q: "What can I install today?",
+    a: "The MVP ships two available Hermes profiles: Code Review Shrimp and Product PRD Crab. Onboarding Conch and Docs Octopus are visible as Coming Soon.",
   },
   {
-    q: "How does an AI agent integrate with my workflow?",
-    a: "Agents install via CLI, connect into your existing tools, read your codebase context, and work within your team’s rules and delivery flow.",
+    q: "Is CrewClaw replacing Hermes?",
+    a: "No. Hermes remains the runtime. CrewClaw distributes ChaoGeek-certified profile packages and wraps official Hermes profile commands for easier onboarding.",
   },
   {
-    q: "What industries do you specialize in?",
-    a: "The platform is built for software teams across startups, agencies, product companies, and enterprise engineering organizations.",
+    q: "What is inside a profile?",
+    a: "Each available expert includes SOUL.md, config.yaml, mcp.json, certification notes, examples, eval notes, changelog, and reusable Hermes skills.",
   },
   {
     q: "How do I get started?",
-    a: "Install the open-source CLI, hire your first agent, and then expand the crew as your workflow grows.",
+    a: "Install Hermes, copy the CrewClaw CLI command from the expert card, choose an available employee, then run the first Hermes test command CrewClaw prints after installation.",
   },
   {
-    q: "How do you handle security?",
-    a: "Agents can run with isolated permissions, environment-aware rules, and enterprise controls for auditability and deployment boundaries.",
+    q: "How do you handle secrets and permissions?",
+    a: "Expert packages must not include real .env files, auth files, memory, sessions, logs, or state DBs. MCP tools use explicit permission declarations.",
   },
 ];
 

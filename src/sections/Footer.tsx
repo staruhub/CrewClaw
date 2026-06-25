@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { Facebook, Instagram, Linkedin, X } from "lucide-react";
 import { CrewClawMark } from "@/components/BrandAssets";
 
@@ -35,7 +36,7 @@ export function Footer({ onGetStarted }: FooterProps) {
               </div>
               <div className="space-y-3">
                 <span className="block text-sm text-crew-body">Style Guide</span>
-                <span className="block text-sm text-crew-body">License</span>
+                <Link to="/metrics" className="block text-sm text-crew-body transition-colors hover:text-crew-heading">Metrics</Link>
                 <span className="block text-sm text-crew-body">Changelog</span>
               </div>
               <div>
@@ -56,16 +57,16 @@ export function Footer({ onGetStarted }: FooterProps) {
 
           <div className="lg:pt-4">
             <p className="max-w-[340px] font-sans text-[30px] leading-[1.08] text-crew-heading md:text-[34px] lg:max-w-[280px]">
-              Ready To Build Smarter With CrewClaw?
+              Ready To Hire Your First AI Employee?
             </p>
             <button
               onClick={onGetStarted}
               className="mt-7 rounded-[8px] border border-[#F2EDE6]/70 bg-[#F2EDE6] px-8 py-3 font-mono text-sm font-semibold text-[#17120F] transition-colors hover:bg-white md:mt-8"
             >
-              Get Started Now
+              Join Preview
             </button>
             <p className="mt-10 max-w-[320px] text-xs text-white/42 md:mt-16">
-              Design direction aligned to your reference, adapted for CrewClaw.
+              CrewClaw by ChaoGeek helps crews discover, hire, and manage AI employees for repeated work.
             </p>
           </div>
         </div>

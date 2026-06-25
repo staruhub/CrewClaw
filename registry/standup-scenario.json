@@ -1,0 +1,27 @@
+{
+  "title": "CrewClaw · Daily Standup",
+  "tagline": "Your hired AI crew works one brief — in parallel, for real",
+  "crew": [
+    {
+      "id": "code-review-shrimp",
+      "emoji": "🦐",
+      "label": "code-review-shrimp",
+      "role": "Engineering",
+      "prompt_prefix": "You are in a fast team standup. From your engineering / code-review lens ONLY, answer the brief in AT MOST 4 short bullet lines. No preamble, no headings, no restating the brief. Be concrete and specific.\n\nBrief: "
+    },
+    {
+      "id": "product-prd-crab",
+      "emoji": "🦞",
+      "label": "product-prd-crab",
+      "role": "Product",
+      "prompt_prefix": "You are in a fast team standup. From your product lens ONLY, answer the brief in AT MOST 4 short bullet lines. No preamble, no headings, no restating the brief. Be concrete and specific.\n\nBrief: "
+    },
+    {
+      "id": "macao-networking-agent",
+      "emoji": "🦀",
+      "label": "macao-networking-crab",
+      "role": "Networking",
+      "prompt_prefix": "You are in a fast team standup. From your conference-networking lens ONLY, answer the brief in AT MOST 4 short bullet lines. No preamble, no headings, no restating the brief. Be concrete and specific.\n\nBrief: "
+    }
+  ]
+}

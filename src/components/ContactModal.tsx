@@ -36,11 +36,20 @@ export function ContactModal({ open, onClose }: ContactModalProps) {
   return (
     <div className="fixed inset-0 z-[900] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-crew-card border border-crew-border rounded-xl p-8 w-full max-w-md">
-        <button onClick={onClose} className="absolute top-4 right-4 text-crew-muted hover:text-crew-heading transition-colors">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="contact-title"
+        className="relative bg-crew-card border border-crew-border rounded-xl p-8 w-full max-w-md"
+      >
+        <button
+          onClick={onClose}
+          aria-label="Close contact"
+          className="absolute top-4 right-4 text-crew-muted hover:text-crew-heading transition-colors"
+        >
           <X size={20} />
         </button>
-        <h3 className="font-mono text-xl font-bold text-crew-heading mb-2">Contact Us</h3>
+        <h3 id="contact-title" className="font-mono text-xl font-bold text-crew-heading mb-2">Contact Us</h3>
         <p className="text-crew-body text-sm mb-6">Tell us about your enterprise needs.</p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

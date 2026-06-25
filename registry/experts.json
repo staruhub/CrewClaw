@@ -1,0 +1,146 @@
+{
+  "version": "0.1.0",
+  "updated_at": "2026-05-26T00:00:00Z",
+  "experts": [
+    {
+      "name": "code-review-shrimp",
+      "display_name": "Code Review Shrimp",
+      "status": "available",
+      "certification": "C2",
+      "category": "engineering",
+      "description": "ChaoGeek-certified Hermes expert for PR review, security risk scanning, and merge-readiness summaries.",
+      "repo": "github.com/ChaoGeek/hermes-code-review-shrimp",
+      "local_source": "experts/code-review-shrimp",
+      "version": "0.1.0",
+      "pricing": "free-preview",
+      "tags": ["code-review", "github", "security", "pr"],
+      "requires": {
+        "hermes": ">=0.12.0",
+        "env": ["GITHUB_PERSONAL_ACCESS_TOKEN"]
+      },
+      "install_command": "pnpm dlx @chaogeek/hermes hire code-review-shrimp",
+      "local_install_command": "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw",
+      "first_task": "请你作为代码 Review 虾，检查当前分支相对 main 的改动，输出：阻塞问题、建议修改、可以合并的条件。"
+    },
+    {
+      "name": "product-prd-crab",
+      "display_name": "Product PRD Crab",
+      "status": "available",
+      "certification": "C2",
+      "category": "product",
+      "description": "ChaoGeek-certified Hermes expert for PRD review, edge cases, acceptance criteria, and metrics.",
+      "repo": "github.com/ChaoGeek/hermes-product-prd-crab",
+      "local_source": "experts/product-prd-crab",
+      "version": "0.1.0",
+      "pricing": "free-preview",
+      "tags": ["prd", "product", "requirements", "metrics"],
+      "requires": {
+        "hermes": ">=0.12.0",
+        "env": []
+      },
+      "install_command": "pnpm dlx @chaogeek/hermes hire product-prd-crab",
+      "local_install_command": "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw",
+      "first_task": "请你作为产品 PRD 蟹，评审这份 PRD，指出：用户目标是否清楚、边界是否完整、验收标准是否可测试。"
+    },
+    {
+      "name": "ai-adoption-whale",
+      "display_name": "AI 落地鲸",
+      "status": "available",
+      "certification": "C2",
+      "category": "ai-advisory",
+      "description": "企业大模型落地顾问，帮你做模型选型、Agent 工作流设计、落地路线图与 ROI 评估。",
+      "repo": null,
+      "local_source": "experts/ai-adoption-whale",
+      "version": "0.1.0",
+      "pricing": "free-preview",
+      "tags": ["llm", "agent", "enterprise", "adoption"],
+      "requires": {
+        "hermes": ">=0.12.0",
+        "env": []
+      },
+      "install_command": "pnpm dlx @chaogeek/hermes hire ai-adoption-whale",
+      "local_install_command": "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw",
+      "first_task": "我们要做一个客服 Agent，预算有限，帮我选型大模型并给一个 3 个月的落地路线图。"
+    },
+    {
+      "name": "zeneth",
+      "display_name": "社群运营美人鱼 Zeneth",
+      "status": "available",
+      "certification": "C2",
+      "category": "community",
+      "description": "社群运营专家美人鱼，帮你做内容排期、互动玩法、新人引导和社群健康度复盘。",
+      "repo": null,
+      "local_source": "experts/zeneth",
+      "version": "0.1.0",
+      "pricing": "free-preview",
+      "tags": ["community", "engagement", "retention", "content"],
+      "requires": {
+        "hermes": ">=0.12.0",
+        "env": []
+      },
+      "install_command": "pnpm dlx @chaogeek/hermes hire zeneth",
+      "local_install_command": "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw",
+      "first_task": "帮我做下周 AI 工具主题的社群 7 天内容排期，含每天主题、形式、发布时间和互动钩子。"
+    },
+    {
+      "name": "macao-networking-agent",
+      "display_name": "Macao Networking Agent",
+      "status": "available",
+      "certification": "C2",
+      "category": "local-expert",
+      "description": "澳门人脉拓展助手，帮你整理澳门本地活动、人脉线索、行业信息和外联建议。",
+      "repo": null,
+      "local_source": "experts/macao-networking-agent",
+      "version": "0.1.0",
+      "pricing": "free-preview",
+      "tags": ["macao", "networking", "sales", "research"],
+      "requires": {
+        "hermes": ">=0.12.0",
+        "env": []
+      },
+      "install_command": "pnpm dlx @chaogeek/hermes hire macao-networking-agent",
+      "local_install_command": "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw",
+      "first_task": "帮我找澳门本月适合认识金融科技从业者的活动，给活动列表、推荐理由、参会建议。"
+    },
+    {
+      "name": "hermes-onboarding-conch",
+      "display_name": "Hermes Onboarding Conch",
+      "status": "coming-soon",
+      "certification": "C1",
+      "category": "starter",
+      "description": "Free onboarding expert for first-time Hermes users.",
+      "repo": null,
+      "local_source": null,
+      "version": null,
+      "pricing": "free",
+      "tags": ["onboarding", "starter", "hermes"],
+      "requires": {
+        "hermes": ">=0.12.0",
+        "env": []
+      },
+      "install_command": null,
+      "local_install_command": null,
+      "first_task": "帮我理解 Hermes profile、SOUL、skills 和 MCP，并安装第一个 ChaoGeek 专家。"
+    },
+    {
+      "name": "docs-octopus",
+      "display_name": "Docs Octopus",
+      "status": "coming-soon",
+      "certification": "C1",
+      "category": "documentation",
+      "description": "Hermes expert for README, API docs, and changelog generation.",
+      "repo": null,
+      "local_source": null,
+      "version": null,
+      "pricing": "free-preview",
+      "tags": ["docs", "readme", "changelog"],
+      "requires": {
+        "hermes": ">=0.12.0",
+        "env": []
+      },
+      "install_command": null,
+      "local_install_command": null,
+      "first_task": "根据本次 PR 生成 README 更新建议、Changelog 草稿和上手教程。"
+    }
+  ]
+}

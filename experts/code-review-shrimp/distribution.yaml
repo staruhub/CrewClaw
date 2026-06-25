@@ -1,0 +1,20 @@
+name: code-review-shrimp
+version: 0.1.0
+description: "ChaoGeek-certified Hermes expert for PR review, security risk scanning, and merge-readiness summaries."
+hermes_requires: ">=0.12.0"
+author: "ChaoGeek / Pong"
+license: "Commercial Preview"
+env_requires:
+  - name: GITHUB_PERSONAL_ACCESS_TOKEN
+    description: "Optional GitHub token for PR review workflows."
+    required: false
+    default: ""
+distribution_owned:
+  - SOUL.md
+  - config.yaml
+  - mcp.json
+  - skills/
+  - CERTIFICATION.md
+  - EXAMPLES.md
+  - EVALS.md
+  - CHANGELOG.md

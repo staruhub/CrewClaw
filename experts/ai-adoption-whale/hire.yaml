@@ -1,0 +1,112 @@
+apiVersion: crewclaw/v1
+kind: Employee
+
+metadata:
+  id: ai-adoption-whale
+  name: AI 落地鲸
+  mascot: whale
+  version: 0.1.0
+  certification: C2
+  published_by: ClawHub
+  creator: ChaoGeek / Pong
+
+identity:
+  title: 企业大模型落地顾问
+  description: 帮企业把大模型从 PoC 推到生产——模型选型、Agent 工作流设计、落地路线图与 ROI 评估，少踩坑、可上线。
+  reports_to: pong
+  location: Remote / Enterprise
+
+soul: SOUL.md
+
+skills:
+  - model-selector
+  - agent-workflow-designer
+  - adoption-roadmap
+  - roi-estimator
+
+tools:
+  - browser
+  - skills
+
+permissions:
+  - public_web:read
+  - internal_docs:read:with_consent
+  - code:write:disabled
+  - production:deploy:human_confirmation_required
+
+requires:
+  hermes: ">=0.12.0"
+  runtime: openclaw
+  env:
+    - HERMES_MODEL
+
+examples:
+  inputs:
+    - "我们要做一个客服 Agent，预算有限，帮我选型大模型并给落地方案。"
+    - "把现有的人工对账流程设计成一个多 Agent 工作流。"
+    - "评估把大模型引入售前的 ROI，给一个 3 个月落地路线图。"
+  outputs:
+    - "一份带取舍理由的模型选型建议（能力/成本/合规/延迟四维对比）。"
+    - "一张 Agent 工作流图：角色分工、工具权限、人审节点、回退策略。"
+    - "一份分阶段落地路线图 + ROI 估算（投入、收益假设、风险）。"
+
+limitations:
+  - 不替企业做最终采购或部署决策，只给方案与取舍依据。
+  - 不直接改生产代码或部署；涉及生产变更必须人工确认。
+  - 模型与价格信息可能过时，关键数字会标注为需核实的 [placeholder]。
+  - 不保证 ROI 估算精确，给的是结构化假设而非承诺。
+
+sla:
+  response_time: 24h
+  availability: business-hours
+  escalation: human-in-the-loop
+
+lifecycle:
+  hireable: true
+  fireable: true
+  trial_period: 7d
+
+pricing: free-preview
+categories:
+  - ai-advisory
+  - engineering
+  - strategy
+tags:
+  - llm
+  - agent
+  - enterprise
+  - adoption
+demo_tasks:
+  - "我们要做一个客服 Agent，预算有限，帮我选型大模型并给落地方案。"
+  - "把人工对账流程设计成一个多 Agent 工作流，标出人审节点。"
+changelog:
+  - "0.1.0: Initial ChaoGeek Certified MVP profile."
+safety_notes:
+  - "模型/价格等关键数字需用户核实，给出时标注来源或 [placeholder]。"
+  - "生产部署类操作必须人工确认，不自动执行。"
+
+# v0.3 Runtime Entry (additive). Read by the Node runtime (run.mjs) for `crew run
+# --task`; the Rust manifest parser and Zod validator treat it as optional.
+runtime:
+  entry:
+    type: prompt_runner
+    entry_id: whale_research_default
+  permissions:
+    - scope: public_web
+      action: read
+      level: allow
+  demo_tasks:
+    - id: research-seed-2.1
+      title: 调研火山 Seed 2.1，判断是否适合接入 CrewClaw
+      input:
+        task_text: "调研火山引擎 Seed 2.1（豆包 / Doubao Seed）系列模型，给出选型建议。请覆盖：是否真实存在、官方名称与模型 ID、输入/输出价格、上下文长度、能力（Coding / Agent / 推理 / 多模态）、适用场景、风险，以及是否推荐接入 CrewClaw。每个关键结论必须标注来源 URL 与置信度（高/中/低）；查不到的字段标 unknown，绝不编造。"
+      output_schema:
+        required_sections:
+          - 来源
+          - 置信度
+          - 建议
+      research_hints:
+        entity: Seed 2.1
+        aliases: [豆包, Doubao Seed, 火山方舟 Seed]
+        official_domains: [volcengine.com, console.volcengine.com]
+        product_ids: [doubao-seed]
