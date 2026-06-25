@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 import { agentBadge, statusBar, userRailPrompt, visibleLen } from "./ui.mjs";
-import { renderMdLine } from "./ui-markdown.mjs";
+import { renderMdLine, renderMessage } from "./ui-markdown.mjs";
 import { toolLine } from "./ui-tools.mjs";
 import { installTopBar, costFor, ctxPercent } from "./ui-topbar.mjs";
 import { webSearch, cleanHtml, pickBackend } from "./tools-web.mjs";
@@ -620,7 +620,10 @@ const AGENT_GUIDE = `
 // One agent turn: plan → (optional tool calls) → answer. Streams text with
 // markdown rendering, shows each tool call + result in the TUI, and loops until
 // the model returns a final answer. Mutates `messages` with the full exchange.
-async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages, name, isTTY, renderMd, confirm, onUsage, gateway, onInvocation, budget }) {
+async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages, name, isTTY, renderMd, confirm, onUsage, gateway, onInvocation, budget, onDelta }) {
+  // Ink/sink mode: when onDelta is provided, stream text to the UI and NEVER draw to
+  // stdout from here (Ink owns the screen). Every raw-renderer write below is gated on !quiet.
+  const quiet = !!onDelta;
   const magenta = (s) => `\x1b[35m${s}\x1b[0m`;
   const cyan = (s) => `\x1b[36m${s}\x1b[0m`;
   const dim = (s) => `\x1b[2m${s}\x1b[0m`;
@@ -636,9 +639,9 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
   let spentPrompt = 0, spentCompletion = 0, searchEmpty = 0, fetchShell = 0, costOkd = false;
 
   for (let step = 0; step < 8; step++) {
-    process.stdout.write("\n");
+    if (!quiet) process.stdout.write("\n");
     let fi = 0;
-    const spin = isTTY
+    const spin = isTTY && !quiet
       ? setInterval(() => process.stdout.write("\r" + label + dim(frames[fi++ % frames.length] + " 思考中…")), 80)
       : null;
     let begun = false;
@@ -656,26 +659,24 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
       res = await callModel({
         baseUrl, apiKey, model, temperature, system: sys,
         messages, tools: TOOLS, stream: true,
-        onDelta: (d) => { begin(); streamed += d; md.push(d); },
+        onDelta: (d) => { streamed += d; if (quiet) onDelta(d); else { begin(); md.push(d); } },
       });
     } catch (error) {
       if (spin) clearInterval(spin);
-      begin(); // clear any leftover spinner frame before flushing the partial (codex-found)
-      md.end();
+      if (!quiet) { begin(); md.end(); } // clear leftover spinner + flush partial (raw mode)
       // Keep the partial answer in history so the user can say "继续" and resume
       // from where it was cut off (a timed-out turn must not lose working memory).
       if (streamed.trim()) messages.push({ role: "assistant", content: streamed.trim() + "\n\n（…上一条回答在此处被中断）" });
       throw error;
     }
-    begin();
-    md.end();
+    if (!quiet) { begin(); md.end(); }
     onUsage?.(res.usage);
     if (res.usage) { spentPrompt += res.usage.prompt_tokens || 0; spentCompletion += res.usage.completion_tokens || 0; }
 
     const { content, toolCalls } = res;
     if (toolCalls && toolCalls.length) {
       messages.push({ role: "assistant", content: content || "", tool_calls: toolCalls });
-      process.stdout.write("\n");
+      if (!quiet) process.stdout.write("\n");
       for (const tc of toolCalls) {
         let args = {};
         try { args = JSON.parse(tc.function.arguments || "{}"); } catch {}
@@ -693,7 +694,7 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
         } else {
           // confirm (L2+): surface a human-readable permission request before the
           // y/n prompt that runTool itself raises. (PRD §13.2 — "讲人话".)
-          if (decision && decision.decision === "confirm") {
+          if (!quiet && decision && decision.decision === "confirm") {
             process.stdout.write(
               "\n" + reindent(permissionRequest({ employeeName: name, toolLabel: toolName, scope: decision.scope, level: decision.level, reason: decision.reason }), GUTTER) + "\n",
             );
@@ -717,7 +718,7 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
         if (toolName === "web_fetch" && /requires_render|疑似 JS 渲染空壳/.test(result)) fetchShell++;
         // Compact one-line tool activity (opencode-style); edit/write also printed
         // a diff card from runTool above. Output is folded — only a summary shows.
-        process.stdout.write(
+        if (!quiet) process.stdout.write(
           GUTTER +
             toolLine(
               { name: toolName, command: args.command, args, output: result, confirmed: skipped ? false : undefined },
@@ -730,6 +731,7 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
       if (budget) {
         const { cost } = estimateCost({ promptTokens: spentPrompt, completionTokens: spentCompletion });
         const stop = (msg) => {
+          if (quiet) { onDelta(`\n\n⚠ 预算守门：${msg}\n建议：配置 search key / 授权 Browser Render / 结束并标记失败。`); return; }
           console.log("\n" + GUTTER + `\x1b[33m⚠ 预算守门：${msg}\x1b[0m`);
           console.log(GUTTER + "\x1b[2m   建议：配置 search key / 授权 Browser Render / 结束并标记失败。\x1b[0m");
         };
@@ -744,10 +746,10 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
     }
 
     if (content) messages.push({ role: "assistant", content });
-    console.log("");
+    if (!quiet) console.log("");
     return content;
   }
-  console.log("");
+  if (!quiet) console.log("");
   return "（已达工具调用步数上限）";
 }
 
@@ -784,6 +786,31 @@ async function interactiveChat({ agentId, profile, apiKey, baseUrl, resume }) {
   console.log("");
   console.log(agentBadge({ name, title, model, skillCount: skills.length }, { color: colorOn }));
   console.log("");
+
+  // Full-screen Ink UI — opt-in via CREW_TUI=ink on a real TTY (the raw renderer stays
+  // the default until validated). Ink owns stdin, so branch BEFORE creating readline.
+  // Model/gateway/budget logic is unchanged; agentLoop just streams to the store via a sink.
+  if (process.env.CREW_TUI === "ink" && !!process.stdout.isTTY && !!process.stdin.isTTY) {
+    const inkHistory = [];
+    if (resume) {
+      const s = loadSession(ROOT, currentAgentId);
+      if (s.ok && s.messages.length) inkHistory.push(...s.messages);
+    }
+    const { startInkChat } = await import("./tui/repl.mjs");
+    await startInkChat({
+      agentLoop,
+      agentLoopDeps: {
+        baseUrl, apiKey, model, temperature, system, name, isTTY: true,
+        gateway: makeGateway(),
+        confirm: async () => true, // v1: auto-approve L2 confirms (gateway still denies L3/L4); Ink confirm modal = follow-up
+      },
+      history: inkHistory,
+      agentName: name,
+      renderLines: (t) => renderMessage(t),
+      saveSession: () => saveSession(ROOT, currentAgentId, inkHistory),
+    });
+    return;
+  }
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const queue = [];
