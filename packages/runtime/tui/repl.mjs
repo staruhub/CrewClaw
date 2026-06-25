@@ -39,8 +39,8 @@ export function buildRunTurn({ agentLoop, agentLoopDeps = {}, history, saveSessi
 }
 
 // Mount the Ink chat and return a promise that resolves when the user exits.
-export function startInkChat({ agentLoop, agentLoopDeps, history = [], agentName, renderLines, saveSession }) {
+export function startInkChat({ agentLoop, agentLoopDeps, history = [], agentName, renderLines, saveSession, meta }) {
   const runTurn = buildRunTurn({ agentLoop, agentLoopDeps, history, saveSession });
-  const app = mountChat({ runTurn, agentName, renderLines, initialMessages: historyToMessages(history) });
+  const app = mountChat({ runTurn, agentName, renderLines, initialMessages: historyToMessages(history), meta });
   return app.waitUntilExit();
 }

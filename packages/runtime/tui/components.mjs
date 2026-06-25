@@ -70,6 +70,26 @@ export function StatusBar({ name, status = "idle", tokens = 0, ctxPct = 0, costT
   </>`;
 }
 
+// Sticky status block (2 lines): identity · mode · state + cost on top, REAL tool health
+// below. This is the "状态一眼看懂、不撒谎" line — search ✗ means the employee literally
+// can't do real research right now. Symbols (✓/✗) back up color (don't rely on color alone).
+const SHORT_TOOL = { "web.search": "search", "web.fetch": "fetch", "browser.render": "render", "evidence": "evidence" };
+export function StatusHeader({ name, role, mode = "Chat", status = "idle", tokens = 0, costText = "$0.00", tools = [] }) {
+  const dotColor = { idle: theme.dim, thinking: theme.warn, streaming: theme.assistant, tool: theme.accent, error: theme.err }[status] || theme.dim;
+  const stateLabel = { idle: "就绪", thinking: "思考中", streaming: "回答中", tool: "调用工具", error: "中断" }[status] || status;
+  const ident = [name, role, `${mode} · ${stateLabel}`].filter(Boolean).join(" · ");
+  return html`<${Box} flexDirection="column">
+    <${Box} justifyContent="space-between" paddingX=${1}>
+      <${Box}><${Text} color=${dotColor}>${"● "}</><${Text} dimColor>${ident}</></>
+      <${Text} dimColor>${`${(tokens || 0).toLocaleString()} tok · ${costText}`}</>
+    </>
+    <${Box} paddingX=${1}>
+      <${Text} dimColor>${"工具 "}</>
+      ${tools.map((t, i) => html`<${Text} key=${i} color=${t.ok ? theme.ok : theme.err}>${(i ? " · " : "") + (SHORT_TOOL[t.tool] || t.tool) + " " + (t.ok ? "✓" : "✗ " + t.label)}</>`)}
+    </>
+  </>`;
+}
+
 // Optional top header (only used if we ever switch to the alternate-screen model).
 export function Header({ name, tokens = 0, ctxPct = 0, costText = "$0.00" }) {
   return html`<${Box} justifyContent="space-between" paddingX=${1}>

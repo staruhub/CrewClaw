@@ -7,11 +7,14 @@ import React from "react";
 import { render, Box, Static, Text, useInput, useApp } from "ink";
 import htm from "htm";
 import { createChatStore } from "./store.mjs";
-import { UserMessage, AssistantMessage, StatusBar } from "./components.mjs";
+import { UserMessage, AssistantMessage, StatusHeader } from "./components.mjs";
 import { theme, glyphs } from "./theme.mjs";
+import { getToolStatus } from "./tool-status.mjs";
+import { costFor } from "../ui-topbar.mjs";
 
 const html = htm.bind(React.createElement);
 const isTTY = !!process.stdin.isTTY;
+const TOOLS = getToolStatus(); // honest tool health, computed once per session
 
 // Coalesce the store's per-token emits to ~30fps so React doesn't reconcile per character
 // (the throttle the flicker research flagged — Ink still diffs, but we feed it fewer frames).
@@ -25,7 +28,7 @@ function useStore(store) {
   return React.useSyncExternalStore(subscribe, () => store.get());
 }
 
-export function ChatApp({ store, runTurn, agentName, renderLines, submitRef }) {
+export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, meta = {} }) {
   const state = useStore(store);
   const { exit } = useApp();
   const [input, setInput] = React.useState("");
@@ -58,6 +61,8 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef }) {
   }, { isActive: isTTY });
 
   const tokens = state.usage.promptTok + state.usage.completionTok;
+  const rawCost = meta.model ? costFor(meta.model, state.usage.promptTok, state.usage.completionTok) : 0;
+  const costText = typeof rawCost === "string" ? rawCost : "$" + (Number(rawCost) || 0).toFixed(2);
   return html`
     <${Box} flexDirection="column">
       <${Static} items=${state.messages}>
@@ -69,7 +74,7 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef }) {
         ? html`<${AssistantMessage} name=${agentName} parts=${state.live.parts} renderLines=${renderLines} caret=${true} />`
         : null}
       <${Box} marginTop=${1} flexDirection="column">
-        <${StatusBar} name=${agentName} status=${state.status} tokens=${tokens} />
+        <${StatusHeader} name=${agentName} role=${meta.role} mode=${meta.mode || "Chat"} status=${state.status} tokens=${tokens} costText=${costText} tools=${TOOLS} />
         <${Box}>
           <${Text} color=${theme.user}>${glyphs.userRail + " "}</>
           <${Text}>${input}</>
@@ -82,10 +87,10 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef }) {
 
 // Mount the chat UI. Returns { store, submit, unmount, waitUntilExit }. `submit` lets a
 // non-TTY harness drive a turn without keyboard input (used by the demo/tests).
-export function mountChat({ runTurn, agentName = "鲸", renderLines = (t) => String(t).split("\n"), initialMessages = [] }) {
+export function mountChat({ runTurn, agentName = "鲸", renderLines = (t) => String(t).split("\n"), initialMessages = [], meta = {} }) {
   const store = createChatStore({ messages: initialMessages });
   const submitRef = { current: null };
-  const app = render(html`<${ChatApp} store=${store} runTurn=${runTurn} agentName=${agentName} renderLines=${renderLines} submitRef=${submitRef} />`);
+  const app = render(html`<${ChatApp} store=${store} runTurn=${runTurn} agentName=${agentName} renderLines=${renderLines} submitRef=${submitRef} meta=${meta} />`);
   return {
     store,
     submit: (t) => submitRef.current && submitRef.current(t),
