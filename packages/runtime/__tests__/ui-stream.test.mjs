@@ -55,7 +55,20 @@ const deps = (out) => ({ out, isTTY: true, renderMdLine, renderTable: (rows) => 
   const md = createMdPrinter(true, deps(out));
   md.push("no newline here");
   md.end();
-  assert.ok(out.all().includes("   no newline here\n"), "end() emits the buffered final line");
+  assert.ok(out.all().includes("   no newline here"), "end() emits the buffered final line");
+}
+
+// 6) a completed line OVERWRITES the caret row in place — it is NOT blanked (\x1b[K)
+//    right before the rendered line. That blank was the "disappears then reappears".
+{
+  const out = mockOut();
+  const md = createMdPrinter(true, deps(out));
+  md.push("hel"); // draws the caret
+  md.push("lo\n"); // completes the line
+  const raw = out.all();
+  assert.ok(raw.includes("hello"), "the completed line is rendered");
+  assert.ok(raw.includes("\r   hello"), "the rendered line overwrites the caret row (starts with \\r)");
+  assert.ok(!raw.includes("\x1b[K   hello"), "the row is NOT cleared to blank right before the rendered line");
 }
 
 // 5) non-render mode (piped) passes through raw bytes, no caret escapes
