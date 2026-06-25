@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 import { agentBadge, statusBar, userRailPrompt, visibleLen } from "./ui.mjs";
+import { renderMdLine } from "./ui-markdown.mjs";
 import { toolLine } from "./ui-tools.mjs";
 import { installTopBar, costFor, ctxPercent } from "./ui-topbar.mjs";
 import { webSearch, cleanHtml, pickBackend } from "./tools-web.mjs";
@@ -24,11 +25,10 @@ import { diffCard } from "./ui-diff.mjs";
 import { fsToolSchemas, computeEdit, computeWrite, applyWrite } from "./tools-fs.mjs";
 import { readAnyFile, detectFilePaths, isImagePath, readImageDataUrl } from "./tools-files.mjs";
 import { saveSession, loadSession } from "./session-store.mjs";
-import { highlightCode } from "./ui-highlight.mjs";
 import { isCommand, runCommand } from "./commands.mjs";
 import { renderTable, isTableRow } from "./ui-table.mjs";
 import { createMdPrinter as makeMdPrinter } from "./ui-stream.mjs";
-import { GUTTER, contentWidth, wrapText, prefixLines, reindent } from "./ui-layout.mjs";
+import { GUTTER, reindent } from "./ui-layout.mjs";
 import { makeGateway, auditRecord } from "./tool-gateway.mjs";
 import { newTaskRun, transition, addEvent, saveTaskRun } from "./task-state.mjs";
 import { newArtifact, saveArtifact } from "./artifact-store.mjs";
@@ -268,62 +268,6 @@ function titleizeId(agentId) {
 }
 
 // --- Minimal streaming Markdown → ANSI renderer for the live chat TUI ---
-
-function renderInline(s) {
-  const codes = [];
-  s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return ` ${codes.length - 1} `; });
-  s = s.replace(/\*\*([^*]+)\*\*/g, "\x1b[1m$1\x1b[22m"); // bold
-  s = s.replace(/__([^_]+)__/g, "\x1b[1m$1\x1b[22m");
-  s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1\x1b[3m$2\x1b[23m"); // italic
-  s = s.replace(/(^|[^_\w])_([^_\n]+)_/g, "$1\x1b[3m$2\x1b[23m");
-  s = s.replace(/~~([^~]+)~~/g, "\x1b[9m$1\x1b[29m"); // strikethrough
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "\x1b[4;36m$1\x1b[24;39m\x1b[2m($2)\x1b[22m"); // link
-  s = s.replace(/ (\d+) /g, (_, i) => `\x1b[36m${codes[Number(i)]}\x1b[39m`); // inline code
-  return s;
-}
-
-// Render one logical markdown line → array of physical lines, each already
-// gutter-aligned and styled (opencode-style content column). Wrap is computed on
-// PLAIN text against contentWidth() minus the line's rail/marker, then inline
-// styling is applied per wrapped line (keeps wrapping ANSI-safe).
-function renderMdLine(line, state) {
-  const cw = contentWidth();
-  const fence = line.match(/^\s*```(.*)$/);
-  if (fence) {
-    if (state.inFence) { state.inFence = false; state.fenceLang = ""; return [GUTTER + "\x1b[2m└──────\x1b[0m"]; }
-    state.inFence = true;
-    state.fenceLang = (fence[1] || "").trim();
-    return [GUTTER + "\x1b[2m┌─ " + (state.fenceLang || "code") + "\x1b[0m"];
-  }
-  // code body: gutter + syntax highlight, never wrapped (wrapping corrupts code)
-  if (state.inFence) return [GUTTER + highlightCode(line, state.fenceLang || "", { color: true })];
-  if (/^\s*([-*_])\1{2,}\s*$/.test(line)) return [GUTTER + "\x1b[2m" + "─".repeat(cw) + "\x1b[0m"];
-  if (line.trim() === "") return [""];
-  const h = line.match(/^(#{1,6})\s+(.*)$/);
-  if (h) {
-    const open = h[1].length <= 2 ? "\x1b[1;38;5;75m" : "\x1b[1m";
-    return prefixLines(wrapText(h[2], cw).map((t) => open + renderInline(t) + "\x1b[0m"), GUTTER);
-  }
-  const bq = line.match(/^\s*>\s?(.*)$/);
-  if (bq) return wrapText(bq[1], cw - 2).map((t) => GUTTER + "\x1b[2m│ " + renderInline(t) + "\x1b[0m");
-  const ul = line.match(/^(\s*)[-*+]\s+(.*)$/);
-  if (ul) {
-    const lead = ul[1];
-    const markerW = lead.length + 2; // lead spaces + "• "
-    const first = GUTTER + lead + "\x1b[36m•\x1b[39m ";
-    const hang = GUTTER + " ".repeat(markerW);
-    return wrapText(ul[2], cw - markerW).map(renderInline).map((t, i) => (i === 0 ? first : hang) + t);
-  }
-  const ol = line.match(/^(\s*)(\d+)\.\s+(.*)$/);
-  if (ol) {
-    const lead = ol[1];
-    const markerW = lead.length + ol[2].length + 2; // lead + "N. "
-    const first = GUTTER + lead + "\x1b[36m" + ol[2] + ".\x1b[39m ";
-    const hang = GUTTER + " ".repeat(markerW);
-    return wrapText(ol[3], cw - markerW).map(renderInline).map((t, i) => (i === 0 ? first : hang) + t);
-  }
-  return prefixLines(wrapText(line, cw).map(renderInline), GUTTER);
-}
 
 // Buffers streamed text and prints each line rendered once it completes.
 // render=false (non-TTY / piped) → pass-through raw so captured output stays clean.
