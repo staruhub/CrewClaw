@@ -783,6 +783,7 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
       });
     } catch (error) {
       if (spin) clearInterval(spin);
+      begin(); // clear any leftover spinner frame before flushing the partial (codex-found)
       md.end();
       // Keep the partial answer in history so the user can say "继续" and resume
       // from where it was cut off (a timed-out turn must not lose working memory).
