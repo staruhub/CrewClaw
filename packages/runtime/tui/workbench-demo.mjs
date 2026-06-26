@@ -8,11 +8,13 @@ import htm from "htm";
 import { createTaskRun } from "./event-bridge.mjs";
 import { EVENTS } from "./protocol.mjs";
 import { UserMessage, TurnView, StatusHeader } from "./components.mjs";
-import { getToolStatus } from "./tool-status.mjs";
+import { getToolTruth } from "../tool-truth.mjs";
+import { getMemoryTruth } from "../memory-harness.mjs";
 
 const html = htm.bind(React.createElement);
 const stub = (t) => String(t).split("\n").map((l) => "   " + l);
-const TOOLS = getToolStatus();
+const TOOLS = getToolTruth();
+const MEMORY = getMemoryTruth();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let done;
@@ -40,7 +42,7 @@ function Demo() {
       <${UserMessage} text="调研火山 Seed 2.1 是否适合接入" />
       <${TurnView} state=${state} name="鲸" renderLines=${stub} caret=${state.status !== "done"} />
       <${Box} marginTop=${1}>
-        <${StatusHeader} name="鲸" role="落地顾问" mode=${state.mode} status=${state.status === "done" ? "idle" : "streaming"} tokens=${tokens} costText="$0.06" tools=${TOOLS} />
+        <${StatusHeader} name="鲸" role="落地顾问" mode=${state.mode} status=${state.status === "done" ? "idle" : "streaming"} tokens=${tokens} costText="$0.06" toolTruth=${TOOLS} memory=${MEMORY} />
       </>
     </>
   `;
