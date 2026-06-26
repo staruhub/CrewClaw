@@ -101,4 +101,28 @@ function harness(extra = {}) {
   assert.ok(!events.some((e) => e.type === EVENTS.TOKEN_DELTA && /无交付物不算完成/.test(e.data.text)), "no No-Chat-only-Done nag for an explicitly-short answer");
 }
 
+// 9) artifact review actions (AC-009/001/002): a deliverable emits accept/revise/reveal
+//    PendingActions; typing "1" ACCEPTS it (marks artifact accepted + records valid) — not a guess.
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "crewacc-"));
+  const events = [];
+  const emit = (type, data) => events.push({ type, data });
+  const answer = "# 服务器清理报告\n\n## 结论\n年化节省约 30 万元。\n".repeat(8);
+  await routeTurn("给我一份服务器清理报告", { emit, runModelTurn: async () => answer, taskRunId: "acc-task", root });
+  const pa = events.find((e) => e.type === EVENTS.PENDING_ACTIONS);
+  assert.ok(pa, "a deliverable emits review PendingActions");
+  const accept = pa.data.actions.find((a) => a.action_type === "accept");
+  assert.ok(accept && accept.key === "1", "[1] is accept, carrying the artifact id");
+
+  const ev2 = [];
+  const emit2 = (type, data) => ev2.push({ type, data });
+  let modelRan = false;
+  const d = await routeTurn("1", { emit: emit2, runModelTurn: async () => { modelRan = true; }, pendingActions: pa.data.actions });
+  assert.ok(d.matchedPendingAction, "1 matched the accept action (not model-guessed)");
+  assert.equal(modelRan, false, "accept does NOT run a model turn");
+  assert.ok(ev2.some((e) => e.type === EVENTS.ARTIFACT_UPDATED && e.data.patch.status === "accepted"), "artifact marked accepted");
+  assert.ok(ev2.some((e) => e.type === EVENTS.OUTCOME_CHECKED && e.data.valid === true), "task recorded valid/effective");
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log("tui-route tests passed");

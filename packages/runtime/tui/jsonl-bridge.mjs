@@ -20,7 +20,11 @@ export async function startJsonlBridge({
   agentLoop, agentLoopDeps, agentName = "鲸", meta = {}, history = [], saveSession,
   input = process.stdin, output = process.stdout, // injectable for tests
 }) {
-  const emit = (type, data) => output.write(JSON.stringify(makeEvent(type, data, Date.now())) + "\n");
+  let sessionPendingActions = []; // last task's actions — digit input matches these (§6.4)
+  const emit = (type, data) => {
+    if (type === EVENTS.PENDING_ACTIONS) sessionPendingActions = (data && data.actions) || [];
+    output.write(JSON.stringify(makeEvent(type, data, Date.now())) + "\n");
+  };
 
   // a header event so the front-end can paint the badge + tool/memory truth immediately
   emit("session.ready", { employee: { name: agentName, role: meta.role, mode: meta.mode, model: meta.model } });
@@ -68,7 +72,7 @@ export async function startJsonlBridge({
       await routeTurn(text, {
         emit,
         runModelTurn: (msg) => runTurn(msg, sink),
-        pendingActions: [],
+        pendingActions: sessionPendingActions,
         employeeScope: meta.employeeScope,
         env: process.env,
         role: meta.role,

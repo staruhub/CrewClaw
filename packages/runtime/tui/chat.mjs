@@ -49,7 +49,7 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
       await routeTurn(text, {
         emit: (type, data) => run.emit(type, data),
         runModelTurn: (msg) => runTurn(msg, run.sink),
-        pendingActions: run.get().pendingActions,
+        pendingActions: store.get().sessionPendingActions, // last task's actions — "1" matches accept (§6.4)
         employeeScope: meta.employeeScope,
         env: process.env,
         role: meta.role,

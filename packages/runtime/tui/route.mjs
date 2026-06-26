@@ -22,8 +22,20 @@ export async function routeTurn(message, deps = {}) {
   // §6.4: a matched PendingAction takes priority over the model — system-owned, NOT guessed.
   if (decision.matchedPendingAction) {
     const a = decision.matchedPendingAction;
-    emit(EVENTS.TOKEN_DELTA, { text: `执行待办：${a.label || a.key}` });
-    await runModelTurn(a.payload || a.label || message);
+    if (a.action_type === "accept") {
+      // AC-009: accept the deliverable → mark it accepted + record the task effective. No model.
+      if (a.artifactId) emit(EVENTS.ARTIFACT_UPDATED, { id: a.artifactId, patch: { status: "accepted" } });
+      emit(EVENTS.OUTCOME_CHECKED, { valid: true, deliverable: a.path, reason: "用户已验收" });
+      emit(EVENTS.TOKEN_DELTA, { text: `✓ 已接受交付物${a.path ? "：" + a.path : ""},记为有效任务。` });
+    } else if (a.action_type === "reveal") {
+      // AC-007: open the folder via the OS reveal, never raw bash.
+      const reveal = revealStrategy(a.path);
+      emit(EVENTS.WORKSPACE_REVEALED, { path: a.path, available: reveal.available, command: reveal.available ? `${reveal.command} ${(reveal.args || []).join(" ")}` : reveal.fallback?.manual_command });
+    } else {
+      // revise / other → a fresh model turn on the action's payload
+      emit(EVENTS.TOKEN_DELTA, { text: `执行待办：${a.label || a.key}` });
+      await runModelTurn(a.payload || a.label || message);
+    }
     return decision;
   }
 
@@ -98,6 +110,13 @@ async function persistDeliverable({ emit, answer, message, taskRunId, root }) {
       command: reveal.available ? `${reveal.command} ${(reveal.args || []).join(" ")}` : reveal.fallback?.manual_command,
     });
     emit(EVENTS.OUTCOME_CHECKED, { valid: true, deliverable: art.path, kind: art.kind, bytes: art.bytes });
+    // AC-009/001/006: the deliverable is reviewable — offer accept / revise / open as
+    // PendingActions (digit input matches these FIRST, §6.4), so "1" accepts, not a model guess.
+    emit(EVENTS.PENDING_ACTIONS, { actions: [
+      { key: "1", label: "接受交付物", action_type: "accept", artifactId: art.artifact_id, path: art.path },
+      { key: "2", label: "要求修订", action_type: "revise", payload: `请根据我的反馈修订《${art.name}》` },
+      { key: "3", label: "打开位置", action_type: "reveal", path: art.path },
+    ] });
     return art;
   } catch (e) {
     emit(EVENTS.TOKEN_DELTA, { text: `\n（交付物保存失败:${(e && e.message) || e}）` });
