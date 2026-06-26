@@ -31,10 +31,10 @@ assert.match(out.lastFrame(), /我先搜一下/, "live assistant text in the dyn
 assert.match(out.lastFrame(), /回答中/, "status reflects streaming");
 
 // 3) tool + usage + commit → tool line shown, tokens summed, status back to idle
-store.addTool({ action: "⌕ web_search「x」(2 处)", status: "success" });
+store.addTool({ toolName: "web_search", args: { query: "最近发布" }, output: "（3 条结果）", status: "success" });
 store.addUsage({ prompt_tokens: 500, completion_tokens: 100 });
 await sleep(60);
-assert.match(all(), /web_search/, "tool activity line rendered");
+assert.match(all(), /最近发布/, "tool activity line rendered (query summary)");
 store.commitTurn();
 await sleep(60);
 assert.match(out.lastFrame(), /600 tok/, "token count summed in the status bar");
