@@ -2,7 +2,7 @@
 // turn into agentLoop streaming to the sink + persists; historyToMessages maps model
 // history to display messages. Uses a fake agentLoop honoring the Ink sink contract.
 import assert from "node:assert/strict";
-import { buildRunTurn, historyToTurns } from "../tui/repl.mjs";
+import { buildRunTurn, buildQuickUtilityTurn, historyToTurns } from "../tui/repl.mjs";
 
 // 1) a turn: pushes user → runs loop streaming to sink → saves
 {
@@ -47,6 +47,22 @@ import { buildRunTurn, historyToTurns } from "../tui/repl.mjs";
   assert.equal(turns[0].text, "hi");
   assert.equal(turns[1].role, "assistant");
   assert.equal(turns[1].app.answer, "答案");
+}
+
+// 3) buildQuickUtilityTurn (§10.2): a LIGHT turn — generic minimal system, just the one question,
+//    NOT the employee's full system / chat history.
+{
+  let captured = null;
+  const fakeAgentLoop = async (opts) => { captured = opts; opts.onDelta?.("28°C 晴"); };
+  const employeeSystem = "你是 AI 落地鲸,企业大模型落地顾问……(很长的员工人设/技能/记忆)";
+  const runQuickUtility = buildQuickUtilityTurn({ agentLoop: fakeAgentLoop, agentLoopDeps: { model: "m", system: employeeSystem } });
+  await runQuickUtility("杭州天气？", { onDelta() {}, onInvocation() {}, onUsage() {} });
+
+  assert.notEqual(captured.system, employeeSystem, "quick utility does NOT use the employee's full system prompt");
+  assert.ok(!/落地鲸|顾问/.test(captured.system), "the light system carries no employee identity");
+  assert.equal(captured.messages.length, 1, "only the one question — no full chat history loaded (§10.2)");
+  assert.equal(captured.messages[0].content, "杭州天气？");
+  assert.equal(captured.renderMd, false, "still Ink mode (no stdout draw)");
 }
 
 console.log("tui-repl tests passed");

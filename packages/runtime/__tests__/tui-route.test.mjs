@@ -28,12 +28,18 @@ function harness(extra = {}) {
   assert.equal(h.turns.length, 1, "runs the model turn");
 }
 
-// 2) quick_utility → emits quick.utility (un-scored), still runs
+// 2) quick_utility → emits quick.utility + runs the LIGHT path (§10.2), not the full employee turn
 {
-  const h = harness();
-  const d = await routeTurn("杭州天气？", { emit: h.emit, runModelTurn: h.runModelTurn });
+  const events = [], full = [], light = [];
+  const d = await routeTurn("杭州天气？", {
+    emit: (t, dd) => events.push({ type: t, data: dd }),
+    runModelTurn: async (m) => { full.push(m); },
+    runQuickUtility: async (m) => { light.push(m); },
+  });
   assert.equal(d.type, "quick_utility");
-  assert.ok(h.has(EVENTS.QUICK_UTILITY), "weather routes to Quick Utility (not employee professional work)");
+  assert.ok(events.some((e) => e.type === EVENTS.QUICK_UTILITY), "weather routes to Quick Utility (un-scored)");
+  assert.equal(light.length, 1, "quick utility uses the LIGHT path (no full employee context, §10.2)");
+  assert.equal(full.length, 0, "quick utility does NOT run the full employee turn");
 }
 
 // 3) memory_command → memory truth, NO model turn (memory is a tool, not a sentence)
