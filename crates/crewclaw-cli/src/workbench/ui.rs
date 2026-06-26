@@ -294,6 +294,40 @@ fn render_timeline(
             .chain(answer_preview(state)),
     );
 
+    if let Some(pending_line) =
+        pending_actions_line(&state.pending_actions, area.width.saturating_sub(2) as usize)
+    {
+        let block = panel_block("Timeline", ui_state.focus == FocusPanel::Timeline);
+        let inner = inner_panel_rect(area);
+        frame.render_widget(block, area);
+        if inner.height == 0 {
+            return;
+        }
+
+        let timeline_area = Rect {
+            height: inner.height.saturating_sub(1),
+            ..inner
+        };
+        let actions_area = Rect {
+            y: inner.y + inner.height.saturating_sub(1),
+            height: 1,
+            ..inner
+        };
+        if timeline_area.height > 0 {
+            frame.render_widget(
+                Paragraph::new(Text::from(lines))
+                    .wrap(Wrap { trim: true })
+                    .scroll((ui_state.scroll_for(FocusPanel::Timeline), 0)),
+                timeline_area,
+            );
+        }
+        frame.render_widget(
+            Paragraph::new(Text::from(pending_action_hint_line(&pending_line))),
+            actions_area,
+        );
+        return;
+    }
+
     frame.render_widget(
         Paragraph::new(Text::from(lines))
             .block(panel_block("Timeline", ui_state.focus == FocusPanel::Timeline))
@@ -610,6 +644,15 @@ fn panel_block(title: &'static str, focused: bool) -> Block<'static> {
         .border_style(style)
 }
 
+fn inner_panel_rect(area: Rect) -> Rect {
+    Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    }
+}
+
 fn timeline_line(entry: &TimelineEntry) -> Line<'static> {
     let mut spans = vec![
         Span::styled(entry.status.clone(), Style::default().fg(symbol_color(&entry.status))),
@@ -638,6 +681,39 @@ fn quick_utility_badge_line(state: &AppState, max_width: usize) -> Option<Line<'
         truncate_display_width(&label, max_width),
         Style::default().fg(WARN),
     )))
+}
+
+fn pending_actions_line(actions: &[serde_json::Value], max_width: usize) -> Option<String> {
+    let items = actions
+        .iter()
+        .filter_map(|action| {
+            let key = action.get("key").and_then(|v| v.as_str())?;
+            let label = action.get("label").and_then(|v| v.as_str())?;
+            Some(format!("[{key}] {label}"))
+        })
+        .collect::<Vec<_>>();
+
+    if items.is_empty() {
+        return None;
+    }
+
+    Some(truncate_display_width(
+        &format!("可执行：{}", items.join("  ")),
+        max_width,
+    )
+    .trim_end()
+    .to_string())
+}
+
+fn pending_action_hint_line(text: &str) -> Line<'static> {
+    let prefix = "可执行：";
+    if let Some(rest) = text.strip_prefix(prefix) {
+        return Line::from(vec![
+            Span::styled(prefix.to_string(), Style::default().fg(ACCENT)),
+            Span::styled(rest.to_string(), Style::default().fg(DIM)),
+        ]);
+    }
+    Line::from(Span::styled(text.to_string(), Style::default().fg(DIM)))
 }
 
 fn answer_preview(state: &AppState) -> Vec<Line<'static>> {
@@ -823,5 +899,27 @@ mod tests {
             .collect::<String>();
         let compact = contents.replace(' ', "");
         assert!(compact.contains("⚡快捷工具·不计入员工绩效：北京天气"));
+    }
+
+    #[test]
+    fn pending_actions_line_formats_valid_actions_and_skips_incomplete_items() {
+        let actions = vec![
+            serde_json::json!({"key":"1","label":"接受"}),
+            serde_json::json!({"key":"2"}),
+            serde_json::json!({"key":"3","label":"修改"}),
+        ];
+
+        let line = pending_actions_line(&actions, 80).expect("pending action line");
+
+        assert_eq!(line, "可执行：[1] 接受  [3] 修改");
+    }
+
+    #[test]
+    fn pending_actions_line_truncates_by_display_width() {
+        let actions = vec![serde_json::json!({"key":"1","label":"你好abc"})];
+
+        let line = pending_actions_line(&actions, 12).expect("pending action line");
+
+        assert_eq!(line, "可执行：[1]");
     }
 }

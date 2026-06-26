@@ -283,7 +283,30 @@ fn run_live_loop(
                 }
                 continue;
             }
-            match handle_terminal_event(&mut state, &mut ui_state, &mut input, terminal)? {
+            let terminal_event = event::read()
+                .map_err(|error| format!("Failed to read terminal event: {error}"))?;
+            if let Event::Key(key) = &terminal_event {
+                if key.kind == KeyEventKind::Press {
+                    if let KeyCode::Char(ch) = key.code {
+                        if should_route_pending_action_digit(&state, &ui_state, ch) {
+                            writeln!(child_stdin, "{ch}").map_err(|error| {
+                                format!("Failed to write pending action to Node runtime stdin: {error}")
+                            })?;
+                            child_stdin.flush().map_err(|error| {
+                                format!("Failed to flush Node runtime stdin: {error}")
+                            })?;
+                            continue;
+                        }
+                    }
+                }
+            }
+            match handle_terminal_event_from_event(
+                &mut state,
+                &mut ui_state,
+                &mut input,
+                terminal,
+                terminal_event,
+            )? {
                 TerminalAction::Quit => return Ok(LiveLoopExit::UserQuit),
                 TerminalAction::Submit(submitted) => {
                     if submitted.trim() == "/exit" {
@@ -324,6 +347,16 @@ fn handle_terminal_event(
     terminal: &mut TuiTerminal,
 ) -> Result<TerminalAction, String> {
     let event = event::read().map_err(|error| format!("Failed to read terminal event: {error}"))?;
+    handle_terminal_event_from_event(state, ui_state, input, terminal, event)
+}
+
+fn handle_terminal_event_from_event(
+    state: &mut AppState,
+    ui_state: &mut UiState,
+    input: &mut String,
+    terminal: &mut TuiTerminal,
+    event: Event,
+) -> Result<TerminalAction, String> {
     let key = match event {
         Event::Key(key) => key,
         Event::Resize(_, _) => {
@@ -433,6 +466,23 @@ fn handle_terminal_event(
         }
         _ => Ok(TerminalAction::Continue),
     }
+}
+
+fn should_route_pending_action_digit(state: &AppState, ui_state: &UiState, ch: char) -> bool {
+    if state.approval.is_some()
+        || state.pending_actions.is_empty()
+        || ui_state.input_focused
+        || !('1'..='9').contains(&ch)
+    {
+        return false;
+    }
+
+    let mut key = [0; 4];
+    let key = ch.encode_utf8(&mut key);
+    state
+        .pending_actions
+        .iter()
+        .any(|action| action.get("key").and_then(|v| v.as_str()) == Some(key))
 }
 
 fn parse_task_event_line(line: &str) -> Result<Option<TaskEvent>, String> {
@@ -649,5 +699,40 @@ mod tests {
 
         assert_eq!(event.event_type(), "token.delta");
         assert!(parse_task_event_line("{not json").is_err());
+    }
+
+    #[test]
+    fn pending_action_digit_routes_only_when_unfocused_and_matching() {
+        let mut state = AppState::default();
+        state.pending_actions = vec![
+            json!({"key":"2","label":"修改"}),
+            json!({"key":"x","label":"忽略"}),
+        ];
+        let mut ui_state = UiState::default();
+
+        assert!(should_route_pending_action_digit(&state, &ui_state, '2'));
+        assert!(!should_route_pending_action_digit(&state, &ui_state, '1'));
+        assert!(!should_route_pending_action_digit(&state, &ui_state, 'x'));
+
+        ui_state.input_focused = true;
+        assert!(!should_route_pending_action_digit(&state, &ui_state, '2'));
+    }
+
+    #[test]
+    fn pending_action_digit_does_not_route_while_approval_is_active() {
+        let mut state = AppState::default();
+        state.pending_actions = vec![json!({"key":"1","label":"接受"})];
+        state.approval = Some(state::Approval {
+            id: Some("a1".to_string()),
+            tool: Some("tool".to_string()),
+            reason: Some("confirm".to_string()),
+            scope: None,
+        });
+
+        assert!(!should_route_pending_action_digit(
+            &state,
+            &UiState::default(),
+            '1'
+        ));
     }
 }
