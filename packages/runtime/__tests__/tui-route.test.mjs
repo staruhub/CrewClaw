@@ -35,11 +35,28 @@ function harness(extra = {}) {
     emit: (t, dd) => events.push({ type: t, data: dd }),
     runModelTurn: async (m) => { full.push(m); },
     runQuickUtility: async (m) => { light.push(m); },
+    fetchWeather: async () => null, // no structured weather → falls to the light path
   });
   assert.equal(d.type, "quick_utility");
   assert.ok(events.some((e) => e.type === EVENTS.QUICK_UTILITY), "weather routes to Quick Utility (un-scored)");
   assert.equal(light.length, 1, "quick utility uses the LIGHT path (no full employee context, §10.2)");
   assert.equal(full.length, 0, "quick utility does NOT run the full employee turn");
+}
+
+// 2b) Weather Card (§5.3): a 天气 query fetches a STRUCTURED card → QUICK_UTILITY result, no model
+{
+  const events = [], light = [];
+  await routeTurn("杭州天气怎么样", {
+    emit: (t, dd) => events.push({ type: t, data: dd }),
+    runModelTurn: async () => {}, runQuickUtility: async (m) => { light.push(m); },
+    fetchWeather: async (city) => ({ city, condition: "多云", temp_c: 20, feels_c: 19, humidity: 60, source: "wttr.in" }),
+  });
+  const qu = events.filter((e) => e.type === EVENTS.QUICK_UTILITY).pop();
+  assert.ok(qu && qu.data.result, "a weather query emits a Quick Utility with a structured result card");
+  assert.equal(qu.data.result.condition, "多云");
+  assert.equal(qu.data.result.temp_c, 20);
+  assert.equal(light.length, 0, "a successful weather card does NOT run the model");
+  assert.ok(events.some((e) => e.type === EVENTS.TOKEN_DELTA && /多云/.test(e.data.text)), "a text summary accompanies the card");
 }
 
 // 3) memory_command → memory truth, NO model turn (memory is a tool, not a sentence)
