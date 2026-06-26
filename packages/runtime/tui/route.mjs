@@ -10,11 +10,13 @@
 //   employee_chat  → light model turn
 import { classifyIntent } from "../router.mjs";
 import { memoryCommandResponse } from "../memory-harness.mjs";
+import { writeArtifact, revealStrategy } from "../artifact-contract.mjs";
 import { EVENTS } from "./protocol.mjs";
 
-// deps: { emit(type,data), runModelTurn(text)->Promise, pendingActions, employeeScope, env, role }
+// deps: { emit(type,data), runModelTurn(text)->Promise<answer>, pendingActions, employeeScope,
+//         env, role, taskRunId, root } — taskRunId+root opt the turn into real artifact persistence
 export async function routeTurn(message, deps = {}) {
-  const { emit = () => {}, runModelTurn = async () => {}, pendingActions = [], employeeScope, env = {}, role } = deps;
+  const { emit = () => {}, runModelTurn = async () => {}, pendingActions = [], employeeScope, env = {}, role, taskRunId, root } = deps;
   const decision = classifyIntent(message, { pendingActions, employeeScope });
 
   // §6.4: a matched PendingAction takes priority over the model — system-owned, NOT guessed.
@@ -26,10 +28,18 @@ export async function routeTurn(message, deps = {}) {
   }
 
   switch (decision.type) {
-    case "employee_task":
+    case "employee_task": {
       if (decision.upgradeToTaskRun) emit(EVENTS.TASK_UPGRADED_FROM_CHAT, { reason: decision.reason });
-      await runModelTurn(message);
+      const answer = await runModelTurn(message);
+      await persistDeliverable({ emit, answer, message, taskRunId, root });
       break;
+    }
+
+    case "artifact_action": {
+      const answer = await runModelTurn(message);
+      await persistDeliverable({ emit, answer, message, taskRunId, root });
+      break;
+    }
 
     case "quick_utility":
       emit(EVENTS.QUICK_UTILITY, { intent: message, status: "running" });
@@ -58,4 +68,39 @@ export async function routeTurn(message, deps = {}) {
       break;
   }
   return decision;
+}
+
+// No-Artifact-No-Created + No-Chat-only-Done (§5.8/§8): a formal task must leave a REAL,
+// openable deliverable on disk — not just chat text. Persist a substantial answer as an
+// artifact file (writeArtifact verifies the bytes); if the model only chatted, say so
+// honestly instead of letting the UI imply "完成". No taskRunId → caller didn't opt in.
+async function persistDeliverable({ emit, answer, message, taskRunId, root }) {
+  if (!taskRunId) return null;
+  const text = typeof answer === "string" ? answer.trim() : "";
+  const looksLikeDeliverable = text.length >= 200 || /(^|\n)#{1,6}\s|\n\s*[-*]\s|\n\s*\d+\.\s|\|.+\|/.test(text);
+  if (!looksLikeDeliverable) {
+    emit(EVENTS.TOKEN_DELTA, {
+      text: "\n⚠ 这是一项正式任务,但我只给了对话答复、没有产出可交付文件。按「无交付物不算完成」,本次不计为有效交付——要我整理成正式报告(.md)吗?",
+    });
+    return null;
+  }
+  try {
+    const art = writeArtifact({ name: artifactFileName(message), kind: "report", content: text, taskRunId, root });
+    emit(EVENTS.ARTIFACT_CREATED, { id: art.artifact_id, name: art.name, kind: art.kind, path: art.path, status: art.status, bytes: art.bytes });
+    const reveal = revealStrategy(art.path);
+    emit(EVENTS.WORKSPACE_REVEALED, {
+      path: art.path,
+      available: reveal.available,
+      command: reveal.available ? `${reveal.command} ${(reveal.args || []).join(" ")}` : reveal.fallback?.manual_command,
+    });
+    return art;
+  } catch (e) {
+    emit(EVENTS.TOKEN_DELTA, { text: `\n（交付物保存失败:${(e && e.message) || e}）` });
+    return null;
+  }
+}
+
+function artifactFileName(message) {
+  const slug = String(message || "report").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "report";
+  return `${slug}.md`;
 }

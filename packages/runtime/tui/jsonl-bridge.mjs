@@ -47,6 +47,8 @@ export async function startJsonlBridge({ agentLoop, agentLoopDeps, agentName = "
         employeeScope: meta.employeeScope,
         env: process.env,
         role: meta.role,
+        taskRunId: `turn-${turnSeq}-${Date.now()}`,
+        root: process.env.CREWCLAW_ROOT || process.cwd(),
       });
       emit(EVENTS.TASK_COMPLETED, {});
     } catch (e) {
