@@ -27,11 +27,12 @@ const all = () => out.frames.join("\n");
 await sleep(20);
 assert.match(out.lastFrame(), /就绪/, "idle status before any turn");
 
-await submitRef.current("查一下最近发布");
+// a formal task → the Router upgrades it to a TaskRun and runs the model turn
+await submitRef.current("给我一份内部知识问答 ROI 报告");
 await sleep(90);
-assert.match(all(), /查一下最近发布/, "user turn rendered");
-assert.match(all(), /我先搜一下/, "answer text rendered");
-assert.match(all(), /最近发布.*3 条|🔎/, "tool lands as a timeline line with its result summary");
+assert.match(all(), /ROI 报告/, "user turn rendered");
+assert.match(all(), /我先搜一下/, "answer text rendered (the model turn ran)");
+assert.match(all(), /🔎|ROI/, "tool lands as a timeline line with its result summary");
 assert.match(out.lastFrame(), /600 tok/, "session usage accumulated in the status header");
 assert.match(out.lastFrame(), /就绪/, "back to idle after the turn");
 assert.equal(store.get().live, null, "live turn cleared after commit");
