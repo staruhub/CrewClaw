@@ -38,5 +38,10 @@ assert.match(out.lastFrame(), /就绪/, "back to idle after the turn");
 assert.equal(store.get().live, null, "live turn cleared after commit");
 assert.equal(store.get().turns.length, 2, "user + assistant turn committed");
 
+// a quick utility (天气) shows the ⚡ badge — visibly NOT a TaskRun / 不计绩效 (§5.3/§6.2)
+await submitRef.current("杭州天气?");
+await sleep(90);
+assert.match(all(), /快捷工具/, "quick utility shows a distinct ⚡ badge (not counted as employee work)");
+
 out.unmount();
 console.log("tui-chat tests passed");

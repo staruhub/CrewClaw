@@ -138,6 +138,7 @@ export function TurnView({ state, name, renderLines, caret }) {
   if (state.artifacts.length) tally.push(`📦 ${state.artifacts.length} 交付物`);
   return html`<${Box} flexDirection="column" marginTop=${1}>
     <${Text} color=${theme.assistant}>${name} ${glyphs.assistant}</>
+    ${state.quickUtility ? html`<${Text} color=${theme.accent}>${"   ⚡ 快捷工具 · 不计入员工绩效" + (state.quickUtility.intent ? "：" + state.quickUtility.intent : "")}</>` : null}
     ${state.timeline.map((l, i) => html`<${TimelineLine} key=${i} line=${l} />`)}
     ${lines.length
       ? html`<${MessageBody} lines=${lines} caret=${!!caret} />`
