@@ -765,6 +765,27 @@ async function interactiveChat({ agentId, profile, apiKey, baseUrl, resume }) {
   const dim = (s) => `\x1b[2m${s}\x1b[0m`;
   const colorOn = !!process.stdout.isTTY;
 
+  // Ratatui (or any) front-end: headless event mode — emit TaskEvent JSONL on stdout, read
+  // input lines on stdin. The Rust Ratatui workbench spawns this piped and owns the terminal.
+  // MUST come before any stdout print so the JSONL stream stays clean.
+  if (process.env.CREW_TUI === "ratatui") {
+    const rHistory = [];
+    if (resume) {
+      const s = loadSession(ROOT, currentAgentId);
+      if (s.ok && s.messages.length) rHistory.push(...s.messages);
+    }
+    const { startJsonlBridge } = await import("./tui/jsonl-bridge.mjs");
+    await startJsonlBridge({
+      agentLoop,
+      agentLoopDeps: { baseUrl, apiKey, model, temperature, system, name, isTTY: false, gateway: makeGateway(), confirm: async () => true },
+      agentName: name,
+      meta: { role: title, mode: "Chat", model },
+      history: rHistory,
+      saveSession: () => saveSession(ROOT, currentAgentId, rHistory),
+    });
+    return;
+  }
+
   // Sticky top bar (opencode-style): default off; toggle live with `/topbar on|off`
   // (or start with CREW_TOPBAR=1). TTY only — a no-op when piped.
   const canTopBar = !!process.stdout.isTTY;
