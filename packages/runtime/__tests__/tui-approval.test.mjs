@@ -10,6 +10,7 @@ import { render } from "ink-testing-library";
 import { ChatApp } from "../tui/chat.mjs";
 import { createWorkbenchStore } from "../tui/workbench-store.mjs";
 import { createTaskRun } from "../tui/event-bridge.mjs";
+import { buildRunTurn } from "../tui/repl.mjs";
 
 const html = htm.bind(React.createElement);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -64,6 +65,27 @@ const stub = (text) => String(text).split("\n").map((l) => "   " + l);
   assert.equal(decided, true, "approval resolved → the turn proceeds");
   assert.match(out.frames.join("\n"), /已执行/, "post-approval output rendered");
   out.unmount();
+}
+
+// 4) the REAL path: buildRunTurn must hand the run's sink.confirm to agentLoop, so crew chat
+//    uses the modal gate — NOT the confirm:async()=>true auto-yes fallback. If this regressed,
+//    awaitingApproval() would be false (auto-yes resolves instantly) and this would fail.
+{
+  let confirmReceived = false;
+  const agentLoop = async (deps) => {
+    confirmReceived = typeof deps.confirm === "function";
+    const ok = await deps.confirm("执行命令: rm -rf x"); // blocks until the UI decides
+    return ok ? "done" : "skipped";
+  };
+  const run = createTaskRun({});
+  run.start("t");
+  const runTurn = buildRunTurn({ agentLoop, agentLoopDeps: { confirm: async () => true }, history: [], saveSession: null });
+  const pending = runTurn("删点东西", run.sink); // don't await — it blocks on approval
+  await sleep(10);
+  assert.ok(confirmReceived, "agentLoop received a confirm()");
+  assert.ok(run.awaitingApproval(), "buildRunTurn wired sink.confirm → run AWAITS the modal (auto-yes overridden)");
+  run.resolveApproval("allow");
+  assert.equal(await pending, "done", "allow → agentLoop proceeded");
 }
 
 console.log("tui-approval tests passed");
