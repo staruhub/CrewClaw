@@ -860,6 +860,27 @@ mod tests {
     }
 
     #[test]
+    fn quick_utility_reduces_without_task_run_state() {
+        let state = reduce_all(vec![ev(
+            "quick.utility",
+            serde_json::json!({
+                "intent":"北京天气",
+                "result":{"temperature":"21C"},
+                "source":"weather",
+                "status":"done"
+            }),
+        )]);
+
+        let utility = state.quick_utility.as_ref().unwrap();
+        assert_eq!(utility.intent.as_deref(), Some("北京天气"));
+        assert_eq!(utility.source.as_deref(), Some("weather"));
+        assert_eq!(utility.status.as_deref(), Some("done"));
+        assert_eq!(utility.result.as_ref().unwrap()["temperature"], "21C");
+        assert_eq!(state.task, None);
+        assert!(state.timeline.is_empty());
+    }
+
+    #[test]
     fn task_event_deserializes_known_and_unknown_wire_shapes() {
         let event: TaskEvent = serde_json::from_str(
             r#"{"type":"token.delta","ts":1719,"data":{"text":"hello"}}"#,
