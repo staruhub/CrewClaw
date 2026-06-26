@@ -255,6 +255,34 @@ fn run_live_loop(
         if event::poll(Duration::from_millis(50))
             .map_err(|error| format!("Failed to poll terminal events: {error}"))?
         {
+            if state.approval.is_some() {
+                let terminal_event = event::read()
+                    .map_err(|error| format!("Failed to read terminal event: {error}"))?;
+                match terminal_event {
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        let decision = match key.code {
+                            KeyCode::Char('a') | KeyCode::Char('y') => Some(b"a\n".as_slice()),
+                            KeyCode::Char('d') | KeyCode::Char('n') => Some(b"d\n".as_slice()),
+                            _ => None,
+                        };
+                        if let Some(decision) = decision {
+                            child_stdin.write_all(decision).map_err(|error| {
+                                format!("Failed to write approval decision to Node runtime stdin: {error}")
+                            })?;
+                            child_stdin.flush().map_err(|error| {
+                                format!("Failed to flush Node runtime stdin: {error}")
+                            })?;
+                        }
+                    }
+                    Event::Resize(_, _) => {
+                        terminal
+                            .clear()
+                            .map_err(|error| format!("Failed to redraw after resize: {error}"))?;
+                    }
+                    _ => {}
+                }
+                continue;
+            }
             match handle_terminal_event(&mut state, &mut ui_state, &mut input, terminal)? {
                 TerminalAction::Quit => return Ok(LiveLoopExit::UserQuit),
                 TerminalAction::Submit(submitted) => {
