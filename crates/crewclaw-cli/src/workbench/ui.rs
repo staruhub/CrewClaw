@@ -5,6 +5,7 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Paragraph, Tabs, Wrap},
 };
+use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
 use super::state::{
@@ -276,8 +277,12 @@ fn render_timeline(
     area: ratatui::layout::Rect,
 ) {
     let mut lines = Vec::new();
-    if let Some(badge) = quick_utility_badge_line(state, area.width.saturating_sub(2) as usize) {
+    let inner_width = area.width.saturating_sub(2) as usize;
+    if let Some(badge) = quick_utility_badge_line(state, inner_width) {
         lines.push(badge);
+    }
+    if let Some(weather) = quick_utility_weather_line(state, inner_width) {
+        lines.push(weather);
     }
 
     let mut timeline = state
@@ -683,6 +688,33 @@ fn quick_utility_badge_line(state: &AppState, max_width: usize) -> Option<Line<'
     )))
 }
 
+fn quick_utility_weather_line(state: &AppState, max_width: usize) -> Option<Line<'static>> {
+    let value = state.quick_utility.as_ref()?.result.as_ref()?;
+    let city = value.get("city").and_then(Value::as_str).unwrap_or("");
+    if city.is_empty() {
+        return None;
+    }
+    let condition = value.get("condition").and_then(Value::as_str).unwrap_or("");
+    let temp_c = integer_value(value, "temp_c");
+    let feels_c = integer_value(value, "feels_c");
+    let humidity = integer_value(value, "humidity");
+    let label = format!(
+        "🌤 {city}  {condition}  {temp_c}°C（体感 {feels_c}°C · 湿度 {humidity}%）"
+    );
+
+    Some(Line::from(Span::styled(
+        truncate_display_width(&label, max_width),
+        Style::default().fg(WARN),
+    )))
+}
+
+fn integer_value(value: &Value, key: &str) -> i64 {
+    value
+        .get(key)
+        .and_then(|item| item.as_i64().or_else(|| item.as_f64().map(|number| number as i64)))
+        .unwrap_or_default()
+}
+
 fn pending_actions_line(actions: &[serde_json::Value], max_width: usize) -> Option<String> {
     let items = actions
         .iter()
@@ -899,6 +931,45 @@ mod tests {
             .collect::<String>();
         let compact = contents.replace(' ', "");
         assert!(compact.contains("⚡快捷工具·不计入员工绩效：北京天气"));
+        assert!(!compact.contains("体感"));
+        assert!(!compact.contains("湿度"));
+    }
+
+    #[test]
+    fn render_shows_weather_card_for_quick_utility_result() {
+        let mut state = AppState::default();
+        state.quick_utility = Some(QuickUtility {
+            intent: Some("杭州天气".to_string()),
+            result: Some(serde_json::json!({
+                "city": "Hangzhou",
+                "temp_c": 24.0,
+                "feels_c": 26.0,
+                "humidity": 78.0,
+                "wind_kmph": 6,
+                "condition": "多云",
+                "source": "wttr.in"
+            })),
+            source: Some("weather".to_string()),
+            status: Some("done".to_string()),
+        });
+        let mut ui_state = UiState::default();
+        ui_state.focus = FocusPanel::Timeline;
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).expect("test terminal");
+
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw frame");
+
+        let contents = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact = contents.replace(' ', "");
+        assert!(compact.contains("🌤Hangzhou多云24°C（体感26°C·湿度78%）"));
+        assert!(!compact.contains("24.0"));
     }
 
     #[test]
