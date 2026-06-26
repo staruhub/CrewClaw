@@ -34,6 +34,7 @@ export const EVENTS = {
   MEMORY_REQUESTED: "memory.requested",
   MEMORY_SAVED: "memory.saved",
   WORKSPACE_REVEALED: "workspace.revealed",
+  OUTCOME_CHECKED: "outcome.checked", // completion verdict (§5.8 No-Chat-only-Done): did the task leave a real deliverable?
 };
 
 const KNOWN = new Set(Object.values(EVENTS));
