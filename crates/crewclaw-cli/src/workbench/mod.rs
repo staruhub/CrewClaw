@@ -1,6 +1,8 @@
 use std::{
-    io::{self, BufRead},
+    io::{self, BufRead, BufReader, Write},
     panic,
+    path::Path,
+    process::{ChildStdin, Command, Stdio},
     sync::mpsc::{self, Receiver},
     thread,
     time::{Duration, Instant},
@@ -27,10 +29,21 @@ pub mod ui;
 
 type TuiTerminal = Terminal<CrosstermBackend<io::Stdout>>;
 
-enum StdinMessage {
-    Line(String),
+enum WorkbenchMessage {
+    Event(TaskEvent),
     Error(String),
     Eof,
+}
+
+enum TerminalAction {
+    Continue,
+    Quit,
+    Submit(String),
+}
+
+enum LiveLoopExit {
+    UserQuit,
+    ChildEof,
 }
 
 pub fn run_workbench(demo: bool) -> Result<(), String> {
@@ -40,6 +53,68 @@ pub fn run_workbench(demo: bool) -> Result<(), String> {
     install_panic_restore_hook();
     let mut terminal = TerminalGuard::enter()?;
     run_loop(&mut terminal.terminal, demo)
+}
+
+pub fn run_workbench_live(agent: &str, root: &Path) -> Result<i32, String> {
+    if !io::stdout().is_tty() {
+        return Err("Ratatui live workbench requires an interactive terminal.".to_string());
+    }
+
+    install_panic_restore_hook();
+    let script = root.join("packages/runtime/run.mjs");
+    let mut child = Command::new("node")
+        .arg(&script)
+        .arg(agent)
+        .current_dir(root)
+        .env("CREW_TUI", "ratatui")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|error| format!("failed to launch the Node runtime (is node on PATH?): {error}"))?;
+
+    let Some(child_stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("failed to capture Node runtime stdout".to_string());
+    };
+    let Some(mut child_stdin) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("failed to capture Node runtime stdin".to_string());
+    };
+
+    let events = spawn_task_event_reader(BufReader::new(child_stdout), "engine stdout");
+    let mut terminal = match TerminalGuard::enter() {
+        Ok(terminal) => terminal,
+        Err(error) => {
+            drop(child_stdin);
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
+
+    let loop_result = run_live_loop(&mut terminal.terminal, events, &mut child_stdin);
+    drop(terminal);
+    drop(child_stdin);
+
+    match loop_result {
+        Ok(LiveLoopExit::UserQuit) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Ok(0)
+        }
+        Ok(LiveLoopExit::ChildEof) => child
+            .wait()
+            .map(|status| status.code().unwrap_or(1))
+            .map_err(|error| format!("failed to wait for Node runtime: {error}")),
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(error)
+        }
+    }
 }
 
 fn run_plain_transcript(demo: bool) -> Result<(), String> {
@@ -59,11 +134,8 @@ fn run_plain_transcript(demo: bool) -> Result<(), String> {
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         let line = line.map_err(|error| format!("Failed to read stdin: {error}"))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<TaskEvent>(&line) {
-            Ok(event) => {
+        match parse_task_event_line(&line) {
+            Ok(Some(event)) => {
                 state.reduce(&event);
                 println!(
                     "{}",
@@ -71,6 +143,7 @@ fn run_plain_transcript(demo: bool) -> Result<(), String> {
                         .map_err(|error| format!("Failed to serialize transcript: {error}"))?
                 );
             }
+            Ok(None) => continue,
             Err(error) => {
                 println!(
                     "{}",
@@ -129,11 +202,12 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
         if event::poll(Duration::from_millis(50))
             .map_err(|error| format!("Failed to poll terminal events: {error}"))?
         {
-            if handle_terminal_event(&mut state, &mut ui_state, &mut input, terminal)?
-                .then_some(())
-                .is_some()
-            {
-                break;
+            match handle_terminal_event(&mut state, &mut ui_state, &mut input, terminal)? {
+                TerminalAction::Quit => break,
+                TerminalAction::Submit(submitted) => {
+                    state.debug.push(format!("slash command submitted: {submitted}"));
+                }
+                TerminalAction::Continue => {}
             }
         }
 
@@ -147,19 +221,9 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
             let mut saw_eof = false;
             while let Ok(message) = stdin.try_recv() {
                 match message {
-                    StdinMessage::Line(line) => {
-                        if line.trim().is_empty() {
-                            continue;
-                        }
-                        match serde_json::from_str::<TaskEvent>(&line) {
-                            Ok(event) => state.reduce(&event),
-                            Err(error) => state
-                                .debug
-                                .push(format!("jsonl parse error: {error}: {line}")),
-                        }
-                    }
-                    StdinMessage::Error(error) => state.debug.push(format!("stdin error: {error}")),
-                    StdinMessage::Eof => saw_eof = true,
+                    WorkbenchMessage::Event(event) => state.reduce(&event),
+                    WorkbenchMessage::Error(error) => state.debug.push(error),
+                    WorkbenchMessage::Eof => saw_eof = true,
                 }
             }
             if saw_eof {
@@ -174,12 +238,63 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
     Ok(())
 }
 
+fn run_live_loop(
+    terminal: &mut TuiTerminal,
+    events: Receiver<WorkbenchMessage>,
+    child_stdin: &mut ChildStdin,
+) -> Result<LiveLoopExit, String> {
+    let mut state = AppState::default();
+    let mut ui_state = UiState::default();
+    let mut input = String::new();
+
+    loop {
+        terminal
+            .draw(|frame| ui::render(frame, &state, &ui_state, &input))
+            .map_err(|error| format!("Failed to draw live workbench: {error}"))?;
+
+        if event::poll(Duration::from_millis(50))
+            .map_err(|error| format!("Failed to poll terminal events: {error}"))?
+        {
+            match handle_terminal_event(&mut state, &mut ui_state, &mut input, terminal)? {
+                TerminalAction::Quit => return Ok(LiveLoopExit::UserQuit),
+                TerminalAction::Submit(submitted) => {
+                    if submitted.trim() == "/exit" {
+                        return Ok(LiveLoopExit::UserQuit);
+                    }
+                    writeln!(child_stdin, "{submitted}")
+                        .map_err(|error| format!("Failed to write to Node runtime stdin: {error}"))?;
+                    child_stdin
+                        .flush()
+                        .map_err(|error| format!("Failed to flush Node runtime stdin: {error}"))?;
+                    state.debug.push(format!("user input sent: {submitted}"));
+                }
+                TerminalAction::Continue => {}
+            }
+        }
+
+        let mut saw_eof = false;
+        while let Ok(message) = events.try_recv() {
+            match message {
+                WorkbenchMessage::Event(event) => state.reduce(&event),
+                WorkbenchMessage::Error(error) => state.debug.push(error),
+                WorkbenchMessage::Eof => saw_eof = true,
+            }
+        }
+        if saw_eof {
+            terminal
+                .draw(|frame| ui::render(frame, &state, &ui_state, &input))
+                .map_err(|error| format!("Failed to draw final live workbench frame: {error}"))?;
+            return Ok(LiveLoopExit::ChildEof);
+        }
+    }
+}
+
 fn handle_terminal_event(
     state: &mut AppState,
     ui_state: &mut UiState,
     input: &mut String,
     terminal: &mut TuiTerminal,
-) -> Result<bool, String> {
+) -> Result<TerminalAction, String> {
     let event = event::read().map_err(|error| format!("Failed to read terminal event: {error}"))?;
     let key = match event {
         Event::Key(key) => key,
@@ -187,12 +302,12 @@ fn handle_terminal_event(
             terminal
                 .clear()
                 .map_err(|error| format!("Failed to redraw after resize: {error}"))?;
-            return Ok(false);
+            return Ok(TerminalAction::Continue);
         }
-        _ => return Ok(false),
+        _ => return Ok(TerminalAction::Continue),
     };
     if key.kind != KeyEventKind::Press {
-        return Ok(false);
+        return Ok(TerminalAction::Continue);
     }
 
     let is_narrow = terminal
@@ -201,23 +316,25 @@ fn handle_terminal_event(
         .unwrap_or(false);
 
     match key.code {
-        KeyCode::Char('q') if key.modifiers.is_empty() => Ok(true),
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Ok(true),
+        KeyCode::Char('q') if key.modifiers.is_empty() => Ok(TerminalAction::Quit),
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Ok(TerminalAction::Quit)
+        }
         KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             ui_state.overlay = Some(Overlay::CommandPalette);
             ui_state.input_focused = false;
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::Char('?') if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
             ui_state.overlay = Some(Overlay::Help);
             ui_state.input_focused = false;
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::Esc => {
             if !ui_state.close_overlay_or_input() {
                 ui_state.focus_previous();
             }
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::Tab => {
             if is_narrow {
@@ -225,7 +342,7 @@ fn handle_terminal_event(
             } else {
                 ui_state.focus_next();
             }
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::BackTab => {
             if is_narrow {
@@ -233,49 +350,50 @@ fn handle_terminal_event(
             } else {
                 ui_state.focus_previous();
             }
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::Up => {
             ui_state.scroll_focused(-1);
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::Down => {
             ui_state.scroll_focused(1);
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::Backspace => {
             if ui_state.input_focused {
                 input.pop();
             }
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::Enter => {
             if ui_state.overlay.take().is_some() {
-                return Ok(false);
+                return Ok(TerminalAction::Continue);
             }
             if ui_state.input_focused {
-                state.debug.push(format!("slash command submitted: {input}"));
+                let submitted = std::mem::take(input);
                 input.clear();
                 ui_state.input_focused = false;
+                return Ok(TerminalAction::Submit(submitted));
             } else {
                 state
                     .debug
                     .push(format!("activated panel: {:?}", ui_state.focus));
             }
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::Char(ch @ '1'..='4')
             if is_narrow && !ui_state.input_focused && ui_state.overlay.is_none() =>
         {
             ui_state.set_tab_by_number(ch);
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::Char('/') if key.modifiers.is_empty() => {
             ui_state.overlay = None;
             ui_state.input_focused = true;
             input.clear();
             input.push('/');
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
         KeyCode::Char(ch) => {
             if ui_state.input_focused
@@ -283,30 +401,90 @@ fn handle_terminal_event(
             {
                 input.push(ch);
             }
-            Ok(false)
+            Ok(TerminalAction::Continue)
         }
-        _ => Ok(false),
+        _ => Ok(TerminalAction::Continue),
     }
 }
 
-fn spawn_stdin_reader() -> Receiver<StdinMessage> {
+fn parse_task_event_line(line: &str) -> Result<Option<TaskEvent>, String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    serde_json::from_str::<TaskEvent>(trimmed)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+fn spawn_stdin_reader() -> Receiver<WorkbenchMessage> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let stdin = io::stdin();
         for line in stdin.lock().lines() {
             match line {
-                Ok(line) => {
-                    if tx.send(StdinMessage::Line(line)).is_err() {
-                        return;
+                Ok(line) => match parse_task_event_line(&line) {
+                    Ok(Some(event)) => {
+                        if tx.send(WorkbenchMessage::Event(event)).is_err() {
+                            return;
+                        }
                     }
-                }
+                    Ok(None) => {}
+                    Err(error) => {
+                        if tx
+                            .send(WorkbenchMessage::Error(format!(
+                                "jsonl parse error: {error}: {line}"
+                            )))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                },
                 Err(error) => {
-                    let _ = tx.send(StdinMessage::Error(error.to_string()));
+                    let _ = tx.send(WorkbenchMessage::Error(format!("stdin error: {error}")));
                     return;
                 }
             }
         }
-        let _ = tx.send(StdinMessage::Eof);
+        let _ = tx.send(WorkbenchMessage::Eof);
+    });
+    rx
+}
+
+fn spawn_task_event_reader<R>(reader: R, source: &'static str) -> Receiver<WorkbenchMessage>
+where
+    R: BufRead + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        for line in reader.lines() {
+            match line {
+                Ok(line) => match parse_task_event_line(&line) {
+                    Ok(Some(event)) => {
+                        if tx.send(WorkbenchMessage::Event(event)).is_err() {
+                            return;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        if tx
+                            .send(WorkbenchMessage::Error(format!(
+                                "{source} jsonl parse error: {error}: {line}"
+                            )))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                },
+                Err(error) => {
+                    let _ = tx.send(WorkbenchMessage::Error(format!("{source} error: {error}")));
+                    return;
+                }
+            }
+        }
+        let _ = tx.send(WorkbenchMessage::Eof);
     });
     rx
 }
@@ -429,5 +607,19 @@ mod tests {
         assert!(line.contains("task.started"));
         assert!(line.contains("→"));
         assert!(line.contains("处理中文任务"));
+    }
+
+    #[test]
+    fn task_event_line_parser_skips_blanks_and_reports_bad_json() {
+        assert_eq!(parse_task_event_line("   ").expect("blank line"), None);
+
+        let event = parse_task_event_line(
+            r#"{"type":"token.delta","ts":1,"data":{"text":"hello"}}"#,
+        )
+        .expect("valid line")
+        .expect("event");
+
+        assert_eq!(event.event_type(), "token.delta");
+        assert!(parse_task_event_line("{not json").is_err());
     }
 }

@@ -688,6 +688,19 @@ fn run_first_task(profile_name: &str, task: &str, root: &Path) -> Result<i32, St
 /// answer streams live to the terminal. Everything after the verb (the agent id
 /// and the task) is passed straight through.
 fn run_agent_live(args: &[String], root: &Path) -> Result<i32, String> {
+    let positionals = positionals(args);
+    if positionals.first().map(String::as_str) == Some("chat") && has_flag(args, "--ratatui") {
+        let Some(agent) = positionals.get(1) else {
+            eprintln!("Error: Missing agent name.");
+            return Ok(1);
+        };
+        let code = workbench::run_workbench_live(agent, root)?;
+        if code == 0 {
+            append_activity(root, "run", agent)?;
+        }
+        return Ok(code);
+    }
+
     let mut forward = Vec::new();
     let mut consumed_verb = false;
     for arg in args {
