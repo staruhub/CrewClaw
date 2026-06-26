@@ -9,6 +9,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import htm from "htm";
 import { theme, glyphs } from "./theme.mjs";
+import { toolLine } from "../ui-tools.mjs";
 
 const html = htm.bind(React.createElement);
 
@@ -24,14 +25,16 @@ export function MessageBody({ lines, caret }) {
   </>`;
 }
 
-// One compact dim tool-activity line (OpenCode-style): <glyph> <cleaned label>. The label
-// is the audit summary with the present-continuous "正在" stripped (it's a finished call).
+// One compact dim tool-activity line (OpenCode-style), reusing the raw renderer's toolLine
+// so the summary + RESULT hint match exactly: "🌐 wttr.in (420 字)", "🔎 \"query\" (3 条)",
+// "→ path (42 行)". The invocation carries toolName/args/output/status from the audit record.
 export function ToolLine({ tool }) {
   const t = tool || {};
-  const glyph = glyphs.tool[t.toolName] || glyphs.tool.default;
-  const label = String(t.action || t.toolName || "tool").replace(/^正在/, "");
-  const color = t.status === "blocked" ? theme.warn : t.status === "error" ? theme.err : undefined;
-  return html`<${Text} dimColor=${!color} color=${color} wrap="truncate">${"   " + glyph + " " + label}</>`;
+  const line = toolLine(
+    { name: t.toolName, command: t.args?.command, args: t.args, output: t.output, confirmed: t.status === "blocked" ? false : undefined },
+    { color: true },
+  );
+  return html`<${Text} wrap="truncate">${"   " + line}</>`;
 }
 
 // The user's turn: an accent left-rail "bubble" (rail-only). Multi-line keeps the rail.
