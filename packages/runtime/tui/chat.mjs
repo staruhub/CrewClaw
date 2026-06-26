@@ -1,13 +1,12 @@
-// tui/chat.mjs — the full-screen Ink REPL for `crew chat` (inline model: native terminal
-// scrollback via <Static>, flicker-free dynamic frame at the bottom). UI-ONLY: the actual
-// model turn is injected as `runTurn(text, {onDelta,onInvocation,onUsage})`, so this file
-// never imports run.mjs (no model/gateway/budget logic, no run.mjs edit conflicts). The
-// markdown renderer is injected as `renderLines(text) -> string[]` (ui-markdown.renderMessage).
+// tui/chat.mjs — the full-screen Ink REPL for `crew chat`, TaskRun-centric (the workbench).
+// Each user turn spawns a TaskRun: agentLoop streams into it via the bridge sink, AppState
+// reduces, TurnView renders the WORK TIMELINE (not a message stream — the iron law). UI-only;
+// runTurn + renderLines are injected so this never imports run.mjs.
 import React from "react";
 import { render, Box, Static, Text, useInput, useApp } from "ink";
 import htm from "htm";
-import { createChatStore } from "./store.mjs";
-import { UserMessage, AssistantMessage, StatusHeader } from "./components.mjs";
+import { createWorkbenchStore } from "./workbench-store.mjs";
+import { UserMessage, TurnView, StatusHeader } from "./components.mjs";
 import { theme, glyphs } from "./theme.mjs";
 import { getToolStatus } from "./tool-status.mjs";
 import { costFor } from "../ui-topbar.mjs";
@@ -16,8 +15,10 @@ const html = htm.bind(React.createElement);
 const isTTY = !!process.stdin.isTTY;
 const TOOLS = getToolStatus(); // honest tool health, computed once per session
 
-// Coalesce the store's per-token emits to ~30fps so React doesn't reconcile per character
-// (the throttle the flicker research flagged — Ink still diffs, but we feed it fewer frames).
+// AppState status → StatusHeader label key
+const STATUS_MAP = { idle: "idle", running: "streaming", awaiting_approval: "tool", done: "idle", rejected: "error", error: "error" };
+
+// Coalesce the store's bursty emits to ~30fps so React doesn't reconcile per token.
 function useStore(store) {
   const subscribe = React.useCallback((cb) => {
     let t = null;
@@ -32,23 +33,19 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
   const state = useStore(store);
   const { exit } = useApp();
   const [input, setInput] = React.useState("");
-  const busy = state.status === "thinking" || state.status === "streaming" || state.status === "tool";
+  const busy = !!state.live;
 
   const submit = React.useCallback(async (text) => {
     if (!text || !text.trim()) return;
     store.pushUser(text);
-    store.beginTurn();
+    const run = store.startTurn({ title: text, mode: meta.mode });
     try {
-      await runTurn(text, {
-        onDelta: (d) => store.appendDelta(d),
-        onInvocation: (inv) => store.addTool(inv),
-        onUsage: (u) => store.addUsage(u),
-      });
+      await runTurn(text, run.sink); // agentLoop streams TaskEvents into this TaskRun
       store.commitTurn();
     } catch (e) {
-      store.setError(String((e && e.message) || e));
+      store.failTurn(String((e && e.message) || e));
     }
-  }, [store, runTurn]);
+  }, [store, runTurn, meta]);
 
   React.useEffect(() => { if (submitRef) submitRef.current = submit; }, [submit, submitRef]);
 
@@ -60,21 +57,24 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
     if (ch && !key.ctrl && !key.meta) setInput((s) => s + ch);
   }, { isActive: isTTY });
 
-  const tokens = state.usage.promptTok + state.usage.completionTok;
-  const rawCost = meta.model ? costFor(meta.model, state.usage.promptTok, state.usage.completionTok) : 0;
+  const liveUsage = (state.live && state.live.usage) || { promptTok: 0, completionTok: 0 };
+  const promptTok = state.sessionUsage.promptTok + (liveUsage.promptTok || 0);
+  const completionTok = state.sessionUsage.completionTok + (liveUsage.completionTok || 0);
+  const tokens = promptTok + completionTok;
+  const rawCost = meta.model ? costFor(meta.model, promptTok, completionTok) : 0;
   const costText = typeof rawCost === "string" ? rawCost : "$" + (Number(rawCost) || 0).toFixed(2);
+  const headerStatus = STATUS_MAP[state.live ? state.live.status : "idle"] || "idle";
+
   return html`
     <${Box} flexDirection="column">
-      <${Static} items=${state.messages}>
-        ${(m, i) => m.role === "user"
-          ? html`<${UserMessage} key=${i} text=${m.text} />`
-          : html`<${AssistantMessage} key=${i} name=${agentName} parts=${m.parts} renderLines=${renderLines} />`}
+      <${Static} items=${state.turns}>
+        ${(t, i) => t.role === "user"
+          ? html`<${UserMessage} key=${i} text=${t.text} />`
+          : html`<${TurnView} key=${i} state=${t.app} name=${agentName} renderLines=${renderLines} />`}
       </>
-      ${state.live
-        ? html`<${AssistantMessage} name=${agentName} parts=${state.live.parts} renderLines=${renderLines} caret=${true} />`
-        : null}
+      ${state.live ? html`<${TurnView} state=${state.live} name=${agentName} renderLines=${renderLines} caret=${true} />` : null}
       <${Box} marginTop=${1} flexDirection="column">
-        <${StatusHeader} name=${agentName} role=${meta.role} mode=${meta.mode || "Chat"} status=${state.status} tokens=${tokens} costText=${costText} tools=${TOOLS} />
+        <${StatusHeader} name=${agentName} role=${meta.role} mode=${meta.mode || "Chat"} status=${headerStatus} tokens=${tokens} costText=${costText} tools=${TOOLS} />
         <${Box}>
           <${Text} color=${theme.user}>${glyphs.userRail + " "}</>
           <${Text}>${input}</>
@@ -87,8 +87,8 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
 
 // Mount the chat UI. Returns { store, submit, unmount, waitUntilExit }. `submit` lets a
 // non-TTY harness drive a turn without keyboard input (used by the demo/tests).
-export function mountChat({ runTurn, agentName = "鲸", renderLines = (t) => String(t).split("\n"), initialMessages = [], meta = {} }) {
-  const store = createChatStore({ messages: initialMessages });
+export function mountChat({ runTurn, agentName = "鲸", renderLines = (t) => String(t).split("\n"), initialTurns = [], meta = {} }) {
+  const store = createWorkbenchStore(meta, initialTurns);
   const submitRef = { current: null };
   const app = render(html`<${ChatApp} store=${store} runTurn=${runTurn} agentName=${agentName} renderLines=${renderLines} submitRef=${submitRef} meta=${meta} />`);
   return {

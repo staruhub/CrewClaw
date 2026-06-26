@@ -7,15 +7,16 @@
 // onUsage(u) and, when given them (renderMd:false), NOT draw to stdout itself.
 import { mountChat } from "./chat.mjs";
 
-// Map the model `history` (assistant/tool/user with tool_calls) to display messages for
-// the initial scrollback when resuming a saved session.
-export function historyToMessages(history) {
+// Map the model `history` to display TURNS for the initial scrollback when resuming a saved
+// session. A resumed assistant turn has no event history, so it's a minimal AppState with
+// just the answer (TurnView renders it).
+export function historyToTurns(history) {
   const out = [];
   for (const m of history || []) {
     if (m.role === "user") {
       out.push({ role: "user", text: typeof m.content === "string" ? m.content : "（含附件）" });
     } else if (m.role === "assistant" && m.content && !m.tool_calls) {
-      out.push({ role: "assistant", parts: [{ type: "text", text: m.content }] });
+      out.push({ role: "assistant", app: { timeline: [], answer: m.content, tools: {}, evidence: [], artifacts: [], usage: { promptTok: 0, completionTok: 0 }, status: "done" } });
     }
   }
   return out;
@@ -41,6 +42,6 @@ export function buildRunTurn({ agentLoop, agentLoopDeps = {}, history, saveSessi
 // Mount the Ink chat and return a promise that resolves when the user exits.
 export function startInkChat({ agentLoop, agentLoopDeps, history = [], agentName, renderLines, saveSession, meta }) {
   const runTurn = buildRunTurn({ agentLoop, agentLoopDeps, history, saveSession });
-  const app = mountChat({ runTurn, agentName, renderLines, initialMessages: historyToMessages(history), meta });
+  const app = mountChat({ runTurn, agentName, renderLines, initialTurns: historyToTurns(history), meta });
   return app.waitUntilExit();
 }
