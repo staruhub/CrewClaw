@@ -83,15 +83,20 @@ const HEADER_CAPS = ["web.search", "utility.weather", "web.extract", "browser.re
 const MEM_SYM = { available: "✓", unavailable: "✗", disabled: "–" };
 const capColor = (s) => (s === "available" ? theme.ok : (s === "missing_key" || s === "unavailable") ? theme.err : s === "disabled" ? theme.dim : theme.warn);
 
-export function StatusHeader({ name, role, mode = "Chat", status = "idle", tokens = 0, costText = "$0.00", toolTruth = [], memory = null }) {
+const fmtK = (n) => { const v = Number(n) || 0; return v >= 1000 ? (Math.round(v / 100) / 10) + "k" : String(v); };
+
+export function StatusHeader({ name, role, mode = "Chat", status = "idle", tokens = 0, costText = "$0.00", toolTruth = [], memory = null, budget = null }) {
   const dotColor = { idle: theme.dim, thinking: theme.warn, streaming: theme.assistant, tool: theme.accent, error: theme.err }[status] || theme.dim;
   const stateLabel = { idle: "就绪", thinking: "思考中", streaming: "回答中", tool: "调用工具", error: "中断" }[status] || status;
   const ident = [name, role, `${mode} · ${stateLabel}`].filter(Boolean).join(" · ");
   const caps = HEADER_CAPS.map((c) => toolTruth.find((s) => s.capability === c)).filter(Boolean);
+  // Context Budget (§10): show used/hard tokens, warn color at soft (50k), err at hard (90k).
+  const budgetColor = !budget ? null : budget.status === "hard_exceeded" ? theme.err : budget.status === "soft_exceeded" ? theme.warn : null;
+  const usageText = budget ? `${fmtK(budget.used)}/${fmtK(budget.hard)} tok · ${costText}` : `${(tokens || 0).toLocaleString()} tok · ${costText}`;
   return html`<${Box} flexDirection="column">
     <${Box} justifyContent="space-between" paddingX=${1}>
       <${Box}><${Text} color=${dotColor}>${"● "}</><${Text} dimColor>${ident}</></>
-      <${Text} dimColor>${`${(tokens || 0).toLocaleString()} tok · ${costText}`}</>
+      ${budgetColor ? html`<${Text} color=${budgetColor}>${usageText}</>` : html`<${Text} dimColor>${usageText}</>`}
     </>
     <${Box} paddingX=${1}>
       <${Text} dimColor>${"工具 "}</>

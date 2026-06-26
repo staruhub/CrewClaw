@@ -91,4 +91,14 @@ function harness(extra = {}) {
   assert.ok(events.some((e) => e.type === EVENTS.OUTCOME_CHECKED && e.data.valid === false), "emits a failing completion verdict");
 }
 
+// 8) explicit short-form request → a short answer does NOT trip No-Chat-only-Done (not pedantic)
+{
+  const events = [];
+  const emit = (type, data) => events.push({ type, data });
+  const d = await routeTurn("用一句话给我 AI 客服 ROI 要点", { emit, runModelTurn: async () => "ROI≈自动解决率×单均人工成本,正向与否取决于解决率能否稳定到 30%+。", taskRunId: "test-short", root: os.tmpdir() });
+  assert.equal(d.type, "employee_task");
+  assert.ok(!events.some((e) => e.type === EVENTS.OUTCOME_CHECKED), "short-form ask: no pedantic verdict");
+  assert.ok(!events.some((e) => e.type === EVENTS.TOKEN_DELTA && /无交付物不算完成/.test(e.data.text)), "no No-Chat-only-Done nag for an explicitly-short answer");
+}
+
 console.log("tui-route tests passed");

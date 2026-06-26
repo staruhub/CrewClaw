@@ -33,7 +33,7 @@ await sleep(90);
 assert.match(all(), /ROI 报告/, "user turn rendered");
 assert.match(all(), /我先搜一下/, "answer text rendered (the model turn ran)");
 assert.match(all(), /🔎|ROI/, "tool lands as a timeline line with its result summary");
-assert.match(out.lastFrame(), /600 tok/, "session usage accumulated in the status header");
+assert.match(out.lastFrame(), /600\/90k tok/, "session usage + context budget (used/hard) in the status header");
 assert.match(out.lastFrame(), /就绪/, "back to idle after the turn");
 assert.equal(store.get().live, null, "live turn cleared after commit");
 assert.equal(store.get().turns.length, 2, "user + assistant turn committed");
