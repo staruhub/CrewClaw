@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Paragraph, Tabs, Wrap},
@@ -39,6 +39,7 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState, input
     render_panels(frame, state, ui_state, root[1]);
     render_bottom(frame, state, ui_state, input, root[2]);
     render_overlay(frame, ui_state);
+    render_approval_modal(frame, state);
 }
 
 pub(crate) fn layout_kind(width: u16) -> LayoutKind {
@@ -514,11 +515,65 @@ fn render_overlay(frame: &mut Frame<'_>, ui_state: &UiState) {
     );
 }
 
+fn render_approval_modal(frame: &mut Frame<'_>, state: &AppState) {
+    let Some(approval) = &state.approval else {
+        return;
+    };
+    let area = approval_modal_rect(frame.area());
+    let inner_width = area.width.saturating_sub(2) as usize;
+    let inner_height = area.height.saturating_sub(2) as usize;
+    let mut lines = Vec::new();
+
+    lines.push(Line::from(truncate_display_width(
+        approval.reason.as_deref().unwrap_or("需要确认授权"),
+        inner_width,
+    )));
+    if let Some(tool) = approval.tool.as_deref() {
+        lines.push(Line::from(truncate_display_width(
+            &format!("工具: {tool}"),
+            inner_width,
+        )));
+    }
+    while lines.len().saturating_add(1) < inner_height {
+        lines.push(Line::from(""));
+    }
+    lines.push(Line::from(truncate_display_width(
+        "[a] 允许执行    [d] 拒绝",
+        inner_width,
+    )));
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .block(
+                Block::default()
+                    .title("⚠ 需要授权")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            )
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+fn approval_modal_rect(area: Rect) -> Rect {
+    let percent_width = area.width.saturating_mul(60) / 100;
+    let min_width = area.width.min(30);
+    let width = percent_width.max(min_width).min(area.width);
+    let height = area.height.min(10);
+    Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
+}
+
 fn centered_rect(
     percent_x: u16,
     percent_y: u16,
-    area: ratatui::layout::Rect,
-) -> ratatui::layout::Rect {
+    area: Rect,
+) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -660,6 +715,9 @@ fn symbol_color(symbol: &str) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    use super::super::state::Approval;
 
     #[test]
     fn truncates_cjk_by_display_width_not_char_count() {
@@ -683,5 +741,34 @@ mod tests {
         assert_eq!(status_symbol("running"), SYM_RUNNING);
         assert_eq!(status_symbol("blocked"), SYM_WARN);
         assert_eq!(status_symbol("idle"), SYM_WAIT);
+    }
+
+    #[test]
+    fn render_shows_approval_modal_over_normal_layout() {
+        let mut state = AppState::default();
+        state.approval = Some(Approval {
+            id: Some("approval1".to_string()),
+            tool: Some("shell.exec".to_string()),
+            reason: Some("需要执行受控命令".to_string()),
+            scope: None,
+        });
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
+
+        terminal
+            .draw(|frame| render(frame, &state, &UiState::default(), ""))
+            .expect("draw frame");
+
+        let contents = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact = contents.replace(' ', "");
+        assert!(compact.contains("需要授权"));
+        assert!(compact.contains("需要执行受控命令"));
+        assert!(compact.contains("工具:shell.exec"));
+        assert!(compact.contains("[a]允许执行[d]拒绝"));
     }
 }
