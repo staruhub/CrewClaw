@@ -2,7 +2,7 @@
 // turn into agentLoop streaming to the sink + persists; historyToMessages maps model
 // history to display messages. Uses a fake agentLoop honoring the Ink sink contract.
 import assert from "node:assert/strict";
-import { buildRunTurn, historyToMessages } from "../tui/repl.mjs";
+import { buildRunTurn, historyToTurns } from "../tui/repl.mjs";
 
 // 1) a turn: pushes user → runs loop streaming to sink → saves
 {
@@ -41,12 +41,12 @@ import { buildRunTurn, historyToMessages } from "../tui/repl.mjs";
     { role: "tool", content: "result" },
     { role: "assistant", content: "答案" },
   ];
-  const msgs = historyToMessages(h);
-  assert.equal(msgs.length, 2);
-  assert.equal(msgs[0].role, "user");
-  assert.equal(msgs[0].text, "hi");
-  assert.equal(msgs[1].role, "assistant");
-  assert.equal(msgs[1].parts[0].text, "答案");
+  const turns = historyToTurns(h);
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0].role, "user");
+  assert.equal(turns[0].text, "hi");
+  assert.equal(turns[1].role, "assistant");
+  assert.equal(turns[1].app.answer, "答案");
 }
 
 console.log("tui-repl tests passed");
