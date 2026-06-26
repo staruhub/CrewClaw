@@ -23,6 +23,9 @@ export function initialAppState(meta = {}) {
     usage: { promptTok: 0, completionTok: 0 },
     status: "idle",                  // idle | running | awaiting_approval | done | rejected
     debug: [],                       // raw log lines (debug drawer)
+    pendingActions: [],              // [{ key, label, action_type, payload }] (§5.6) — digit input matches here FIRST
+    memory: { session: "available", persistent: "unavailable", workspace: "unavailable" }, // Memory Truth (§9.8)
+    quickUtility: null,              // QuickUtilityRun result card (§5.3) — NOT a TaskRun
   };
 }
 
@@ -67,7 +70,7 @@ export function reduce(state, ev) {
     case EVENTS.TOOL_FAILED:
       return { ...state, tools: setTool(state.tools, d.id, { status: "failed", summary: d.code || d.error }), timeline: mark(state.timeline, d.id, SYM.fail, d.code || d.error) };
     case EVENTS.ARTIFACT_CREATED:
-      return { ...state, artifacts: [...state.artifacts, { id: d.id, name: d.name, type: d.type, status: d.status || "draft", checks: d.checks || [] }], timeline: push(state.timeline, idFor(state, d), SYM.ok, `交付物：${d.name || ""}`) };
+      return { ...state, artifacts: [...state.artifacts, { id: d.id, name: d.name, kind: d.kind || d.type, type: d.type || d.kind, path: d.path, status: d.status || "draft", checks: d.checks || [] }], timeline: push(state.timeline, idFor(state, d), SYM.ok, `交付物：${d.name || ""}`, d.path) };
     case EVENTS.ARTIFACT_UPDATED:
       return { ...state, artifacts: state.artifacts.map((a) => (a.id === d.id ? { ...a, ...(d.patch || {}) } : a)) };
     case EVENTS.EVIDENCE_CREATED:
@@ -84,6 +87,27 @@ export function reduce(state, ev) {
       return { ...state, task: state.task ? { ...state.task, status: "done" } : null, status: "done", timeline: push(state.timeline, idFor(state, d), SYM.ok, "完成") };
     case EVENTS.TASK_REJECTED:
       return { ...state, task: state.task ? { ...state.task, status: "rejected" } : null, status: "rejected", timeline: push(state.timeline, idFor(state, d), SYM.fail, `打回：${d.reason || ""}`) };
+    // v0.6 — chat-to-workbench hardening
+    case EVENTS.TASK_UPGRADED_FROM_CHAT:
+      return { ...state, mode: "chat-upgraded", timeline: push(state.timeline, idFor(state, d), SYM.ok, "↑ 从对话升级为 TaskRun", d.reason) };
+    case EVENTS.SKILL_LAUNCHED:
+      return { ...state, timeline: push(state.timeline, idFor(state, d), SYM.running, `启动技能：${d.skill || d.name || ""}`) };
+    case EVENTS.TOOL_PREFLIGHT_CHECKED:
+      return { ...state, timeline: push(state.timeline, idFor(state, d), d.ok === false ? SYM.warn : SYM.ok, `预检：${d.label || ""}`, d.detail) };
+    case EVENTS.SOURCE_CHECKED:
+      return { ...state, timeline: push(state.timeline, idFor(state, d), d.ok === false ? SYM.warn : SYM.ok, `核对来源：${d.source || ""}`, d.detail) };
+    case EVENTS.PENDING_ACTIONS:
+      return { ...state, pendingActions: d.actions || [] };
+    case EVENTS.QUICK_UTILITY:
+      return { ...state, quickUtility: { intent: d.intent, result: d.result, source: d.source, status: d.status } };
+    case EVENTS.MEMORY_STATE:
+      return { ...state, memory: { ...state.memory, ...(d.memory || {}) } };
+    case EVENTS.MEMORY_REQUESTED:
+      return { ...state, timeline: push(state.timeline, idFor(state, d), SYM.wait, `记忆请求：${d.summary || ""}`) };
+    case EVENTS.MEMORY_SAVED:
+      return { ...state, timeline: push(state.timeline, idFor(state, d), SYM.ok, `记忆已存：${d.summary || ""}`, d.scope) };
+    case EVENTS.WORKSPACE_REVEALED:
+      return { ...state, timeline: push(state.timeline, idFor(state, d), d.ok === false ? SYM.warn : SYM.ok, d.ok === false ? "无法打开,路径已给" : "打开位置", d.path) };
     default:
       return state;
   }
