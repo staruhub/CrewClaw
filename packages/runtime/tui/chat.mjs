@@ -6,6 +6,7 @@ import React from "react";
 import { render, Box, Static, Text, useInput, useApp } from "ink";
 import htm from "htm";
 import { createWorkbenchStore } from "./workbench-store.mjs";
+import { routeTurn } from "./route.mjs";
 import { UserMessage, TurnView, StatusHeader } from "./components.mjs";
 import { theme, glyphs } from "./theme.mjs";
 import { getToolTruth } from "../tool-truth.mjs";
@@ -42,7 +43,16 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
     store.pushUser(text);
     const run = store.startTurn({ title: text, mode: meta.mode });
     try {
-      await runTurn(text, run.sink); // agentLoop streams TaskEvents into this TaskRun
+      // §6 Intent/Scope Router decides what to do: upgrade to TaskRun / quick utility /
+      // memory / matched PendingAction / decline — then runs the model turn if appropriate.
+      await routeTurn(text, {
+        emit: (type, data) => run.emit(type, data),
+        runModelTurn: (msg) => runTurn(msg, run.sink),
+        pendingActions: run.get().pendingActions,
+        employeeScope: meta.employeeScope,
+        env: process.env,
+        role: meta.role,
+      });
       store.commitTurn();
     } catch (e) {
       store.failTurn(String((e && e.message) || e));
