@@ -1,7 +1,11 @@
 // The shared v0.6 Intent/Scope routing (used by both Ink + Ratatui renderers). Classifies a
 // user message and drives the TaskRun via events. Fakes the model turn + captures events.
 import assert from "node:assert/strict";
+import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 import { routeTurn } from "../tui/route.mjs";
+import { assertCreated } from "../artifact-contract.mjs";
 import { EVENTS } from "../tui/protocol.mjs";
 
 function harness(extra = {}) {
@@ -57,6 +61,32 @@ function harness(extra = {}) {
   assert.equal(d.type, "out_of_scope");
   assert.equal(h.turns.length, 0, "out-of-scope doesn't burn the employee on it");
   assert.ok(h.events.some((e) => e.type === EVENTS.TOKEN_DELTA && /岗位/.test(e.data.text)), "declines with a scope note");
+}
+
+// 6) employee_task WITH taskRunId + a real deliverable → writes a REAL artifact file on disk
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "crewroute-"));
+  const events = [];
+  const emit = (type, data) => events.push({ type, data });
+  const answer = "# 内部知识问答 ROI 报告\n\n## 假设\n- 团队 50 人\n\n## 结论\n年化节省约 30 万元。\n".repeat(3);
+  const d = await routeTurn("给我一份内部知识问答 ROI 报告", { emit, runModelTurn: async () => answer, taskRunId: "test-task", root });
+  assert.equal(d.type, "employee_task");
+  const art = events.find((e) => e.type === EVENTS.ARTIFACT_CREATED);
+  assert.ok(art, "a formal task emits artifact.created");
+  assert.ok(art.data.path && fs.existsSync(art.data.path), "the artifact is a REAL file on disk (No-Artifact-No-Created)");
+  assert.ok(assertCreated({ path: art.data.path, bytes: art.data.bytes }), "assertCreated verifies the bytes match");
+  assert.ok(events.some((e) => e.type === EVENTS.WORKSPACE_REVEALED), "emits how to reveal/open it");
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// 7) employee_task WITH taskRunId but a chat-only answer → No-Chat-only-Done flag, no file
+{
+  const events = [];
+  const emit = (type, data) => events.push({ type, data });
+  const d = await routeTurn("给我一份内部知识问答 ROI 报告", { emit, runModelTurn: async () => "好的。", taskRunId: "test-task-2", root: os.tmpdir() });
+  assert.equal(d.type, "employee_task");
+  assert.ok(!events.some((e) => e.type === EVENTS.ARTIFACT_CREATED), "no file written for a chat-only answer");
+  assert.ok(events.some((e) => e.type === EVENTS.TOKEN_DELTA && /无交付物不算完成/.test(e.data.text)), "honestly flags No-Chat-only-Done instead of implying 完成");
 }
 
 console.log("tui-route tests passed");

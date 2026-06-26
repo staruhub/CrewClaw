@@ -52,6 +52,8 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
         employeeScope: meta.employeeScope,
         env: process.env,
         role: meta.role,
+        taskRunId: `chat-${Date.now()}`,
+        root: process.env.CREWCLAW_ROOT || process.cwd(),
       });
       store.commitTurn();
     } catch (e) {

@@ -27,7 +27,7 @@ export function historyToTurns(history) {
 export function buildRunTurn({ agentLoop, agentLoopDeps = {}, history, saveSession }) {
   return async function runTurn(text, sink) {
     history.push({ role: "user", content: text });
-    await agentLoop({
+    const output = await agentLoop({
       ...agentLoopDeps,
       messages: history,
       renderMd: false,            // Ink owns the screen — agentLoop must not write stdout
@@ -36,6 +36,7 @@ export function buildRunTurn({ agentLoop, agentLoopDeps = {}, history, saveSessi
       onUsage: sink.onUsage,
     });
     if (saveSession) saveSession();
+    return output;                // the final answer — the Router persists it as an artifact
   };
 }
 
