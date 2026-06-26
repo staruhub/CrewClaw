@@ -610,6 +610,16 @@ impl AppState {
                     string_field(data, "path").unwrap_or_default(),
                 );
             }
+            TaskEvent::OutcomeChecked { .. } => {
+                let valid = bool_field(data, "valid") != Some(false);
+                let status = if valid { SYM_OK } else { SYM_WARN };
+                let label = if valid { "验收：可交付" } else { "验收：未达标" };
+                let detail = string_field(data, "reason")
+                    .or_else(|| string_field(data, "deliverable"))
+                    .unwrap_or_default();
+                let line_id = self.id_for(data);
+                self.push(line_id, status, label.to_string(), detail);
+            }
             TaskEvent::Unknown => {}
         }
     }
@@ -830,6 +840,23 @@ mod tests {
         assert_eq!(state.artifacts[0].path.as_deref(), Some("/x/.crewclaw/artifacts/t/roi_report.md"));
         assert_eq!(state.artifacts[0].kind.as_deref(), Some("report"));
         assert!(state.timeline.iter().any(|line| line.label.contains("升级")));
+    }
+
+    #[test]
+    fn outcome_checked_pushes_a_verdict_line() {
+        let ok = reduce_all(vec![ev(
+            "outcome.checked",
+            serde_json::json!({"valid":true,"deliverable":"/x/roi.md"}),
+        )]);
+        assert!(ok.timeline.iter().any(|l| l.status == SYM_OK && l.label.contains("验收")));
+
+        let bad = reduce_all(vec![ev(
+            "outcome.checked",
+            serde_json::json!({"valid":false,"reason":"无可交付文件"}),
+        )]);
+        let line = bad.timeline.iter().find(|l| l.label.contains("验收")).unwrap();
+        assert_eq!(line.status, SYM_WARN);
+        assert_eq!(line.detail, "无可交付文件");
     }
 
     #[test]

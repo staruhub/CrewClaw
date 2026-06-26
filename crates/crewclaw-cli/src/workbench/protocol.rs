@@ -225,6 +225,13 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "outcome.checked")]
+    OutcomeChecked {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -263,6 +270,7 @@ impl TaskEvent {
             "memory.requested" => Self::MemoryRequested { ts, data },
             "memory.saved" => Self::MemorySaved { ts, data },
             "workspace.revealed" => Self::WorkspaceRevealed { ts, data },
+            "outcome.checked" => Self::OutcomeChecked { ts, data },
             _ => Self::Unknown,
         }
     }
@@ -300,6 +308,7 @@ impl TaskEvent {
             Self::MemoryRequested { .. } => "memory.requested",
             Self::MemorySaved { .. } => "memory.saved",
             Self::WorkspaceRevealed { .. } => "workspace.revealed",
+            Self::OutcomeChecked { .. } => "outcome.checked",
             Self::Unknown => "unknown",
         }
     }
@@ -336,7 +345,8 @@ impl TaskEvent {
             | Self::MemoryState { data, .. }
             | Self::MemoryRequested { data, .. }
             | Self::MemorySaved { data, .. }
-            | Self::WorkspaceRevealed { data, .. } => data,
+            | Self::WorkspaceRevealed { data, .. }
+            | Self::OutcomeChecked { data, .. } => data,
             Self::Unknown => UNKNOWN_DATA.get_or_init(|| Value::Null),
         }
     }
