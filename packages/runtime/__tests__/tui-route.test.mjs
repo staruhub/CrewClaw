@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
-import { routeTurn } from "../tui/route.mjs";
+import { routeTurn, markdownTableToCsv } from "../tui/route.mjs";
 import { assertCreated } from "../artifact-contract.mjs";
 import { EVENTS } from "../tui/protocol.mjs";
 
@@ -122,6 +122,25 @@ function harness(extra = {}) {
   assert.equal(modelRan, false, "accept does NOT run a model turn");
   assert.ok(ev2.some((e) => e.type === EVENTS.ARTIFACT_UPDATED && e.data.patch.status === "accepted"), "artifact marked accepted");
   assert.ok(ev2.some((e) => e.type === EVENTS.OUTCOME_CHECKED && e.data.valid === true), "task recorded valid/effective");
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// 10) AC-001: a report carrying a Markdown table also yields a real .csv spreadsheet Artifact
+{
+  const csv = markdownTableToCsv("intro\n\n| 项目 | 值 |\n| --- | --- |\n| 工单量 | 1000 |\n\nmore");
+  assert.ok(csv && /项目,值/.test(csv) && /工单量,1000/.test(csv), "markdownTableToCsv extracts header + rows");
+  assert.equal(markdownTableToCsv("no table here, just prose"), null, "no table → null");
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "crewcsv-"));
+  const events = [];
+  const emit = (type, data) => events.push({ type, data });
+  const answer = "# ROI 报告\n\n## 假设\n\n| 项目 | 值 |\n| --- | --- |\n| 月工单量 | 5000 |\n| 单均成本 | 8 元 |\n\n## 结论\n年化可观。\n";
+  await routeTurn("给我一份带假设表的 ROI 报告", { emit, runModelTurn: async () => answer, taskRunId: "csv-task", root });
+  const arts = events.filter((e) => e.type === EVENTS.ARTIFACT_CREATED);
+  assert.equal(arts.length, 2, "a report with a table writes TWO artifacts (.md + .csv)");
+  const csvArt = arts.find((e) => /\.csv$/.test(e.data.name));
+  assert.ok(csvArt && fs.existsSync(csvArt.data.path), "the .csv is a real file on disk");
+  assert.ok(/月工单量,5000/.test(fs.readFileSync(csvArt.data.path, "utf8")), "the .csv carries the table data");
   fs.rmSync(root, { recursive: true, force: true });
 }
 

@@ -109,6 +109,14 @@ async function persistDeliverable({ emit, answer, message, taskRunId, root }) {
       available: reveal.available,
       command: reveal.available ? `${reveal.command} ${(reveal.args || []).join(" ")}` : reveal.fallback?.manual_command,
     });
+    // AC-001: if the report carries a table, also persist it as a real .csv spreadsheet Artifact.
+    const csv = markdownTableToCsv(text);
+    if (csv) {
+      try {
+        const csvArt = writeArtifact({ name: artifactFileName(message).replace(/\.md$/i, "") + "-table.csv", kind: "table", content: csv, taskRunId, root });
+        emit(EVENTS.ARTIFACT_CREATED, { id: csvArt.artifact_id, name: csvArt.name, kind: csvArt.kind, path: csvArt.path, status: csvArt.status, bytes: csvArt.bytes });
+      } catch { /* the .md is the primary deliverable; a CSV failure must not sink the turn */ }
+    }
     emit(EVENTS.OUTCOME_CHECKED, { valid: true, deliverable: art.path, kind: art.kind, bytes: art.bytes });
     // AC-009/001/006: the deliverable is reviewable — offer accept / revise / open as
     // PendingActions (digit input matches these FIRST, §6.4), so "1" accepts, not a model guess.
@@ -128,4 +136,24 @@ async function persistDeliverable({ emit, answer, message, taskRunId, root }) {
 function artifactFileName(message) {
   const slug = String(message || "report").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "report";
   return `${slug}.md`;
+}
+
+// AC-001: pull the first Markdown table out of a report → CSV, so a report with an assumptions
+// table also yields a real spreadsheet Artifact (not just prose). Returns null if there's no table.
+export function markdownTableToCsv(text) {
+  const rows = [];
+  let inTable = false;
+  for (const line of String(text || "").split("\n")) {
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      const cells = line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      inTable = true;
+      if (cells.every((c) => c === "" || /^:?-{2,}:?$/.test(c))) continue; // separator row
+      rows.push(cells);
+    } else if (inTable) {
+      break; // table ended
+    }
+  }
+  if (rows.length < 2) return null; // need a header + at least one data row
+  const esc = (c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c);
+  return rows.map((r) => r.map(esc).join(",")).join("\n") + "\n";
 }
