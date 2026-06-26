@@ -100,3 +100,30 @@ export function Header({ name, tokens = 0, ctxPct = 0, costText = "$0.00" }) {
     <${Text} dimColor>${`${(tokens || 0).toLocaleString()} tok · ${ctxPct}% · ${costText}`}</>
   </>`;
 }
+
+// One work-timeline line: status symbol (✓/✗/→/!/?) + label + dim detail. The symbol backs
+// up the color (don't rely on color alone). Renders AppState.timeline — high-level WORK
+// events, not the raw model stream.
+const LINE_COLOR = { "✓": theme.ok, "✗": theme.err, "→": theme.assistant, "!": theme.warn, "?": theme.accent };
+export function TimelineLine({ line }) {
+  const color = LINE_COLOR[line.status] || theme.dim;
+  return html`<${Text} wrap="truncate"><${Text} color=${color}>${"   " + line.status + " "}</><${Text} dimColor>${line.label}${line.detail ? "  " + line.detail : ""}</></>`;
+}
+
+// TurnView renders ONE TaskRun's workbench view from AppState — the iron law on screen:
+// role header + work timeline + the deliverable answer + evidence/artifact tallies. The
+// renderer reads AppState slices; the only model text it sees is state.answer.
+export function TurnView({ state, name, renderLines, caret }) {
+  const lines = state.answer ? renderLines(state.answer) : [];
+  const tally = [];
+  if (state.evidence.length) tally.push(`🔖 ${state.evidence.length} 证据`);
+  if (state.artifacts.length) tally.push(`📦 ${state.artifacts.length} 交付物`);
+  return html`<${Box} flexDirection="column" marginTop=${1}>
+    <${Text} color=${theme.assistant}>${name} ${glyphs.assistant}</>
+    ${state.timeline.map((l, i) => html`<${TimelineLine} key=${i} line=${l} />`)}
+    ${lines.length
+      ? html`<${MessageBody} lines=${lines} caret=${!!caret} />`
+      : (caret && !state.timeline.length ? html`<${MessageBody} lines=${[""]} caret=${true} />` : null)}
+    ${tally.length ? html`<${Text} dimColor>${"   " + tally.join("   ")}</>` : null}
+  </>`;
+}
