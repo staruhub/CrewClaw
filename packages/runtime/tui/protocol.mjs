@@ -23,6 +23,17 @@ export const EVENTS = {
   TOKEN_USAGE: "token.usage",
   TASK_COMPLETED: "task.completed",
   TASK_REJECTED: "task.rejected",
+  // v0.6 — chat-to-workbench hardening (§5.4)
+  TASK_UPGRADED_FROM_CHAT: "task.upgraded_from_chat",
+  SKILL_LAUNCHED: "skill.launched",
+  TOOL_PREFLIGHT_CHECKED: "tool.preflight_checked",
+  SOURCE_CHECKED: "source.checked",
+  PENDING_ACTIONS: "pending.actions",
+  QUICK_UTILITY: "quick.utility",
+  MEMORY_STATE: "memory.state",
+  MEMORY_REQUESTED: "memory.requested",
+  MEMORY_SAVED: "memory.saved",
+  WORKSPACE_REVEALED: "workspace.revealed",
 };
 
 const KNOWN = new Set(Object.values(EVENTS));

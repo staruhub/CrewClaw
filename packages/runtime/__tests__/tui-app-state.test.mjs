@@ -52,4 +52,22 @@ assert.equal(f.tools.srch.status, "failed");
 const sl = f.timeline.find((l) => l.id === "srch");
 assert.ok(sl && sl.status === SYM.fail && sl.detail === "missing_key", "failed tool shows ✗ + code");
 
+// v0.6 events: chat upgrade · pending actions · memory truth · artifact path
+{
+  const s2 = reduceAll([
+    makeEvent(EVENTS.TASK_STARTED, { id: "t", title: "ROI 示例" }),
+    makeEvent(EVENTS.TASK_UPGRADED_FROM_CHAT, { reason: "需生成报告" }),
+    makeEvent(EVENTS.PENDING_ACTIONS, { actions: [{ key: "1", label: "看示例" }, { key: "2", label: "改假设" }] }),
+    makeEvent(EVENTS.MEMORY_STATE, { memory: { persistent: "disabled" } }),
+    makeEvent(EVENTS.ARTIFACT_CREATED, { id: "a", name: "roi_report.md", kind: "report", path: "/x/.crewclaw/artifacts/t/roi_report.md" }),
+  ]);
+  assert.equal(s2.mode, "chat-upgraded", "chat→TaskRun upgrade");
+  assert.equal(s2.pendingActions.length, 2, "pending actions captured (digit input matches here first)");
+  assert.equal(s2.memory.persistent, "disabled", "memory truth merged");
+  assert.equal(s2.memory.session, "available", "memory truth keeps defaults");
+  assert.equal(s2.artifacts[0].path, "/x/.crewclaw/artifacts/t/roi_report.md", "artifact carries a real path");
+  assert.equal(s2.artifacts[0].kind, "report");
+  assert.ok(s2.timeline.some((l) => l.label.includes("升级")), "upgrade shows in timeline");
+}
+
 console.log("tui-app-state tests passed");
