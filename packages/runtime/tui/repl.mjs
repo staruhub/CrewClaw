@@ -41,9 +41,29 @@ export function buildRunTurn({ agentLoop, agentLoopDeps = {}, history, saveSessi
   };
 }
 
+// A LIGHT turn for quick utilities (§10.2): a generic minimal system + just the one question —
+// NOT the employee's full soul/skills/memory/history. Keeps trivia (天气/时间/换算) cheap and off
+// the employee's professional context, so it never counts as — or costs like — real employee work.
+export function buildQuickUtilityTurn({ agentLoop, agentLoopDeps = {} }) {
+  const LIGHT_SYSTEM = "你是一个通用快捷助手。请简短、直接地回答用户这一个快捷问题(天气/时间/单位换算等),不要展开,也不要使用任何员工的专业身份或长期上下文。";
+  return async function runQuickUtility(text, sink) {
+    return agentLoop({
+      ...agentLoopDeps,
+      system: LIGHT_SYSTEM,                          // strip the employee's full system prompt
+      messages: [{ role: "user", content: text }],   // fresh, minimal context (no chat history)
+      renderMd: false,
+      onDelta: sink.onDelta,
+      onInvocation: sink.onInvocation,
+      onUsage: sink.onUsage,
+      confirm: sink.confirm || agentLoopDeps.confirm,
+    });
+  };
+}
+
 // Mount the Ink chat and return a promise that resolves when the user exits.
 export function startInkChat({ agentLoop, agentLoopDeps, history = [], agentName, renderLines, saveSession, meta }) {
   const runTurn = buildRunTurn({ agentLoop, agentLoopDeps, history, saveSession });
-  const app = mountChat({ runTurn, agentName, renderLines, initialTurns: historyToTurns(history), meta });
+  const runQuickUtility = buildQuickUtilityTurn({ agentLoop, agentLoopDeps });
+  const app = mountChat({ runTurn, runQuickUtility, agentName, renderLines, initialTurns: historyToTurns(history), meta });
   return app.waitUntilExit();
 }

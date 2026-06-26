@@ -13,7 +13,7 @@
 // agent is blocked inside confirm(), which a blocking for-await loop could never reach.
 import { createInterface } from "node:readline";
 import { makeEvent, EVENTS } from "./protocol.mjs";
-import { buildRunTurn } from "./repl.mjs";
+import { buildRunTurn, buildQuickUtilityTurn } from "./repl.mjs";
 import { routeTurn } from "./route.mjs";
 
 export async function startJsonlBridge({
@@ -50,6 +50,7 @@ export async function startJsonlBridge({
   };
 
   const runTurn = buildRunTurn({ agentLoop, agentLoopDeps, history, saveSession });
+  const runQuickUtility = buildQuickUtilityTurn({ agentLoop, agentLoopDeps });
   const rl = createInterface({ input });
 
   rl.on("line", async (raw) => {
@@ -72,6 +73,7 @@ export async function startJsonlBridge({
       await routeTurn(text, {
         emit,
         runModelTurn: (msg) => runTurn(msg, sink),
+        runQuickUtility: (msg) => runQuickUtility(msg, sink), // §10.2 light path
         pendingActions: sessionPendingActions,
         employeeScope: meta.employeeScope,
         env: process.env,

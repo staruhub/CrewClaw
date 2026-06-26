@@ -16,7 +16,7 @@ import { EVENTS } from "./protocol.mjs";
 // deps: { emit(type,data), runModelTurn(text)->Promise<answer>, pendingActions, employeeScope,
 //         env, role, taskRunId, root } — taskRunId+root opt the turn into real artifact persistence
 export async function routeTurn(message, deps = {}) {
-  const { emit = () => {}, runModelTurn = async () => {}, pendingActions = [], employeeScope, env = {}, role, taskRunId, root } = deps;
+  const { emit = () => {}, runModelTurn = async () => {}, runQuickUtility, pendingActions = [], employeeScope, env = {}, role, taskRunId, root } = deps;
   const decision = classifyIntent(message, { pendingActions, employeeScope });
 
   // §6.4: a matched PendingAction takes priority over the model — system-owned, NOT guessed.
@@ -55,7 +55,9 @@ export async function routeTurn(message, deps = {}) {
 
     case "quick_utility":
       emit(EVENTS.QUICK_UTILITY, { intent: message, status: "running" });
-      await runModelTurn(message); // v1: still runs, but flagged un-scored (not employee work)
+      // §10.2: run on the LIGHT path (minimal system, no full employee context) when the renderer
+      // provides it; falls back to the full turn otherwise. Un-scored either way (not employee work).
+      await (runQuickUtility || runModelTurn)(message);
       break;
 
     case "memory_command": {

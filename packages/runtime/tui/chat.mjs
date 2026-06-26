@@ -33,7 +33,7 @@ function useStore(store) {
   return React.useSyncExternalStore(subscribe, () => store.get());
 }
 
-export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, meta = {} }) {
+export function ChatApp({ store, runTurn, runQuickUtility, agentName, renderLines, submitRef, meta = {} }) {
   const state = useStore(store);
   const { exit } = useApp();
   const [input, setInput] = React.useState("");
@@ -49,6 +49,7 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
       await routeTurn(text, {
         emit: (type, data) => run.emit(type, data),
         runModelTurn: (msg) => runTurn(msg, run.sink),
+        runQuickUtility: runQuickUtility ? (msg) => runQuickUtility(msg, run.sink) : undefined, // §10.2 light path
         pendingActions: store.get().sessionPendingActions, // last task's actions — "1" matches accept (§6.4)
         employeeScope: meta.employeeScope,
         env: process.env,
@@ -118,10 +119,10 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
 
 // Mount the chat UI. Returns { store, submit, unmount, waitUntilExit }. `submit` lets a
 // non-TTY harness drive a turn without keyboard input (used by the demo/tests).
-export function mountChat({ runTurn, agentName = "鲸", renderLines = (t) => String(t).split("\n"), initialTurns = [], meta = {} }) {
+export function mountChat({ runTurn, runQuickUtility, agentName = "鲸", renderLines = (t) => String(t).split("\n"), initialTurns = [], meta = {} }) {
   const store = createWorkbenchStore(meta, initialTurns);
   const submitRef = { current: null };
-  const app = render(html`<${ChatApp} store=${store} runTurn=${runTurn} agentName=${agentName} renderLines=${renderLines} submitRef=${submitRef} meta=${meta} />`);
+  const app = render(html`<${ChatApp} store=${store} runTurn=${runTurn} runQuickUtility=${runQuickUtility} agentName=${agentName} renderLines=${renderLines} submitRef=${submitRef} meta=${meta} />`);
   return {
     store,
     submit: (t) => submitRef.current && submitRef.current(t),
