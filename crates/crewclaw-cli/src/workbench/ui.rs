@@ -275,18 +275,24 @@ fn render_timeline(
     ui_state: &UiState,
     area: ratatui::layout::Rect,
 ) {
-    let mut lines = state
+    let mut lines = Vec::new();
+    if let Some(badge) = quick_utility_badge_line(state, area.width.saturating_sub(2) as usize) {
+        lines.push(badge);
+    }
+
+    let mut timeline = state
         .timeline
         .iter()
         .rev()
         .take(80)
         .collect::<Vec<_>>();
-    lines.reverse();
-    let lines = lines
-        .into_iter()
-        .map(timeline_line)
-        .chain(answer_preview(state))
-        .collect::<Vec<_>>();
+    timeline.reverse();
+    lines.extend(
+        timeline
+            .into_iter()
+            .map(timeline_line)
+            .chain(answer_preview(state)),
+    );
 
     frame.render_widget(
         Paragraph::new(Text::from(lines))
@@ -615,6 +621,25 @@ fn timeline_line(entry: &TimelineEntry) -> Line<'static> {
     Line::from(spans)
 }
 
+fn quick_utility_badge_line(state: &AppState, max_width: usize) -> Option<Line<'static>> {
+    let utility = state.quick_utility.as_ref()?;
+    let mut label = "⚡ 快捷工具 · 不计入员工绩效".to_string();
+    if let Some(intent) = utility
+        .intent
+        .as_deref()
+        .map(str::trim)
+        .filter(|intent| !intent.is_empty())
+    {
+        label.push('：');
+        label.push_str(intent);
+    }
+
+    Some(Line::from(Span::styled(
+        truncate_display_width(&label, max_width),
+        Style::default().fg(WARN),
+    )))
+}
+
 fn answer_preview(state: &AppState) -> Vec<Line<'static>> {
     if state.answer.is_empty() {
         return Vec::new();
@@ -717,7 +742,7 @@ mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend};
 
-    use super::super::state::Approval;
+    use super::super::state::{Approval, QuickUtility};
 
     #[test]
     fn truncates_cjk_by_display_width_not_char_count() {
@@ -770,5 +795,33 @@ mod tests {
         assert!(compact.contains("需要执行受控命令"));
         assert!(compact.contains("工具:shell.exec"));
         assert!(compact.contains("[a]允许执行[d]拒绝"));
+    }
+
+    #[test]
+    fn render_shows_quick_utility_badge_in_timeline() {
+        let mut state = AppState::default();
+        state.quick_utility = Some(QuickUtility {
+            intent: Some("北京天气".to_string()),
+            result: None,
+            source: Some("weather".to_string()),
+            status: Some("done".to_string()),
+        });
+        let mut ui_state = UiState::default();
+        ui_state.focus = FocusPanel::Timeline;
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).expect("test terminal");
+
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw frame");
+
+        let contents = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact = contents.replace(' ', "");
+        assert!(compact.contains("⚡快捷工具·不计入员工绩效：北京天气"));
     }
 }
