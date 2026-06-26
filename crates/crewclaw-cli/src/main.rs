@@ -13,6 +13,7 @@ mod manifest;
 mod standup;
 mod team;
 mod verify;
+mod workbench;
 
 pub(crate) const CREWCLAW_ASCII: &[&str] = &[
     "   _____                         _____ _                 ",
@@ -129,6 +130,13 @@ fn run_cli(args: &[String], root: &Path) -> Result<i32, String> {
         return standup::run_standup(args, root);
     }
 
+    // `crew workbench --demo` — Ratatui Trial Workbench. In normal mode it
+    // consumes TaskEvent JSONL on stdin, so the Node runtime can pipe events in.
+    if matches!(command, Some("workbench")) {
+        workbench::run_workbench(has_flag(args, "--demo"))?;
+        return Ok(0);
+    }
+
     // `crew badge <agent>` — render the hired employee's manifest as an ID card.
     if matches!(command, Some("badge")) {
         return hire_demo::run_badge(args, root, target.unwrap_or(""));
@@ -222,6 +230,7 @@ fn show_help(root: &Path) {
     println!("  run <expert> <task>  Put a hired employee to work — live model, real output");
     println!("  chat <expert>     Open an interactive multi-turn chat with a hired employee");
     println!("  standup <brief>   Fan the whole crew out on one brief — live, in parallel");
+    println!("  workbench [--demo]  Open the Ratatui Trial Workbench; reads TaskEvent JSONL on stdin");
     println!("  badge <expert>    Show a hired employee's manifest as an ID card");
     println!("  fire <expert>     Offboard a hired AI employee");
     println!("  update [expert]   Show available employee upgrades; --apply updates team state");
