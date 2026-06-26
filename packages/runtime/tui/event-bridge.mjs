@@ -15,6 +15,7 @@ export function createTaskRun(meta = {}, onChange = () => {}) {
 
   return {
     get: () => state,
+    emit: (type, data) => apply(type, data), // raw event (plan/evidence/artifact/approval the sink doesn't cover)
     start: (title = "", mode) => apply(EVENTS.TASK_STARTED, { id: "turn" + ++turnSeq, title, mode }),
     complete: () => apply(EVENTS.TASK_COMPLETED, {}),
     reject: (reason) => apply(EVENTS.TASK_REJECTED, { reason }),
