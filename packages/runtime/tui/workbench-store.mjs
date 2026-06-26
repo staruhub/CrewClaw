@@ -10,6 +10,7 @@ export function createWorkbenchStore(meta = {}, initialTurns = []) {
     live: null,  // live AppState | null
     sessionUsage: { promptTok: 0, completionTok: 0 },
     status: "idle",
+    sessionPendingActions: [], // PendingActions from the last task — digit input matches these (§6.4)
   };
   let currentRun = null;
   const subs = new Set();
@@ -24,7 +25,7 @@ export function createWorkbenchStore(meta = {}, initialTurns = []) {
       completionTok: state.sessionUsage.completionTok + (app.usage?.completionTok || 0),
     };
     currentRun = null;
-    set({ turns: [...state.turns, { role: "assistant", app, errored: !!errored }], live: null, sessionUsage, status: errored ? "error" : "idle" });
+    set({ turns: [...state.turns, { role: "assistant", app, errored: !!errored }], live: null, sessionUsage, status: errored ? "error" : "idle", sessionPendingActions: app.pendingActions || [] });
   };
 
   return {

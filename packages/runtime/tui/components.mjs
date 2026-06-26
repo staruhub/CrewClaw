@@ -144,5 +144,8 @@ export function TurnView({ state, name, renderLines, caret }) {
       ? html`<${MessageBody} lines=${lines} caret=${!!caret} />`
       : (caret && !state.timeline.length ? html`<${MessageBody} lines=${[""]} caret=${true} />` : null)}
     ${tally.length ? html`<${Text} dimColor>${"   " + tally.join("   ")}</>` : null}
+    ${state.pendingActions && state.pendingActions.length
+      ? html`<${Text} color=${theme.accent}>${"   " + state.pendingActions.map((a) => `[${a.key}] ${a.label}`).join("  ")}</>`
+      : null}
   </>`;
 }
