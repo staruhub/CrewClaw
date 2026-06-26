@@ -4,7 +4,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{self, Command};
+use std::process::{self, Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod doctor;
@@ -125,6 +125,10 @@ fn run_cli(args: &[String], root: &Path) -> Result<i32, String> {
         return run_agent_live(args, root);
     }
 
+    if matches!(command, Some("deploy")) {
+        return run_deploy(args, root);
+    }
+
     // `crew standup "<brief>"` — the live parallel crew (real models, real cost).
     if matches!(command, Some("standup")) {
         return standup::run_standup(args, root);
@@ -229,6 +233,7 @@ fn show_help(root: &Path) {
     println!("  hire <expert>     Hire an AI employee (scripted onboarding; --live installs for real)");
     println!("  run <expert> <task>  Put a hired employee to work — live model, real output");
     println!("  chat <expert>     Open an interactive multi-turn chat with a hired employee");
+    println!("  deploy <agent> [--target openwork]  Generate an OpenWork deployment package + show compatibility level");
     println!("  standup <brief>   Fan the whole crew out on one brief — live, in parallel");
     println!("  workbench [--demo]  Open the Ratatui Trial Workbench; reads TaskEvent JSONL on stdin");
     println!("  badge <expert>    Show a hired employee's manifest as an ID card");
@@ -716,9 +721,76 @@ fn run_agent_live(args: &[String], root: &Path) -> Result<i32, String> {
     let run_employee = forward.first().cloned();
     node_args.extend(forward);
 
-    let code = match Command::new("node")
-        .args(&node_args)
+    let code = run_node_live(&node_args, root);
+    if code == 0 {
+        if let Some(employee) = run_employee.as_deref() {
+            append_activity(root, "run", employee)?;
+        }
+    }
+    Ok(code)
+}
+
+fn run_deploy(args: &[String], root: &Path) -> Result<i32, String> {
+    let (agent, target) = deploy_args(args);
+    let Some(agent) = agent else {
+        eprintln!("Usage: crewclaw deploy <agent> [--target openwork]");
+        return Ok(1);
+    };
+    let node_args = deploy_node_args(root, &agent, target.as_deref());
+    Ok(run_node_live(&node_args, root))
+}
+
+fn deploy_args(args: &[String]) -> (Option<String>, Option<String>) {
+    let mut agent = None;
+    let mut target = None;
+    let mut consumed_verb = false;
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        if !consumed_verb && arg == "deploy" {
+            consumed_verb = true;
+            index += 1;
+            continue;
+        }
+        if arg == "--target" {
+            if let Some(value) = args.get(index + 1) {
+                target = Some(value.clone());
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+        if !arg.starts_with('-') && agent.is_none() {
+            agent = Some(arg.clone());
+        }
+        index += 1;
+    }
+    (agent, target)
+}
+
+fn deploy_node_args(root: &Path, agent: &str, target: Option<&str>) -> Vec<String> {
+    let mut node_args = vec![
+        root.join("packages/runtime/deploy.mjs")
+            .to_string_lossy()
+            .to_string(),
+        agent.to_string(),
+    ];
+    if let Some(target) = target {
+        node_args.push("--target".to_string());
+        node_args.push(target.to_string());
+    }
+    node_args
+}
+
+fn run_node_live(node_args: &[String], root: &Path) -> i32 {
+    match Command::new("node")
+        .args(node_args)
         .current_dir(root)
+        .env("CREWCLAW_ROOT", root)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .status()
     {
         Ok(status) => status.code().unwrap_or(1),
@@ -726,13 +798,7 @@ fn run_agent_live(args: &[String], root: &Path) -> Result<i32, String> {
             eprintln!("Error: failed to launch the Node runtime (is node on PATH?): {error}");
             127
         }
-    };
-    if code == 0 {
-        if let Some(employee) = run_employee.as_deref() {
-            append_activity(root, "run", employee)?;
-        }
     }
-    Ok(code)
 }
 
 fn run_update(
@@ -1193,6 +1259,39 @@ mod tests {
         assert_eq!(
             command,
             "hermes -p shrimp chat -q \"say \\\"hi\\\" and \\$HOME\""
+        );
+    }
+
+    #[test]
+    fn builds_deploy_node_args_without_target() {
+        let root = Path::new("repo");
+        let script = root
+            .join("packages/runtime/deploy.mjs")
+            .to_string_lossy()
+            .to_string();
+
+        assert_eq!(
+            deploy_node_args(root, "code-review-shrimp", None),
+            vec![script, "code-review-shrimp".to_string()]
+        );
+    }
+
+    #[test]
+    fn builds_deploy_node_args_with_custom_target() {
+        let root = Path::new("repo");
+        let script = root
+            .join("packages/runtime/deploy.mjs")
+            .to_string_lossy()
+            .to_string();
+
+        assert_eq!(
+            deploy_node_args(root, "code-review-shrimp", Some("custom")),
+            vec![
+                script,
+                "code-review-shrimp".to_string(),
+                "--target".to_string(),
+                "custom".to_string()
+            ]
         );
     }
 
