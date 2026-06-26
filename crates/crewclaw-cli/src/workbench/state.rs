@@ -30,6 +30,189 @@ pub struct AppState {
     pub quick_utility: Option<QuickUtility>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FocusPanel {
+    Tasks,
+    Timeline,
+    Artifacts,
+    Tools,
+    Inspect,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NarrowTab {
+    Timeline,
+    Artifacts,
+    Tools,
+    Inspect,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Overlay {
+    CommandPalette,
+    Help,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UiState {
+    pub focus: FocusPanel,
+    pub active_tab: NarrowTab,
+    pub overlay: Option<Overlay>,
+    pub input_focused: bool,
+    pub scroll: ScrollOffsets,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ScrollOffsets {
+    pub tasks: u16,
+    pub timeline: u16,
+    pub artifacts: u16,
+    pub tools: u16,
+    pub inspect: u16,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            focus: FocusPanel::Tasks,
+            active_tab: NarrowTab::Timeline,
+            overlay: None,
+            input_focused: false,
+            scroll: ScrollOffsets::default(),
+        }
+    }
+}
+
+impl UiState {
+    pub fn focus_next(&mut self) {
+        self.focus = match self.focus {
+            FocusPanel::Tasks => FocusPanel::Timeline,
+            FocusPanel::Timeline => FocusPanel::Artifacts,
+            FocusPanel::Artifacts => FocusPanel::Tools,
+            FocusPanel::Tools => FocusPanel::Inspect,
+            FocusPanel::Inspect => FocusPanel::Tasks,
+        };
+        self.sync_tab_to_focus();
+    }
+
+    pub fn focus_previous(&mut self) {
+        self.focus = match self.focus {
+            FocusPanel::Tasks => FocusPanel::Inspect,
+            FocusPanel::Timeline => FocusPanel::Tasks,
+            FocusPanel::Artifacts => FocusPanel::Timeline,
+            FocusPanel::Tools => FocusPanel::Artifacts,
+            FocusPanel::Inspect => FocusPanel::Tools,
+        };
+        self.sync_tab_to_focus();
+    }
+
+    pub fn next_tab(&mut self) {
+        self.active_tab = match self.active_tab {
+            NarrowTab::Timeline => NarrowTab::Artifacts,
+            NarrowTab::Artifacts => NarrowTab::Tools,
+            NarrowTab::Tools => NarrowTab::Inspect,
+            NarrowTab::Inspect => NarrowTab::Timeline,
+        };
+        self.focus = self.active_tab.focus_panel();
+    }
+
+    pub fn previous_tab(&mut self) {
+        self.active_tab = match self.active_tab {
+            NarrowTab::Timeline => NarrowTab::Inspect,
+            NarrowTab::Artifacts => NarrowTab::Timeline,
+            NarrowTab::Tools => NarrowTab::Artifacts,
+            NarrowTab::Inspect => NarrowTab::Tools,
+        };
+        self.focus = self.active_tab.focus_panel();
+    }
+
+    pub fn set_tab_by_number(&mut self, number: char) -> bool {
+        let Some(tab) = NarrowTab::from_number(number) else {
+            return false;
+        };
+        self.active_tab = tab;
+        self.focus = tab.focus_panel();
+        true
+    }
+
+    pub fn scroll_focused(&mut self, delta: i16) {
+        let value = self.scroll_for_mut(self.focus);
+        if delta.is_negative() {
+            *value = value.saturating_sub(delta.unsigned_abs());
+        } else {
+            *value = value.saturating_add(delta as u16);
+        }
+    }
+
+    pub fn scroll_for(&self, panel: FocusPanel) -> u16 {
+        match panel {
+            FocusPanel::Tasks => self.scroll.tasks,
+            FocusPanel::Timeline => self.scroll.timeline,
+            FocusPanel::Artifacts => self.scroll.artifacts,
+            FocusPanel::Tools => self.scroll.tools,
+            FocusPanel::Inspect => self.scroll.inspect,
+        }
+    }
+
+    pub fn close_overlay_or_input(&mut self) -> bool {
+        if self.overlay.take().is_some() {
+            return true;
+        }
+        if self.input_focused {
+            self.input_focused = false;
+            return true;
+        }
+        false
+    }
+
+    fn scroll_for_mut(&mut self, panel: FocusPanel) -> &mut u16 {
+        match panel {
+            FocusPanel::Tasks => &mut self.scroll.tasks,
+            FocusPanel::Timeline => &mut self.scroll.timeline,
+            FocusPanel::Artifacts => &mut self.scroll.artifacts,
+            FocusPanel::Tools => &mut self.scroll.tools,
+            FocusPanel::Inspect => &mut self.scroll.inspect,
+        }
+    }
+
+    fn sync_tab_to_focus(&mut self) {
+        if let Some(tab) = NarrowTab::from_focus(self.focus) {
+            self.active_tab = tab;
+        }
+    }
+}
+
+impl NarrowTab {
+    pub fn focus_panel(self) -> FocusPanel {
+        match self {
+            Self::Timeline => FocusPanel::Timeline,
+            Self::Artifacts => FocusPanel::Artifacts,
+            Self::Tools => FocusPanel::Tools,
+            Self::Inspect => FocusPanel::Inspect,
+        }
+    }
+
+    fn from_focus(focus: FocusPanel) -> Option<Self> {
+        match focus {
+            FocusPanel::Tasks => None,
+            FocusPanel::Timeline => Some(Self::Timeline),
+            FocusPanel::Artifacts => Some(Self::Artifacts),
+            FocusPanel::Tools => Some(Self::Tools),
+            FocusPanel::Inspect => Some(Self::Inspect),
+        }
+    }
+
+    fn from_number(number: char) -> Option<Self> {
+        match number {
+            '1' => Some(Self::Timeline),
+            '2' => Some(Self::Artifacts),
+            '3' => Some(Self::Tools),
+            '4' => Some(Self::Inspect),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Employee {
     pub name: String,
@@ -663,5 +846,37 @@ mod tests {
         )
         .expect("unknown event");
         assert_eq!(unknown.event_type(), "unknown");
+    }
+
+    #[test]
+    fn ui_state_cycles_focus_and_scrolls_active_panel() {
+        let mut ui = UiState::default();
+        assert_eq!(ui.focus, FocusPanel::Tasks);
+
+        ui.focus_next();
+        assert_eq!(ui.focus, FocusPanel::Timeline);
+        ui.scroll_focused(3);
+        assert_eq!(ui.scroll_for(FocusPanel::Timeline), 3);
+        assert_eq!(ui.scroll_for(FocusPanel::Tasks), 0);
+
+        ui.focus_previous();
+        assert_eq!(ui.focus, FocusPanel::Tasks);
+        ui.scroll_focused(-9);
+        assert_eq!(ui.scroll_for(FocusPanel::Tasks), 0);
+    }
+
+    #[test]
+    fn narrow_tabs_map_to_keyboard_numbers() {
+        let mut ui = UiState::default();
+
+        assert!(ui.set_tab_by_number('1'));
+        assert_eq!(ui.active_tab, NarrowTab::Timeline);
+        assert_eq!(ui.focus, FocusPanel::Timeline);
+
+        assert!(ui.set_tab_by_number('4'));
+        assert_eq!(ui.active_tab, NarrowTab::Inspect);
+        assert_eq!(ui.focus, FocusPanel::Inspect);
+
+        assert!(!ui.set_tab_by_number('9'));
     }
 }
