@@ -11,6 +11,7 @@
 import { createInterface } from "node:readline";
 import { makeEvent, EVENTS } from "./protocol.mjs";
 import { buildRunTurn } from "./repl.mjs";
+import { routeTurn } from "./route.mjs";
 
 export async function startJsonlBridge({ agentLoop, agentLoopDeps, agentName = "鲸", meta = {}, history = [], saveSession }) {
   const emit = (type, data) => process.stdout.write(JSON.stringify(makeEvent(type, data, Date.now())) + "\n");
@@ -38,7 +39,15 @@ export async function startJsonlBridge({ agentLoop, agentLoopDeps, agentName = "
     if (text === "/exit" || text === ":q") break;
     emit(EVENTS.TASK_STARTED, { id: "turn" + ++turnSeq, title: text, mode: meta.mode });
     try {
-      await runTurn(text, sink);
+      // same §6 Router as the Ink renderer — chat→workbench logic lives once in the engine
+      await routeTurn(text, {
+        emit,
+        runModelTurn: (msg) => runTurn(msg, sink),
+        pendingActions: [],
+        employeeScope: meta.employeeScope,
+        env: process.env,
+        role: meta.role,
+      });
       emit(EVENTS.TASK_COMPLETED, {});
     } catch (e) {
       emit(EVENTS.TASK_REJECTED, { reason: String((e && e.message) || e) });
