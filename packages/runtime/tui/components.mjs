@@ -139,6 +139,7 @@ export function TurnView({ state, name, renderLines, caret }) {
   return html`<${Box} flexDirection="column" marginTop=${1}>
     <${Text} color=${theme.assistant}>${name} ${glyphs.assistant}</>
     ${state.quickUtility ? html`<${Text} color=${theme.accent}>${"   ⚡ 快捷工具 · 不计入员工绩效" + (state.quickUtility.intent ? "：" + state.quickUtility.intent : "")}</>` : null}
+    ${state.quickUtility && state.quickUtility.result ? html`<${Text} color=${theme.accent}>${`   🌤 ${state.quickUtility.result.city || ""}  ${state.quickUtility.result.condition || ""}  ${state.quickUtility.result.temp_c}°C（体感 ${state.quickUtility.result.feels_c}°C · 湿度 ${state.quickUtility.result.humidity}%）`}</>` : null}
     ${state.timeline.map((l, i) => html`<${TimelineLine} key=${i} line=${l} />`)}
     ${lines.length
       ? html`<${MessageBody} lines=${lines} caret=${!!caret} />`
