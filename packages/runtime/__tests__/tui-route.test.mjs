@@ -76,6 +76,7 @@ function harness(extra = {}) {
   assert.ok(art.data.path && fs.existsSync(art.data.path), "the artifact is a REAL file on disk (No-Artifact-No-Created)");
   assert.ok(assertCreated({ path: art.data.path, bytes: art.data.bytes }), "assertCreated verifies the bytes match");
   assert.ok(events.some((e) => e.type === EVENTS.WORKSPACE_REVEALED), "emits how to reveal/open it");
+  assert.ok(events.some((e) => e.type === EVENTS.OUTCOME_CHECKED && e.data.valid === true), "emits a passing completion verdict (可验收)");
   fs.rmSync(root, { recursive: true, force: true });
 }
 
@@ -87,6 +88,7 @@ function harness(extra = {}) {
   assert.equal(d.type, "employee_task");
   assert.ok(!events.some((e) => e.type === EVENTS.ARTIFACT_CREATED), "no file written for a chat-only answer");
   assert.ok(events.some((e) => e.type === EVENTS.TOKEN_DELTA && /无交付物不算完成/.test(e.data.text)), "honestly flags No-Chat-only-Done instead of implying 完成");
+  assert.ok(events.some((e) => e.type === EVENTS.OUTCOME_CHECKED && e.data.valid === false), "emits a failing completion verdict");
 }
 
 console.log("tui-route tests passed");

@@ -26,6 +26,7 @@ export function initialAppState(meta = {}) {
     pendingActions: [],              // [{ key, label, action_type, payload }] (§5.6) — digit input matches here FIRST
     memory: { session: "available", persistent: "unavailable", workspace: "unavailable" }, // Memory Truth (§9.8)
     quickUtility: null,              // QuickUtilityRun result card (§5.3) — NOT a TaskRun
+    proof: null,                     // completion verdict { valid, deliverable, gaps } (§5.8 No-Chat-only-Done)
   };
 }
 
@@ -108,6 +109,8 @@ export function reduce(state, ev) {
       return { ...state, timeline: push(state.timeline, idFor(state, d), SYM.ok, `记忆已存：${d.summary || ""}`, d.scope) };
     case EVENTS.WORKSPACE_REVEALED:
       return { ...state, timeline: push(state.timeline, idFor(state, d), d.ok === false ? SYM.warn : SYM.ok, d.ok === false ? "无法打开,路径已给" : "打开位置", d.path) };
+    case EVENTS.OUTCOME_CHECKED:
+      return { ...state, proof: { valid: d.valid !== false, deliverable: d.deliverable || null, gaps: d.gaps || [], reason: d.reason || "" }, timeline: push(state.timeline, idFor(state, d), d.valid === false ? SYM.warn : SYM.ok, d.valid === false ? "验收：未达标" : "验收：可交付", d.reason || d.deliverable) };
     default:
       return state;
   }

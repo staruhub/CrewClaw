@@ -70,4 +70,15 @@ assert.ok(sl && sl.status === SYM.fail && sl.detail === "missing_key", "failed t
   assert.ok(s2.timeline.some((l) => l.label.includes("升级")), "upgrade shows in timeline");
 }
 
+// completion verdict (§5.8 No-Chat-only-Done): outcome.checked → proof + a 验收 timeline line
+{
+  const ok = reduceAll([makeEvent(EVENTS.OUTCOME_CHECKED, { valid: true, deliverable: "/x/roi.md" })]);
+  assert.equal(ok.proof.valid, true, "passing verdict recorded");
+  assert.ok(ok.timeline.some((l) => l.status === SYM.ok && l.label.includes("验收")), "passing verdict shows ✓ 验收 in timeline");
+  const bad = reduceAll([makeEvent(EVENTS.OUTCOME_CHECKED, { valid: false, gaps: ["no_artifact"], reason: "无可交付文件" })]);
+  assert.equal(bad.proof.valid, false, "failing verdict recorded");
+  assert.deepEqual(bad.proof.gaps, ["no_artifact"]);
+  assert.ok(bad.timeline.some((l) => l.status === SYM.warn && l.label.includes("验收")), "failing verdict shows ! 验收 in timeline");
+}
+
 console.log("tui-app-state tests passed");

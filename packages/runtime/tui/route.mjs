@@ -82,6 +82,7 @@ async function persistDeliverable({ emit, answer, message, taskRunId, root }) {
     emit(EVENTS.TOKEN_DELTA, {
       text: "\n⚠ 这是一项正式任务,但我只给了对话答复、没有产出可交付文件。按「无交付物不算完成」,本次不计为有效交付——要我整理成正式报告(.md)吗?",
     });
+    emit(EVENTS.OUTCOME_CHECKED, { valid: false, gaps: ["no_artifact"], reason: "只有对话答复,无可交付文件" });
     return null;
   }
   try {
@@ -93,9 +94,11 @@ async function persistDeliverable({ emit, answer, message, taskRunId, root }) {
       available: reveal.available,
       command: reveal.available ? `${reveal.command} ${(reveal.args || []).join(" ")}` : reveal.fallback?.manual_command,
     });
+    emit(EVENTS.OUTCOME_CHECKED, { valid: true, deliverable: art.path, kind: art.kind, bytes: art.bytes });
     return art;
   } catch (e) {
     emit(EVENTS.TOKEN_DELTA, { text: `\n（交付物保存失败:${(e && e.message) || e}）` });
+    emit(EVENTS.OUTCOME_CHECKED, { valid: false, gaps: ["write_failed"], reason: String((e && e.message) || e) });
     return null;
   }
 }
