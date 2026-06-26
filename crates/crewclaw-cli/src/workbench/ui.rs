@@ -1,13 +1,15 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph, Tabs, Wrap},
 };
+use unicode_width::UnicodeWidthStr;
 
 use super::state::{
-    AppState, SYM_FAIL, SYM_OK, SYM_RUNNING, SYM_WAIT, SYM_WARN, TimelineEntry,
+    AppState, FocusPanel, NarrowTab, Overlay, SYM_FAIL, SYM_OK, SYM_RUNNING, SYM_WAIT, SYM_WARN,
+    TimelineEntry, UiState,
 };
 
 const ACCENT: Color = Color::Cyan;
@@ -16,7 +18,14 @@ const BAD: Color = Color::Red;
 const WARN: Color = Color::Yellow;
 const DIM: Color = Color::Gray;
 
-pub fn render(frame: &mut Frame<'_>, state: &AppState, input: &str) {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LayoutKind {
+    Wide,
+    Mid,
+    Narrow,
+}
+
+pub fn render(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState, input: &str) {
     let root = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -27,8 +36,19 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState, input: &str) {
         .split(frame.area());
 
     render_status(frame, state, root[0]);
-    render_panels(frame, state, root[1]);
-    render_bottom(frame, state, input, root[2]);
+    render_panels(frame, state, ui_state, root[1]);
+    render_bottom(frame, state, ui_state, input, root[2]);
+    render_overlay(frame, ui_state);
+}
+
+pub(crate) fn layout_kind(width: u16) -> LayoutKind {
+    if width >= 100 {
+        LayoutKind::Wide
+    } else if width >= 70 {
+        LayoutKind::Mid
+    } else {
+        LayoutKind::Narrow
+    }
 }
 
 fn render_status(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout::Rect) {
@@ -55,12 +75,7 @@ fn render_status(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout:
                 .iter()
                 .map(|(_, tool)| {
                     let label = tool.tool.as_deref().unwrap_or("tool");
-                    let mark = match tool.status.as_str() {
-                        "ok" => SYM_OK,
-                        "failed" => SYM_FAIL,
-                        "running" => SYM_RUNNING,
-                        _ => "?",
-                    };
+                    let mark = status_symbol(&tool.status);
                     let detail = tool.summary.as_deref().unwrap_or(tool.status.as_str());
                     format!("{label} {mark} {detail}")
                 })
@@ -81,7 +96,11 @@ fn render_status(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout:
                 format!("{name} · {role}"),
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             ),
-            Span::raw(format!("   Mode: {} · State: {task_state} · Model: {model}", state.mode)),
+            Span::raw(format!(
+                "   Mode: {} · State: {} · Model: {model}",
+                state.mode,
+                status_label(task_state)
+            )),
         ]),
         Line::from(vec![Span::raw(format!("{cost}   {tools}"))]),
         Line::from(vec![Span::raw(memory)]),
@@ -89,22 +108,117 @@ fn render_status(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout:
     frame.render_widget(Paragraph::new(Text::from(lines)), area);
 }
 
-fn render_panels(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout::Rect) {
-    let chunks = Layout::default()
+fn render_panels(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    ui_state: &UiState,
+    area: ratatui::layout::Rect,
+) {
+    match layout_kind(area.width) {
+        LayoutKind::Wide => render_wide(frame, state, ui_state, area),
+        LayoutKind::Mid => render_mid(frame, state, ui_state, area),
+        LayoutKind::Narrow => render_narrow(frame, state, ui_state, area),
+    }
+}
+
+fn render_wide(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    ui_state: &UiState,
+    area: ratatui::layout::Rect,
+) {
+    let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(24),
-            Constraint::Percentage(50),
+            Constraint::Percentage(25),
+            Constraint::Percentage(49),
             Constraint::Percentage(26),
         ])
         .split(area);
+    let right = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(34),
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+        ])
+        .split(columns[2]);
 
-    render_tasks(frame, state, chunks[0]);
-    render_timeline(frame, state, chunks[1]);
-    render_context(frame, state, chunks[2]);
+    render_tasks(frame, state, ui_state, columns[0]);
+    render_timeline(frame, state, ui_state, columns[1]);
+    render_artifacts(frame, state, ui_state, right[0]);
+    render_tools(frame, state, ui_state, right[1]);
+    render_inspect(frame, state, ui_state, right[2]);
 }
 
-fn render_tasks(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout::Rect) {
+fn render_mid(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    ui_state: &UiState,
+    area: ratatui::layout::Rect,
+) {
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(36), Constraint::Percentage(64)])
+        .split(area);
+    let left = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .split(columns[0]);
+    let right = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(58),
+            Constraint::Percentage(21),
+            Constraint::Percentage(21),
+        ])
+        .split(columns[1]);
+
+    render_tasks(frame, state, ui_state, left[0]);
+    render_artifacts(frame, state, ui_state, left[1]);
+    render_timeline(frame, state, ui_state, right[0]);
+    render_tools(frame, state, ui_state, right[1]);
+    render_inspect(frame, state, ui_state, right[2]);
+}
+
+fn render_narrow(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    ui_state: &UiState,
+    area: ratatui::layout::Rect,
+) {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(4)])
+        .split(area);
+    let selected = match ui_state.active_tab {
+        NarrowTab::Timeline => 0,
+        NarrowTab::Artifacts => 1,
+        NarrowTab::Tools => 2,
+        NarrowTab::Inspect => 3,
+    };
+    frame.render_widget(
+        Tabs::new(["Timeline", "Artifacts", "Tools", "Inspect"])
+            .select(selected)
+            .block(Block::default().borders(Borders::ALL))
+            .style(Style::default().fg(DIM))
+            .highlight_style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+        rows[0],
+    );
+    match ui_state.active_tab {
+        NarrowTab::Timeline => render_timeline(frame, state, ui_state, rows[1]),
+        NarrowTab::Artifacts => render_artifacts(frame, state, ui_state, rows[1]),
+        NarrowTab::Tools => render_tools(frame, state, ui_state, rows[1]),
+        NarrowTab::Inspect => render_inspect(frame, state, ui_state, rows[1]),
+    }
+}
+
+fn render_tasks(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    ui_state: &UiState,
+    area: ratatui::layout::Rect,
+) {
     let mut lines = Vec::new();
     if let Some(task) = &state.task {
         lines.push(Line::from(vec![
@@ -112,7 +226,7 @@ fn render_tasks(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout::
             Span::raw(task.title.clone()),
         ]));
         lines.push(Line::from(Span::styled(
-            format!("  {}", task.status),
+            format!("  {}", status_label(&task.status)),
             Style::default().fg(status_color(&task.status)),
         )));
     } else {
@@ -147,13 +261,19 @@ fn render_tasks(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout::
 
     frame.render_widget(
         Paragraph::new(Text::from(lines))
-            .block(Block::default().title("Tasks").borders(Borders::ALL))
-            .wrap(Wrap { trim: true }),
+            .block(panel_block("Tasks / Employee", ui_state.focus == FocusPanel::Tasks))
+            .wrap(Wrap { trim: true })
+            .scroll((ui_state.scroll_for(FocusPanel::Tasks), 0)),
         area,
     );
 }
 
-fn render_timeline(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout::Rect) {
+fn render_timeline(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    ui_state: &UiState,
+    area: ratatui::layout::Rect,
+) {
     let mut lines = state
         .timeline
         .iter()
@@ -169,18 +289,58 @@ fn render_timeline(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layou
 
     frame.render_widget(
         Paragraph::new(Text::from(lines))
-            .block(Block::default().title("Timeline").borders(Borders::ALL))
-            .wrap(Wrap { trim: true }),
+            .block(panel_block("Timeline", ui_state.focus == FocusPanel::Timeline))
+            .wrap(Wrap { trim: true })
+            .scroll((ui_state.scroll_for(FocusPanel::Timeline), 0)),
         area,
     );
 }
 
-fn render_context(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout::Rect) {
+fn render_artifacts(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    ui_state: &UiState,
+    area: ratatui::layout::Rect,
+) {
     let mut lines = Vec::new();
-    lines.push(Line::from(Span::styled(
-        "Tools",
-        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-    )));
+    if state.artifacts.is_empty() {
+        lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM))));
+    }
+    for artifact in &state.artifacts {
+        lines.push(Line::from(vec![
+            Span::styled(
+                status_symbol(&artifact.status),
+                Style::default().fg(status_color(&artifact.status)),
+            ),
+            Span::raw(format!(
+                " {}",
+                artifact.name.as_deref().unwrap_or("(unnamed)")
+            )),
+        ]));
+        if let Some(path) = &artifact.path {
+            lines.push(Line::from(Span::styled(format!("  {path}"), Style::default().fg(DIM))));
+        }
+        for check in &artifact.checks {
+            lines.push(Line::from(format!("  {SYM_WAIT} {check}")));
+        }
+    }
+
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .block(panel_block("Artifacts / Checks", ui_state.focus == FocusPanel::Artifacts))
+            .wrap(Wrap { trim: true })
+            .scroll((ui_state.scroll_for(FocusPanel::Artifacts), 0)),
+        area,
+    );
+}
+
+fn render_tools(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    ui_state: &UiState,
+    area: ratatui::layout::Rect,
+) {
+    let mut lines = Vec::new();
     if state.tools.is_empty() {
         lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM))));
     }
@@ -193,6 +353,36 @@ fn render_context(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout
                 Style::default().fg(DIM),
             ),
         ]));
+    }
+
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .block(panel_block("Tools", ui_state.focus == FocusPanel::Tools))
+            .wrap(Wrap { trim: true })
+            .scroll((ui_state.scroll_for(FocusPanel::Tools), 0)),
+        area,
+    );
+}
+
+fn render_inspect(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    ui_state: &UiState,
+    area: ratatui::layout::Rect,
+) {
+    let mut lines = Vec::new();
+    lines.push(Line::from(Span::styled(
+        "Task",
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+    )));
+    if let Some(task) = &state.task {
+        lines.push(Line::from(format!(
+            "{} {}",
+            status_symbol(&task.status),
+            task.title
+        )));
+    } else {
+        lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM))));
     }
 
     lines.push(Line::from(""));
@@ -210,23 +400,13 @@ fn render_context(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Checks",
-        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-    )));
-    for artifact in &state.artifacts {
-        for check in &artifact.checks {
-            lines.push(Line::from(format!("{} {check}", SYM_WAIT)));
-        }
-    }
-
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
         "Approval",
         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
     )));
     if let Some(approval) = &state.approval {
         lines.push(Line::from(format!(
-            "{} {}",
+            "{} {} {}",
+            SYM_WAIT,
             approval.tool.as_deref().unwrap_or("tool"),
             approval.reason.as_deref().unwrap_or("")
         )));
@@ -236,8 +416,9 @@ fn render_context(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout
 
     frame.render_widget(
         Paragraph::new(Text::from(lines))
-            .block(Block::default().title("Context / Artifacts / Checks").borders(Borders::ALL))
-            .wrap(Wrap { trim: true }),
+            .block(panel_block("Inspect", ui_state.focus == FocusPanel::Inspect))
+            .wrap(Wrap { trim: true })
+            .scroll((ui_state.scroll_for(FocusPanel::Inspect), 0)),
         area,
     );
 }
@@ -245,6 +426,7 @@ fn render_context(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout
 fn render_bottom(
     frame: &mut Frame<'_>,
     state: &AppState,
+    ui_state: &UiState,
     input: &str,
     area: ratatui::layout::Rect,
 ) {
@@ -266,11 +448,16 @@ fn render_bottom(
                 .join(" / ")
         )
     };
+    let input_label = if ui_state.input_focused {
+        "Slash command"
+    } else {
+        "Input"
+    };
     let lines = vec![
         machine,
         Line::from(actions),
         Line::from(vec![
-            Span::styled("> ", Style::default().fg(ACCENT)),
+            Span::styled(format!("{input_label}> "), Style::default().fg(ACCENT)),
             Span::raw(input.to_string()),
         ]),
     ];
@@ -280,6 +467,86 @@ fn render_bottom(
             .wrap(Wrap { trim: true }),
         area,
     );
+}
+
+fn render_overlay(frame: &mut Frame<'_>, ui_state: &UiState) {
+    let Some(overlay) = ui_state.overlay else {
+        return;
+    };
+    let area = centered_rect(70, 60, frame.area());
+    let lines = match overlay {
+        Overlay::CommandPalette => vec![
+            Line::from(Span::styled(
+                "Command Palette",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("accept"),
+            Line::from("revise"),
+            Line::from("export"),
+            Line::from("inspect"),
+        ],
+        Overlay::Help => vec![
+            Line::from(Span::styled(
+                "Keybindings",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("Tab / Shift+Tab  Cycle focus or narrow tabs"),
+            Line::from("1-4              Narrow tabs: Timeline / Artifacts / Tools / Inspect"),
+            Line::from("Up / Down        Scroll focused panel"),
+            Line::from("Enter            Activate selected item or submit input"),
+            Line::from("Esc              Back or close overlay"),
+            Line::from("Ctrl+P           Command palette"),
+            Line::from("/                Slash-command input"),
+            Line::from("?                Help"),
+            Line::from("q / Ctrl+C       Quit"),
+        ],
+    };
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .alignment(Alignment::Left)
+            .block(Block::default().title("Workbench").borders(Borders::ALL))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+fn centered_rect(
+    percent_x: u16,
+    percent_y: u16,
+    area: ratatui::layout::Rect,
+) -> ratatui::layout::Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(vertical[1])[1]
+}
+
+fn panel_block(title: &'static str, focused: bool) -> Block<'static> {
+    let style = if focused {
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(DIM)
+    };
+    Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(style)
 }
 
 fn timeline_line(entry: &TimelineEntry) -> Line<'static> {
@@ -303,8 +570,24 @@ fn answer_preview(state: &AppState) -> Vec<Line<'static>> {
             "Answer",
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         )),
-        Line::from(state.answer.chars().take(600).collect::<String>()),
+        Line::from(truncate_display_width(&state.answer, 600)),
     ]
+}
+
+fn truncate_display_width(text: &str, max_width: usize) -> String {
+    let mut width = 0usize;
+    let mut out = String::new();
+    for ch in text.chars() {
+        let mut buf = [0; 4];
+        let segment = ch.encode_utf8(&mut buf);
+        let next_width = UnicodeWidthStr::width(segment);
+        if width + next_width > max_width {
+            break;
+        }
+        width += next_width;
+        out.push(ch);
+    }
+    out
 }
 
 fn state_machine_line(state: &AppState) -> Line<'static> {
@@ -322,8 +605,9 @@ fn state_machine_line(state: &AppState) -> Line<'static> {
         if index > 0 {
             spans.push(Span::raw(" > "));
         }
+        let symbol = if *active { SYM_OK } else { SYM_WAIT };
         spans.push(Span::styled(
-            *label,
+            format!("{symbol} {label}"),
             Style::default().fg(if *active { OK } else { DIM }),
         ));
     }
@@ -343,9 +627,14 @@ fn status_symbol(status: &str) -> &'static str {
         "ok" | "done" | "ready" | "accepted" => SYM_OK,
         "failed" | "rejected" => SYM_FAIL,
         "running" => SYM_RUNNING,
-        "draft" | "awaiting_approval" => SYM_WAIT,
+        "blocked" => SYM_WARN,
+        "idle" | "draft" | "awaiting_approval" | "proposed" => SYM_WAIT,
         _ => SYM_WARN,
     }
+}
+
+fn status_label(status: &str) -> String {
+    format!("{} {status}", status_symbol(status))
 }
 
 fn status_color(status: &str) -> Color {
@@ -365,5 +654,34 @@ fn symbol_color(symbol: &str) -> Color {
         SYM_RUNNING => ACCENT,
         SYM_WARN | SYM_WAIT => WARN,
         _ => DIM,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncates_cjk_by_display_width_not_char_count() {
+        assert_eq!(truncate_display_width("你好ab", 5), "你好a");
+        assert_eq!(truncate_display_width("a你b好", 4), "a你b");
+    }
+
+    #[test]
+    fn layout_kind_uses_spec_breakpoints() {
+        assert_eq!(layout_kind(120), LayoutKind::Wide);
+        assert_eq!(layout_kind(100), LayoutKind::Wide);
+        assert_eq!(layout_kind(99), LayoutKind::Mid);
+        assert_eq!(layout_kind(70), LayoutKind::Mid);
+        assert_eq!(layout_kind(69), LayoutKind::Narrow);
+    }
+
+    #[test]
+    fn status_symbol_carries_semantics_without_color() {
+        assert_eq!(status_symbol("done"), SYM_OK);
+        assert_eq!(status_symbol("failed"), SYM_FAIL);
+        assert_eq!(status_symbol("running"), SYM_RUNNING);
+        assert_eq!(status_symbol("blocked"), SYM_WARN);
+        assert_eq!(status_symbol("idle"), SYM_WAIT);
     }
 }
