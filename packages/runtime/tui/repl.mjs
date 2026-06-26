@@ -34,6 +34,7 @@ export function buildRunTurn({ agentLoop, agentLoopDeps = {}, history, saveSessi
       onDelta: sink.onDelta,      // stream text to the store, not the internal md printer
       onInvocation: sink.onInvocation,
       onUsage: sink.onUsage,
+      confirm: sink.confirm || agentLoopDeps.confirm, // L2 approval → the workbench modal (not auto-yes)
     });
     if (saveSession) saveSession();
     return output;                // the final answer — the Router persists it as an artifact

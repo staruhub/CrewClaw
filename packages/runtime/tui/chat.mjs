@@ -65,6 +65,13 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
 
   useInput((ch, key) => {
     if (key.ctrl && ch === "c") { exit(); return; }
+    // L2 approval modal: while the agent awaits a decision, a/d (or y/n) decide; swallow the
+    // rest so the human gate can't be typed past (§14.3 — replaces the old auto-yes).
+    if (state.live && state.live.approval) {
+      if (ch === "a" || ch === "y") store.resolveApproval("allow");
+      else if (ch === "d" || ch === "n") store.resolveApproval("deny");
+      return;
+    }
     if (busy) return; // ignore typing mid-turn
     if (key.return) { const t = input; setInput(""); submit(t); return; }
     if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
@@ -87,6 +94,12 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
           : html`<${TurnView} key=${i} state=${t.app} name=${agentName} renderLines=${renderLines} />`}
       </>
       ${state.live ? html`<${TurnView} state=${state.live} name=${agentName} renderLines=${renderLines} caret=${true} />` : null}
+      ${state.live && state.live.approval ? html`
+        <${Box} marginTop=${1} borderStyle="round" borderColor="yellow" paddingX=${1} flexDirection="column">
+          <${Text} color="yellow" bold>⚠ 需要授权${state.live.approval.tool ? " · " + state.live.approval.tool : ""}</>
+          <${Text}>${state.live.approval.reason || "敏感操作,请确认"}</>
+          <${Text} dimColor>[a] 允许执行    [d] 拒绝</>
+        </>` : null}
       <${Box} marginTop=${1} flexDirection="column">
         <${StatusHeader} name=${agentName} role=${meta.role} mode=${meta.mode || "Chat"} status=${headerStatus} tokens=${tokens} costText=${costText} toolTruth=${TOOLS} memory=${MEMORY} />
         <${Box}>

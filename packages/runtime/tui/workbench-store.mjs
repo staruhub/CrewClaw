@@ -41,5 +41,8 @@ export function createWorkbenchStore(meta = {}, initialTurns = []) {
     },
     commitTurn() { commit(false); },
     failTurn(reason) { if (currentRun) currentRun.reject(reason); commit(true); },
+    // L2 approval: the input handler routes a/d here → resolves the awaiting agentLoop confirm()
+    resolveApproval(decision) { return !!(currentRun && currentRun.resolveApproval(decision)); },
+    awaitingApproval() { return !!(currentRun && currentRun.awaitingApproval()); },
   };
 }
