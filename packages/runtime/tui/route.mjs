@@ -79,6 +79,9 @@ async function persistDeliverable({ emit, answer, message, taskRunId, root }) {
   const text = typeof answer === "string" ? answer.trim() : "";
   const looksLikeDeliverable = text.length >= 200 || /(^|\n)#{1,6}\s|\n\s*[-*]\s|\n\s*\d+\.\s|\|.+\|/.test(text);
   if (!looksLikeDeliverable) {
+    // An explicit short-form request ("一句话/简短/两三句") is satisfied by a short answer —
+    // don't pedantically flag No-Chat-only-Done. (Otherwise a formal task owes a real file.)
+    if (/一句话|一行|简短|简要|两三句|两句|简单说|快速说|概括|tl;?dr/i.test(String(message || ""))) return null;
     emit(EVENTS.TOKEN_DELTA, {
       text: "\n⚠ 这是一项正式任务,但我只给了对话答复、没有产出可交付文件。按「无交付物不算完成」,本次不计为有效交付——要我整理成正式报告(.md)吗?",
     });

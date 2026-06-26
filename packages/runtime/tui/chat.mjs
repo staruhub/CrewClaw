@@ -11,6 +11,7 @@ import { UserMessage, TurnView, StatusHeader } from "./components.mjs";
 import { theme, glyphs } from "./theme.mjs";
 import { getToolTruth } from "../tool-truth.mjs";
 import { getMemoryTruth } from "../memory-harness.mjs";
+import { newBudget, addUsage, budgetStatus } from "../context-budget.mjs";
 import { costFor } from "../ui-topbar.mjs";
 
 const html = htm.bind(React.createElement);
@@ -82,6 +83,9 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
   const promptTok = state.sessionUsage.promptTok + (liveUsage.promptTok || 0);
   const completionTok = state.sessionUsage.completionTok + (liveUsage.completionTok || 0);
   const tokens = promptTok + completionTok;
+  // Context Budget (§10): session tokens vs soft(50k)/hard(90k) → header shows used/hard + warns
+  const budgetState = addUsage(newBudget(), { promptTokens: promptTok, completionTokens: completionTok });
+  const budget = { used: tokens, soft: budgetState.soft, hard: budgetState.hard, status: budgetStatus(budgetState).status };
   const rawCost = meta.model ? costFor(meta.model, promptTok, completionTok) : 0;
   const costText = typeof rawCost === "string" ? rawCost : "$" + (Number(rawCost) || 0).toFixed(2);
   const headerStatus = STATUS_MAP[state.live ? state.live.status : "idle"] || "idle";
@@ -101,7 +105,7 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
           <${Text} dimColor>[a] 允许执行    [d] 拒绝</>
         </>` : null}
       <${Box} marginTop=${1} flexDirection="column">
-        <${StatusHeader} name=${agentName} role=${meta.role} mode=${meta.mode || "Chat"} status=${headerStatus} tokens=${tokens} costText=${costText} toolTruth=${TOOLS} memory=${MEMORY} />
+        <${StatusHeader} name=${agentName} role=${meta.role} mode=${meta.mode || "Chat"} status=${headerStatus} tokens=${tokens} costText=${costText} toolTruth=${TOOLS} memory=${MEMORY} budget=${budget} />
         <${Box}>
           <${Text} color=${theme.user}>${glyphs.userRail + " "}</>
           <${Text}>${input}</>
