@@ -76,11 +76,18 @@ export function StatusBar({ name, status = "idle", tokens = 0, ctxPct = 0, costT
 // Sticky status block (2 lines): identity · mode · state + cost on top, REAL tool health
 // below. This is the "状态一眼看懂、不撒谎" line — search ✗ means the employee literally
 // can't do real research right now. Symbols (✓/✗) back up color (don't rely on color alone).
-const SHORT_TOOL = { "web.search": "search", "web.fetch": "fetch", "browser.render": "render", "evidence": "evidence" };
-export function StatusHeader({ name, role, mode = "Chat", status = "idle", tokens = 0, costText = "$0.00", tools = [] }) {
+// fine-grained Tool Truth (§9): per-capability status, weather INDEPENDENT of search (Case B)
+const CAP_SHORT = { "utility.weather": "weather", "web.search": "search", "web.extract": "fetch", "browser.render": "render", "artifact.write": "artifact", "artifact.reveal": "reveal" };
+const CAP_SYM = { available: "✓", missing_key: "✗", unavailable: "✗", degraded: "!", rate_limited: "!", permission_required: "!", configured_unverified: "?", disabled: "–" };
+const HEADER_CAPS = ["web.search", "utility.weather", "web.extract", "browser.render", "artifact.write", "artifact.reveal"];
+const MEM_SYM = { available: "✓", unavailable: "✗", disabled: "–" };
+const capColor = (s) => (s === "available" ? theme.ok : (s === "missing_key" || s === "unavailable") ? theme.err : s === "disabled" ? theme.dim : theme.warn);
+
+export function StatusHeader({ name, role, mode = "Chat", status = "idle", tokens = 0, costText = "$0.00", toolTruth = [], memory = null }) {
   const dotColor = { idle: theme.dim, thinking: theme.warn, streaming: theme.assistant, tool: theme.accent, error: theme.err }[status] || theme.dim;
   const stateLabel = { idle: "就绪", thinking: "思考中", streaming: "回答中", tool: "调用工具", error: "中断" }[status] || status;
   const ident = [name, role, `${mode} · ${stateLabel}`].filter(Boolean).join(" · ");
+  const caps = HEADER_CAPS.map((c) => toolTruth.find((s) => s.capability === c)).filter(Boolean);
   return html`<${Box} flexDirection="column">
     <${Box} justifyContent="space-between" paddingX=${1}>
       <${Box}><${Text} color=${dotColor}>${"● "}</><${Text} dimColor>${ident}</></>
@@ -88,8 +95,14 @@ export function StatusHeader({ name, role, mode = "Chat", status = "idle", token
     </>
     <${Box} paddingX=${1}>
       <${Text} dimColor>${"工具 "}</>
-      ${tools.map((t, i) => html`<${Text} key=${i} color=${t.ok ? theme.ok : theme.err}>${(i ? " · " : "") + (SHORT_TOOL[t.tool] || t.tool) + " " + (t.ok ? "✓" : "✗ " + t.label)}</>`)}
+      ${caps.map((s, i) => html`<${Text} key=${i} color=${capColor(s.status)}>${(i ? " · " : "") + (CAP_SHORT[s.capability] || s.capability) + " " + (CAP_SYM[s.status] || "!")}</>`)}
     </>
+    ${memory ? html`<${Box} paddingX=${1}>
+      <${Text} dimColor>${"记忆 "}</>
+      <${Text} color=${capColor(memory.session)}>${"session " + (MEM_SYM[memory.session] || "?")}</>
+      <${Text} dimColor>${" · "}</>
+      <${Text} color=${capColor(memory.persistent)}>${"persistent " + (MEM_SYM[memory.persistent] || "?")}</>
+    </>` : null}
   </>`;
 }
 

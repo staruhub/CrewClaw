@@ -8,12 +8,14 @@ import htm from "htm";
 import { createWorkbenchStore } from "./workbench-store.mjs";
 import { UserMessage, TurnView, StatusHeader } from "./components.mjs";
 import { theme, glyphs } from "./theme.mjs";
-import { getToolStatus } from "./tool-status.mjs";
+import { getToolTruth } from "../tool-truth.mjs";
+import { getMemoryTruth } from "../memory-harness.mjs";
 import { costFor } from "../ui-topbar.mjs";
 
 const html = htm.bind(React.createElement);
 const isTTY = !!process.stdin.isTTY;
-const TOOLS = getToolStatus(); // honest tool health, computed once per session
+const TOOLS = getToolTruth();    // fine-grained per-capability truth (§9), computed once
+const MEMORY = getMemoryTruth();  // Memory Truth (§9.8)
 
 // AppState status → StatusHeader label key
 const STATUS_MAP = { idle: "idle", running: "streaming", awaiting_approval: "tool", done: "idle", rejected: "error", error: "error" };
@@ -74,7 +76,7 @@ export function ChatApp({ store, runTurn, agentName, renderLines, submitRef, met
       </>
       ${state.live ? html`<${TurnView} state=${state.live} name=${agentName} renderLines=${renderLines} caret=${true} />` : null}
       <${Box} marginTop=${1} flexDirection="column">
-        <${StatusHeader} name=${agentName} role=${meta.role} mode=${meta.mode || "Chat"} status=${headerStatus} tokens=${tokens} costText=${costText} tools=${TOOLS} />
+        <${StatusHeader} name=${agentName} role=${meta.role} mode=${meta.mode || "Chat"} status=${headerStatus} tokens=${tokens} costText=${costText} toolTruth=${TOOLS} memory=${MEMORY} />
         <${Box}>
           <${Text} color=${theme.user}>${glyphs.userRail + " "}</>
           <${Text}>${input}</>
