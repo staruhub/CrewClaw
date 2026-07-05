@@ -8,6 +8,7 @@ use ratatui::{
 use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
+use super::preview::read_artifact_preview;
 use super::state::{
     AppState, FocusPanel, NarrowTab, Overlay, PendingAction, SYM_FAIL, SYM_OK, SYM_RUNNING,
     SYM_WAIT, SYM_WARN, TimelineEntry, UiState,
@@ -19,6 +20,8 @@ const OK: Color = Color::Green;
 const BAD: Color = Color::Red;
 const WARN: Color = Color::Yellow;
 const DIM: Color = Color::Gray;
+const ARTIFACT_PREVIEW_MAX_LINES: usize = 400;
+const ARTIFACT_PREVIEW_MAX_CHARS: usize = 8_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum LayoutKind {
@@ -408,7 +411,39 @@ fn render_artifacts(
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(format!("{} {}", SYM_RUNNING, preview.title)));
-        if !preview.detail.is_empty() {
+        let selected_path = selected_artifact_path(state);
+        if let Some(path) = selected_path {
+            match read_artifact_preview(
+                path,
+                ARTIFACT_PREVIEW_MAX_LINES,
+                ARTIFACT_PREVIEW_MAX_CHARS,
+            ) {
+                Ok(content) => {
+                    for line in content.lines() {
+                        if line.starts_with("… (truncated,") {
+                            lines.push(Line::from(Span::styled(
+                                line.to_string(),
+                                Style::default().fg(DIM),
+                            )));
+                        } else {
+                            lines.push(Line::from(line.to_string()));
+                        }
+                    }
+                }
+                Err(err) => {
+                    if !preview.detail.is_empty() {
+                        lines.push(Line::from(Span::styled(
+                            format!("  {}", preview.detail),
+                            Style::default().fg(DIM),
+                        )));
+                    }
+                    lines.push(Line::from(Span::styled(
+                        format!("  (cannot read {path}: {err})"),
+                        Style::default().fg(DIM),
+                    )));
+                }
+            }
+        } else if !preview.detail.is_empty() {
             lines.push(Line::from(Span::styled(
                 format!("  {}", preview.detail),
                 Style::default().fg(DIM),
@@ -426,6 +461,15 @@ fn render_artifacts(
             .scroll((ui_state.scroll_for(FocusPanel::Artifacts), 0)),
         area,
     );
+}
+
+fn selected_artifact_path(state: &AppState) -> Option<&str> {
+    let selected = state.selected_artifact_id()?;
+    state
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.id.as_deref() == Some(selected.as_str()))
+        .and_then(|artifact| artifact.path.as_deref())
 }
 
 fn render_tools(
@@ -910,14 +954,20 @@ fn answer_preview(state: &AppState) -> Vec<Line<'static>> {
     if state.answer.is_empty() {
         return Vec::new();
     }
-    vec![
+    let mut lines = vec![
         Line::from(""),
         Line::from(Span::styled(
             "Answer",
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         )),
-        Line::from(truncate_display_width(&state.answer, 600)),
-    ]
+    ];
+    // One Line per source line: a Line's spans don't split on '\n', so a multi-paragraph
+    // markdown answer would collapse into one row. Width-wrapping is still applied by the
+    // Timeline Paragraph's Wrap; here we only preserve the author's own line breaks.
+    for line in state.answer.split('\n') {
+        lines.push(Line::from(line.to_string()));
+    }
+    lines
 }
 
 fn truncate_display_width(text: &str, max_width: usize) -> String {
@@ -1130,6 +1180,107 @@ mod tests {
         assert!(compact.contains("!review.md"));
         assert!(compact.contains("✓exported.md"));
         assert!(compact.contains("✗rejected.md"));
+    }
+
+    #[test]
+    fn render_timeline_shows_answer_beyond_six_hundred_columns() {
+        let mut state = AppState::default();
+        state.answer = format!("{} TAIL_AFTER_600", "answer ".repeat(100));
+        let mut ui_state = UiState::default();
+        ui_state.focus = FocusPanel::Timeline;
+        ui_state.active_tab = NarrowTab::Timeline;
+        let mut terminal = Terminal::new(TestBackend::new(80, 60)).expect("test terminal");
+
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw frame");
+
+        let contents = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact = contents.replace(' ', "");
+        assert!(compact.contains("Answer"));
+        assert!(compact.contains("TAIL_AFTER_600"), "{compact}");
+    }
+
+    #[test]
+    fn render_timeline_answer_preserves_internal_line_breaks() {
+        // A multi-paragraph markdown answer must render every paragraph, not collapse
+        // at the first '\n' (a single Line's spans don't split on newlines).
+        let mut state = AppState::default();
+        state.answer = "FIRST_PARA line one\n\n## SECOND_PARA heading\n- SECOND_PARA_TAIL".to_string();
+        let mut ui_state = UiState::default();
+        ui_state.focus = FocusPanel::Timeline;
+        ui_state.active_tab = NarrowTab::Timeline;
+        let mut terminal = Terminal::new(TestBackend::new(80, 60)).expect("test terminal");
+
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw frame");
+
+        let compact = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+            .replace(' ', "");
+        assert!(compact.contains("FIRST_PARA"), "{compact}");
+        assert!(compact.contains("SECOND_PARA_TAIL"), "{compact}");
+    }
+
+    #[test]
+    fn render_artifacts_preview_reads_selected_artifact_file_contents() {
+        let path = std::env::temp_dir().join(format!(
+            "crewclaw-artifact-preview-{}-{}.md",
+            std::process::id(),
+            "known"
+        ));
+        let artifact_body = "# Deliverable\n\nKnown file body from disk.";
+        std::fs::write(&path, artifact_body).expect("write temp artifact");
+
+        let mut state = AppState::default();
+        state.selected_artifact = Some("a1".to_string());
+        state.preview = Some(super::super::state::ArtifactPreview {
+            artifact_id: "a1".to_string(),
+            title: "deliverable.md".to_string(),
+            detail: "fallback summary".to_string(),
+        });
+        state.artifacts = vec![super::super::state::Artifact {
+            id: Some("a1".to_string()),
+            name: Some("deliverable.md".to_string()),
+            kind: Some("markdown".to_string()),
+            artifact_type: None,
+            path: Some(path.to_string_lossy().into_owned()),
+            status: "ready".to_string(),
+            summary: Some("fallback summary".to_string()),
+            checks: Vec::new(),
+        }];
+        let mut ui_state = UiState::default();
+        ui_state.focus = FocusPanel::Artifacts;
+        ui_state.active_tab = NarrowTab::Artifacts;
+        let mut terminal = Terminal::new(TestBackend::new(68, 40)).expect("test terminal");
+
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw frame");
+
+        let contents = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact = contents.replace(' ', "");
+        assert!(compact.contains("Knownfilebodyfromdisk"), "{compact}");
+
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
