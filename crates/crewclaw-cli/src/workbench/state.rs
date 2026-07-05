@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use super::{preview::compact_markdown_summary, protocol::TaskEvent};
+use super::protocol::TaskEvent;
 
 pub const SYM_RUNNING: &str = "→";
 pub const SYM_OK: &str = "✓";
@@ -909,26 +909,7 @@ impl AppState {
 
     fn reduce_assistant_message(&mut self, data: &Value) {
         let text = string_field(data, "text").unwrap_or_default();
-        if text.chars().count() > 800 && self.task.is_some() {
-            self.status = "needs_artifact".to_string();
-            let detail = compact_markdown_summary(&text, 60);
-            let id = format!("assistant-long-{}", self.artifacts.len() + 1);
-            self.artifacts.push(Artifact {
-                id: Some(id.clone()),
-                name: Some(format!("{id}.md")),
-                kind: Some("markdown".to_string()),
-                artifact_type: Some("markdown".to_string()),
-                path: None,
-                status: "draft".to_string(),
-                summary: Some(detail.clone()),
-                checks: vec!["timeline-summary-only".to_string()],
-            });
-            self.select_artifact(&id);
-            let line_id = self.id_for(data);
-            self.push(line_id, SYM_WARN, "长内容转为 artifact".to_string(), detail);
-        } else {
-            self.answer.push_str(&text);
-        }
+        self.answer.push_str(&text);
     }
 
     fn reduce_session_ready(&mut self, data: &Value) {
@@ -1347,7 +1328,7 @@ mod tests {
     }
 
     #[test]
-    fn long_assistant_markdown_becomes_artifact_required_summary() {
+    fn long_assistant_markdown_appends_to_answer() {
         let long_markdown = format!("# ROI\n\n{}", "很长的段落。".repeat(140));
         let state = reduce_all(vec![
             ev(
@@ -1360,22 +1341,11 @@ mod tests {
             ),
         ]);
 
-        assert!(state.answer.is_empty());
-        assert_eq!(state.status, "needs_artifact");
-        assert_eq!(state.artifacts.len(), 1);
-        assert_eq!(state.artifacts[0].kind.as_deref(), Some("markdown"));
-        assert_eq!(state.selected_artifact.as_deref(), Some("assistant-long-1"));
-        assert!(state.timeline.iter().any(|line| {
-            line.status == SYM_WARN
-                && line.label.contains("长内容转为 artifact")
-                && line.detail.len() <= 180
-        }));
-        assert!(
-            !state
-                .timeline
-                .iter()
-                .any(|line| line.detail.contains("# ROI"))
-        );
+        assert_eq!(state.answer, long_markdown);
+        assert_eq!(state.status, "running");
+        assert!(state.artifacts.is_empty());
+        assert!(state.selected_artifact.is_none());
+        assert!(!state.timeline.iter().any(|line| line.status == SYM_WARN));
     }
 
     #[test]
