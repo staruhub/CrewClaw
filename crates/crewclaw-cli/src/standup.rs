@@ -99,7 +99,9 @@ pub fn run_standup(args: &[String], root: &Path) -> Result<i32, String> {
         let member = member.clone();
         let brief = brief.clone();
         let root = root.to_path_buf();
-        handles.push(thread::spawn(move || run_member(&member, &brief, bar, &root)));
+        handles.push(thread::spawn(move || {
+            run_member(&member, &brief, bar, &root)
+        }));
     }
 
     let mut outcomes = Vec::new();
@@ -230,7 +232,11 @@ fn print_outcome(outcome: &Outcome, ascii: bool) {
             if ascii {
                 println!("  OK  {head}");
             } else {
-                println!("  {} {}", style("✔").green().bold(), style(head).green().bold());
+                println!(
+                    "  {} {}",
+                    style("✔").green().bold(),
+                    style(head).green().bold()
+                );
             }
             for line in content.trim().lines() {
                 println!("       {}", line.trim_end());

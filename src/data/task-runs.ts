@@ -23,6 +23,23 @@ export type ToolInvocation = {
   action?: string;
 };
 
+export type WorkbenchArtifact = {
+  id: string;
+  name: string;
+  kind: "markdown" | "csv" | "excel" | "docx" | "pptx" | "code" | "json" | "unknown";
+  path: string | null;
+  status: "draft" | "ready" | "needs_review" | "accepted" | "rejected" | "exported" | "deleted";
+  summary: string;
+  checks: { label: string; status: "passed" | "warning" | "failed" }[];
+  preview: string;
+};
+
+export type PendingAction = {
+  key: string;
+  label: string;
+  command: string;
+};
+
 export type TaskRun = {
   id: string;
   employee_id: string;
@@ -34,6 +51,12 @@ export type TaskRun = {
   events: TaskEvent[];
   tool_invocations: ToolInvocation[];
   artifact: string | null;
+  artifacts: WorkbenchArtifact[];
+  pending_actions: PendingAction[];
+  inspect: {
+    debug: string[];
+    raw_events: string[];
+  };
   output_valid?: boolean;
   effective?: boolean;
   user_feedback?: string;
@@ -62,6 +85,58 @@ const SEED_RUN: TaskRun = {
   cost: 0.18,
   tokens: 12840,
   artifact: "artifact_1719306072123",
+  artifacts: [
+    {
+      id: "artifact_1719306072123",
+      name: "seed-2.1-research.md",
+      kind: "markdown",
+      path: ".crewclaw/artifacts/task_1719306072000/seed-2.1-research.md",
+      status: "accepted",
+      summary: "官方名称、价格、上下文、能力和接入建议。",
+      checks: [
+        { label: "官方来源已标注", status: "passed" },
+        { label: "价格需上线前复核", status: "warning" },
+        { label: "输出结构完整", status: "passed" },
+      ],
+      preview: [
+        "Doubao-Seed-2.1 是火山引擎 Seed 2.1 系列模型。",
+        "适合作为 CrewClaw 研究/选型场景候选，建议先灰度。",
+        "关键假设：价格和上下文以官方页面最终口径为准。",
+      ].join("\n"),
+    },
+    {
+      id: "artifact_1719306072456",
+      name: "seed-2.1-evidence.json",
+      kind: "json",
+      path: ".crewclaw/artifacts/task_1719306072000/evidence.json",
+      status: "ready",
+      summary: "结构化来源、置信度和验收结果。",
+      checks: [
+        { label: "包含来源 URL", status: "passed" },
+        { label: "包含置信度", status: "passed" },
+      ],
+      preview: "{\n  \"confidence\": \"high\",\n  \"source\": \"volcengine.com\"\n}",
+    },
+  ],
+  pending_actions: [
+    { key: "1", label: "接受交付物", command: "accept_artifact" },
+    { key: "2", label: "要求复核价格", command: "revise_pricing" },
+    { key: "3", label: "导出报告", command: "export_report" },
+  ],
+  inspect: {
+    debug: [
+      "engine stderr captured in Inspect, not alternate screen",
+      "tool web_fetch latency=1240ms status=success",
+      "artifact.write path=.crewclaw/artifacts/task_1719306072000/seed-2.1-research.md",
+    ],
+    raw_events: [
+      "task.started",
+      "tool.requested",
+      "artifact.created",
+      "outcome.checked",
+      "task.completed",
+    ],
+  },
   dream: { candidates: 3, confidence: "high" },
   started_at: "2026-06-25T09:00:00.000Z",
   updated_at: "2026-06-25T09:01:12.000Z",

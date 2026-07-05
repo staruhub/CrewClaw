@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -62,12 +62,23 @@ pub fn run_verify(args: &[String], root: &Path) -> Result<i32, String> {
 
     crate::show_brand_header();
     println!();
-    println!("{}", scenario.title);
-    println!("{}", scenario.tagline);
+    println!("{}", display_text(&scenario.title, ascii));
+    println!("{}", display_text(&scenario.tagline, ascii));
+    if live {
+        println!("Mode: live quality gate (runs configured commands)");
+    } else {
+        println!("Mode: scripted demo (does not replace live cargo/pnpm/e2e checks)");
+    }
     println!();
     println!(
-        "Hiring {} agents · fanning out in parallel…",
-        scenario.agents.len()
+        "{}",
+        display_text(
+            &format!(
+                "Hiring {} agents · fanning out in parallel…",
+                scenario.agents.len()
+            ),
+            ascii
+        )
     );
     println!();
 
@@ -114,24 +125,48 @@ pub fn run_verify(args: &[String], root: &Path) -> Result<i32, String> {
         println!("{}", format_report_line(outcome, ascii));
     }
     println!();
-    println!("{}", "─".repeat(56));
-    println!(
-        "{} agents · {} checks · ran in PARALLEL",
-        scenario.agents.len(),
-        check_count
-    );
-    println!(
-        "sequential ≈ {:.1}s  →  parallel {:.1}s  ·  {:.1}× faster",
-        sequential_ms as f64 / 1000.0,
-        parallel_ms as f64 / 1000.0,
-        factor
-    );
+    if ascii {
+        println!("{}", "-".repeat(56));
+        println!(
+            "{} agents - {} checks - ran in PARALLEL",
+            scenario.agents.len(),
+            check_count
+        );
+        println!(
+            "sequential about {:.1}s -> parallel {:.1}s - {:.1}x faster",
+            sequential_ms as f64 / 1000.0,
+            parallel_ms as f64 / 1000.0,
+            factor
+        );
+    } else {
+        println!("{}", "─".repeat(56));
+        println!(
+            "{} agents · {} checks · ran in PARALLEL",
+            scenario.agents.len(),
+            check_count
+        );
+        println!(
+            "sequential ≈ {:.1}s  →  parallel {:.1}s  ·  {:.1}× faster",
+            sequential_ms as f64 / 1000.0,
+            parallel_ms as f64 / 1000.0,
+            factor
+        );
+    }
 
     if failed == 0 {
         if ascii {
-            println!("OK VERDICT: code is runnable");
+            if live {
+                println!("OK VERDICT: live checks passed");
+            } else {
+                println!("OK VERDICT: scripted demo passed");
+            }
         } else {
-            println!("{}", style("✅ VERDICT: code is runnable").green().bold());
+            let verdict = if live {
+                "✅ VERDICT: live checks passed"
+            } else {
+                "✅ VERDICT: scripted demo passed"
+            };
+            println!("{}", style(verdict).green().bold());
         }
         Ok(0)
     } else {
@@ -163,8 +198,7 @@ fn spinner_style(ascii: bool) -> ProgressStyle {
     } else {
         "{prefix} {spinner:.cyan} {msg}"
     };
-    ProgressStyle::with_template(template)
-        .unwrap_or_else(|_| ProgressStyle::default_spinner())
+    ProgressStyle::with_template(template).unwrap_or_else(|_| ProgressStyle::default_spinner())
 }
 
 fn agent_prefix(agent: &Agent, ascii: bool) -> String {
@@ -173,6 +207,23 @@ fn agent_prefix(agent: &Agent, ascii: bool) -> String {
     } else {
         format!("{} {}", agent.emoji, agent.name)
     }
+}
+
+fn display_text(text: &str, ascii: bool) -> String {
+    if !ascii {
+        return text.to_string();
+    }
+    text.chars()
+        .map(|ch| match ch {
+            '—' | '–' | '·' => '-',
+            '→' => '>',
+            '×' => 'x',
+            '≈' => '~',
+            '…' => '.',
+            ch if ch.is_ascii() => ch,
+            _ => '?',
+        })
+        .collect()
 }
 
 fn run_agent(agent: &Agent, bar: ProgressBar, live: bool, root: &Path) -> AgentOutcome {
@@ -187,7 +238,7 @@ fn run_agent(agent: &Agent, bar: ProgressBar, live: bool, root: &Path) -> AgentO
         kind = if result.code == 0 {
             Kind::Pass(agent.summary.clone())
         } else {
-            Kind::Fail(stderr_tail(&result.stderr))
+            Kind::Fail(live_result_summary(&result))
         };
     } else {
         for step in &agent.steps {
@@ -198,7 +249,10 @@ fn run_agent(agent: &Agent, bar: ProgressBar, live: bool, root: &Path) -> AgentO
         kind = if agent.verdict == "advisory" {
             Kind::Advisory(
                 agent.summary.clone(),
-                agent.advisory.clone().unwrap_or_else(|| "advisory".to_string()),
+                agent
+                    .advisory
+                    .clone()
+                    .unwrap_or_else(|| "advisory".to_string()),
             )
         } else {
             Kind::Pass(agent.summary.clone())
@@ -225,7 +279,12 @@ fn format_report_line(outcome: &AgentOutcome, ascii: bool) -> String {
     };
     match &outcome.kind {
         Kind::Pass(summary) => {
-            let body = format!("{who} — {summary}  ({secs:.1}s)");
+            let summary = display_text(summary, ascii);
+            let body = if ascii {
+                format!("{who} - {summary}  ({secs:.1}s)")
+            } else {
+                format!("{who} — {summary}  ({secs:.1}s)")
+            };
             if ascii {
                 format!("  OK   {body}")
             } else {
@@ -233,7 +292,13 @@ fn format_report_line(outcome: &AgentOutcome, ascii: bool) -> String {
             }
         }
         Kind::Advisory(summary, advisory) => {
-            let body = format!("{who} — {summary} · {advisory}  ({secs:.1}s)");
+            let summary = display_text(summary, ascii);
+            let advisory = display_text(advisory, ascii);
+            let body = if ascii {
+                format!("{who} - {summary} - {advisory}  ({secs:.1}s)")
+            } else {
+                format!("{who} — {summary} · {advisory}  ({secs:.1}s)")
+            };
             if ascii {
                 format!("  WARN {body}")
             } else {
@@ -241,7 +306,12 @@ fn format_report_line(outcome: &AgentOutcome, ascii: bool) -> String {
             }
         }
         Kind::Fail(detail) => {
-            let body = format!("{who} — {detail}  ({secs:.1}s)");
+            let detail = display_text(detail, ascii);
+            let body = if ascii {
+                format!("{who} - {detail}  ({secs:.1}s)")
+            } else {
+                format!("{who} — {detail}  ({secs:.1}s)")
+            };
             if ascii {
                 format!("  FAIL {body}")
             } else {
@@ -253,15 +323,23 @@ fn format_report_line(outcome: &AgentOutcome, ascii: bool) -> String {
 
 struct LiveResult {
     code: i32,
+    stdout: String,
     stderr: String,
+    timed_out: bool,
 }
 
 fn run_live_command(command: &str, root: &Path) -> LiveResult {
+    run_live_command_with_timeout(command, root, live_agent_timeout())
+}
+
+fn run_live_command_with_timeout(command: &str, root: &Path, timeout: Duration) -> LiveResult {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return LiveResult {
             code: 1,
+            stdout: String::new(),
             stderr: "empty command".to_string(),
+            timed_out: false,
         };
     }
 
@@ -269,30 +347,107 @@ fn run_live_command(command: &str, root: &Path) -> LiveResult {
     // PATHEXT resolution work — `Command::new` resolves only .exe by bare name,
     // so `pnpm` would otherwise fail with "program not found".
     #[cfg(windows)]
-    let output = Command::new("cmd")
-        .args(["/C", trimmed])
-        .current_dir(root)
-        .output();
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.args(["/C", trimmed]);
+        command
+    };
     #[cfg(not(windows))]
-    let output = {
+    let mut command = {
         let mut tokens = trimmed.split_whitespace();
         let program = tokens.next().unwrap_or("");
         let args: Vec<&str> = tokens.collect();
-        Command::new(program).args(&args).current_dir(root).output()
+        let mut command = Command::new(program);
+        command.args(&args);
+        command
     };
 
-    match output {
+    let mut child = match command
+        .current_dir(root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => {
+            return LiveResult {
+                code: 127,
+                stdout: String::new(),
+                stderr: error.to_string(),
+                timed_out: false,
+            };
+        }
+    };
+
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if start.elapsed() >= timeout => {
+                kill_child_tree(&mut child);
+                return LiveResult {
+                    code: 124,
+                    stdout: String::new(),
+                    stderr: format!("timed out after {:.1}s", timeout.as_secs_f64()),
+                    timed_out: true,
+                };
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(100)),
+            Err(error) => {
+                kill_child_tree(&mut child);
+                return LiveResult {
+                    code: 127,
+                    stdout: String::new(),
+                    stderr: error.to_string(),
+                    timed_out: false,
+                };
+            }
+        }
+    }
+
+    match child.wait_with_output() {
         Ok(output) => LiveResult {
             code: output.status.code().unwrap_or(1),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            timed_out: false,
         },
         Err(error) => LiveResult {
             code: 127,
+            stdout: String::new(),
             stderr: error.to_string(),
+            timed_out: false,
         },
     }
 }
 
+fn kill_child_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        let pid = child.id().to_string();
+        let status = Command::new("taskkill")
+            .args(["/PID", &pid, "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if status.map(|status| status.success()).unwrap_or(false) {
+            return;
+        }
+    }
+
+    let _ = child.kill();
+}
+
+fn live_agent_timeout() -> Duration {
+    std::env::var("CREW_VERIFY_AGENT_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value >= 100)
+        .map(Duration::from_millis)
+        .unwrap_or_else(|| Duration::from_secs(120))
+}
+
+#[cfg(test)]
 fn stderr_tail(stderr: &str) -> String {
     let trimmed = stderr.trim();
     if trimmed.is_empty() {
@@ -303,6 +458,40 @@ fn stderr_tail(stderr: &str) -> String {
         .last()
         .unwrap_or("command failed")
         .to_string()
+}
+
+fn live_result_summary(result: &LiveResult) -> String {
+    output_tail(&result.stdout, &result.stderr, result.timed_out)
+}
+
+fn output_tail(stdout: &str, stderr: &str, timed_out: bool) -> String {
+    let combined = [stderr.trim(), stdout.trim()]
+        .into_iter()
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let trimmed = combined.trim();
+    if trimmed.is_empty() {
+        return if timed_out {
+            "command timed out".to_string()
+        } else {
+            "command failed".to_string()
+        };
+    }
+    let tail = trimmed
+        .lines()
+        .rev()
+        .take(3)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join(" / ");
+    if timed_out {
+        format!("timeout: {tail}")
+    } else {
+        tail
+    }
 }
 
 /// Parse the verify-specific flags. Returns (live, ascii).
@@ -435,7 +624,10 @@ mod tests {
     #[test]
     fn speedup_math() {
         let factor = speedup(4500, 20300);
-        assert!((factor - 4.5111).abs() < 0.05, "expected ~4.5, got {factor}");
+        assert!(
+            (factor - 4.5111).abs() < 0.05,
+            "expected ~4.5, got {factor}"
+        );
     }
 
     #[test]
@@ -479,6 +671,21 @@ mod tests {
     }
 
     #[test]
+    fn live_command_times_out_with_diagnostic_tail() {
+        #[cfg(windows)]
+        let command = "ping -n 3 127.0.0.1";
+        #[cfg(not(windows))]
+        let command = "sleep 3";
+
+        let result =
+            run_live_command_with_timeout(command, Path::new("."), Duration::from_millis(100));
+
+        assert_eq!(result.code, 124);
+        assert!(result.timed_out);
+        assert!(live_result_summary(&result).contains("timeout"));
+    }
+
+    #[test]
     fn report_line_plain_forms() {
         let pass = AgentOutcome {
             emoji: "🦐".to_string(),
@@ -488,7 +695,7 @@ mod tests {
         };
         assert_eq!(pass.ok(), true);
         let line = format_report_line(&pass, true);
-        assert_eq!(line, "  OK   build-shrimp — compiled clean  (3.5s)");
+        assert_eq!(line, "  OK   build-shrimp - compiled clean  (3.5s)");
 
         let advisory = AgentOutcome {
             emoji: "🐙".to_string(),
@@ -499,7 +706,7 @@ mod tests {
         assert_eq!(advisory.ok(), true);
         assert_eq!(
             format_report_line(&advisory, true),
-            "  WARN lint-octopus — passed · 2 hints  (2.5s)"
+            "  WARN lint-octopus - passed - 2 hints  (2.5s)"
         );
 
         let fail = AgentOutcome {
@@ -511,7 +718,7 @@ mod tests {
         assert_eq!(fail.ok(), false);
         assert_eq!(
             format_report_line(&fail, true),
-            "  FAIL e2e-puffer — exit 1  (1.0s)"
+            "  FAIL e2e-puffer - exit 1  (1.0s)"
         );
     }
 }

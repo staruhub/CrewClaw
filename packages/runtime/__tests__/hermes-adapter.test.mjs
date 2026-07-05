@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import yaml from "js-yaml";
+import yaml from "../yaml.mjs";
 import { computeCompatibility } from "../compatibility.mjs";
 import hermesAdapter, { hermesAdapter as namedHermesAdapter } from "../adapters/hermes.mjs";
 

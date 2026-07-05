@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import yaml from "js-yaml";
+import yaml from "./yaml.mjs";
 
 const REQUIRED_FIELDS = [
   "identity",

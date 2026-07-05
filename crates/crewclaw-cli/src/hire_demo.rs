@@ -124,8 +124,14 @@ pub fn run_hire_ceremony(args: &[String], root: &Path, target: &str) -> Result<i
     }
     println!("  Title : {}", card.title);
     println!("  SLA   : {}", card.sla);
-    println!("  Next  : cat {}    (read the job description)", card.manifest_path);
-    println!("          crew chat {}        (talk to it — interactive)", card.id);
+    println!(
+        "  Next  : cat {}    (read the job description)",
+        card.manifest_path
+    );
+    println!(
+        "          crew chat {}        (talk to it — interactive)",
+        card.id
+    );
 
     Ok(0)
 }
