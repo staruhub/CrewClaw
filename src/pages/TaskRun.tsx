@@ -3,10 +3,12 @@ import { Link, useParams } from "react-router";
 import { WorkbenchShell } from "@/components/workbench/WorkbenchShell";
 import { track } from "@/hooks/use-analytics";
 import { getTaskRun } from "@/data/task-runs";
+import { trpc } from "@/providers/trpc";
 
 export default function TaskRun() {
   const { id } = useParams<{ id: string }>();
-  const run = getTaskRun(id ?? "");
+  const q = trpc.taskRun.get.useQuery({ id: id ?? "" });
+  const run = q.data ?? getTaskRun(id ?? "");
 
   useEffect(() => {
     track("task_run_viewed", { task_run_id: id ?? "" });
