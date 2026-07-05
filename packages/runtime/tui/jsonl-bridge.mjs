@@ -13,8 +13,9 @@
 // agent is blocked inside confirm(), which a blocking for-await loop could never reach.
 import { createInterface } from "node:readline";
 import { makeEvent, EVENTS } from "./protocol.mjs";
-import { buildRunTurn, buildQuickUtilityTurn } from "./repl.mjs";
+import { buildRunTurn, buildQuickUtilityTurn } from "./turn-runner.mjs";
 import { routeTurn } from "./route.mjs";
+import { applyUserAction, parseUserActionLine } from "./task-jsonl.mjs";
 
 export async function startJsonlBridge({
   agentLoop, agentLoopDeps, agentName = "鲸", meta = {}, history = [], saveSession,
@@ -54,15 +55,31 @@ export async function startJsonlBridge({
   const rl = createInterface({ input });
 
   rl.on("line", async (raw) => {
-    const text = String(raw).trim();
+    let action;
+    try {
+      action = parseUserActionLine(raw);
+    } catch (e) {
+      emit(EVENTS.DEBUG_LINE, { line: `user action parse error: ${String(e && e.message || e)}` });
+      return;
+    }
+    let text = (action?.data?.text ?? String(raw)).trim();
     // while the agent awaits approval, the next line IS the a/d/y/n decision — not a new task
     if (pendingConfirm) {
-      const allow = text === "a" || text === "allow" || text === "y" || text === "是";
+      let allow;
+      if (action?.type === "approval.resolve") {
+        const result = applyUserAction(action, { emit });
+        allow = !!result.approval;
+      } else {
+        allow = text === "a" || text === "allow" || text === "y" || text === "是";
+      }
       const resolve = pendingConfirm; pendingConfirm = null;
       emit(EVENTS.APPROVAL_RESOLVED, { decision: allow ? "allow" : "deny" });
       resolve(allow);
       return;
     }
+    const applied = applyUserAction(action, { emit });
+    if (applied.handled) return;
+    text = String(applied.text || "").trim();
     if (!text) return;
     if (text === "/exit" || text === ":q") { rl.close(); return; }
     if (busy) return; // a task is already running; ignore stray input

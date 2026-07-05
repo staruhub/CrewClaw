@@ -1,8 +1,8 @@
 use serde::Serialize;
 
+use crate::Expert;
 use crate::manifest::EmployeeManifest;
 use crate::team::{self, WorkspaceEmployee, WorkspaceEmployeeStatus};
-use crate::Expert;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct DoctorReport {
@@ -52,8 +52,14 @@ pub(crate) fn build_report(
             let missing = manifest.missing_required_fields();
             if !missing.is_empty() {
                 broken = true;
-                issues.push(format!("Manifest is missing required fields: {}", missing.join(", ")));
-                suggestions.push("Complete experts/<name>/hire.yaml before hiring or running this employee.".to_string());
+                issues.push(format!(
+                    "Manifest is missing required fields: {}",
+                    missing.join(", ")
+                ));
+                suggestions.push(
+                    "Complete experts/<name>/hire.yaml before hiring or running this employee."
+                        .to_string(),
+                );
             }
 
             if manifest.api_version != "crewclaw/v1" || manifest.kind != "Employee" {
@@ -72,7 +78,8 @@ pub(crate) fn build_report(
                     "Registry name mismatch: registry={} hire.yaml={}",
                     expert.name, manifest.metadata.id
                 ));
-                suggestions.push("Align registry/experts.json with the employee manifest id.".to_string());
+                suggestions
+                    .push("Align registry/experts.json with the employee manifest id.".to_string());
             }
 
             if let Some(version) = expert.version.as_ref() {
@@ -89,7 +96,10 @@ pub(crate) fn build_report(
             if workspace_employee.is_none() {
                 warning = true;
                 issues.push("Employee is not active in .crewclaw/team.json; permissions have not been granted in this workspace.".to_string());
-                suggestions.push(format!("Run crew hire {} before assigning work.", expert.name));
+                suggestions.push(format!(
+                    "Run crew hire {} before assigning work.",
+                    expert.name
+                ));
             } else if let Some(employee) = workspace_employee {
                 let missing_permissions = manifest
                     .permissions
@@ -119,7 +129,10 @@ pub(crate) fn build_report(
 
                 if employee.status != WorkspaceEmployeeStatus::Active {
                     broken = true;
-                    issues.push(format!("Workspace employee status is {}.", employee.status.as_str()));
+                    issues.push(format!(
+                        "Workspace employee status is {}.",
+                        employee.status.as_str()
+                    ));
                     suggestions.push("Only active employees can receive new tasks.".to_string());
                 }
             }
@@ -127,7 +140,8 @@ pub(crate) fn build_report(
             if manifest.requires.hermes.is_empty() || manifest.requires.runtime.is_empty() {
                 broken = true;
                 issues.push("Dependency declaration is incomplete: requires.hermes and requires.runtime are both required.".to_string());
-                suggestions.push("Declare the Hermes constraint and runtime in hire.yaml.".to_string());
+                suggestions
+                    .push("Declare the Hermes constraint and runtime in hire.yaml.".to_string());
             }
         }
         Err(error) => {
@@ -138,7 +152,8 @@ pub(crate) fn build_report(
     }
 
     if issues.is_empty() {
-        suggestions.push("No action required. This employee is healthy and ready to work.".to_string());
+        suggestions
+            .push("No action required. This employee is healthy and ready to work.".to_string());
     }
 
     let health_status = if broken {
@@ -150,7 +165,11 @@ pub(crate) fn build_report(
     };
 
     DoctorReport {
-        report_id: format!("doctor-{}-{}", expert.name, checked_at.replace([':', '-'], "")),
+        report_id: format!(
+            "doctor-{}-{}",
+            expert.name,
+            checked_at.replace([':', '-'], "")
+        ),
         workspace_employee_id,
         health_status,
         issues,
@@ -180,11 +199,7 @@ pub(crate) fn print_report(expert: &Expert, report: &DoctorReport) {
 }
 
 fn blank(value: &str) -> &str {
-    if value.is_empty() {
-        "(missing)"
-    } else {
-        value
-    }
+    if value.is_empty() { "(missing)" } else { value }
 }
 
 #[cfg(test)]

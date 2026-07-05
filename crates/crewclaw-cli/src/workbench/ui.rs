@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Paragraph, Tabs, Wrap},
@@ -9,9 +9,10 @@ use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
 use super::state::{
-    AppState, FocusPanel, NarrowTab, Overlay, SYM_FAIL, SYM_OK, SYM_RUNNING, SYM_WAIT, SYM_WARN,
-    TimelineEntry, UiState,
+    AppState, FocusPanel, NarrowTab, Overlay, PendingAction, SYM_FAIL, SYM_OK, SYM_RUNNING,
+    SYM_WAIT, SYM_WARN, TimelineEntry, UiState,
 };
+use super::widgets::{artifact_panel::artifact_panel_rows, artifact_preview::artifact_preview_row};
 
 const ACCENT: Color = Color::Cyan;
 const OK: Color = Color::Green;
@@ -26,21 +27,41 @@ pub(crate) enum LayoutKind {
     Narrow,
 }
 
+#[cfg(test)]
 pub fn render(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState, input: &str) {
+    render_with_input(frame, state, ui_state, input, input.len());
+}
+
+pub(crate) fn render_with_input(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    ui_state: &UiState,
+    input: &str,
+    input_cursor: usize,
+) {
+    let bottom_height = bottom_height_for_input(input);
     let root = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
             Constraint::Min(8),
-            Constraint::Length(4),
+            Constraint::Length(bottom_height),
         ])
         .split(frame.area());
 
     render_status(frame, state, root[0]);
     render_panels(frame, state, ui_state, root[1]);
-    render_bottom(frame, state, ui_state, input, root[2]);
+    render_bottom(frame, state, ui_state, input, input_cursor, root[2]);
     render_overlay(frame, ui_state);
     render_approval_modal(frame, state);
+}
+
+fn bottom_height_for_input(input: &str) -> u16 {
+    4 + input_line_count(input).min(4) as u16
+}
+
+fn input_line_count(input: &str) -> usize {
+    input.split('\n').count().max(1)
 }
 
 pub(crate) fn layout_kind(width: u16) -> LayoutKind {
@@ -55,8 +76,12 @@ pub(crate) fn layout_kind(width: u16) -> LayoutKind {
 
 fn render_status(frame: &mut Frame<'_>, state: &AppState, area: ratatui::layout::Rect) {
     let employee = state.employee.as_ref();
-    let name = employee.map(|e| e.name.as_str()).unwrap_or("CrewClaw Trial");
-    let role = employee.map(|e| e.role.as_str()).unwrap_or("Trial Workbench");
+    let name = employee
+        .map(|e| e.name.as_str())
+        .unwrap_or("CrewClaw Trial");
+    let role = employee
+        .map(|e| e.role.as_str())
+        .unwrap_or("Trial Workbench");
     let model = employee.map(|e| e.model.as_str()).unwrap_or("unknown");
     let task_state = state
         .task
@@ -232,7 +257,10 @@ fn render_tasks(
             Style::default().fg(status_color(&task.status)),
         )));
     } else {
-        lines.push(Line::from(Span::styled("No active task", Style::default().fg(DIM))));
+        lines.push(Line::from(Span::styled(
+            "No active task",
+            Style::default().fg(DIM),
+        )));
     }
 
     lines.push(Line::from(""));
@@ -245,7 +273,10 @@ fn render_tasks(
             lines.push(Line::from(format!("{}. {step}", index + 1)));
         }
     } else {
-        lines.push(Line::from(Span::styled("(waiting)", Style::default().fg(DIM))));
+        lines.push(Line::from(Span::styled(
+            "(waiting)",
+            Style::default().fg(DIM),
+        )));
     }
 
     lines.push(Line::from(""));
@@ -263,7 +294,10 @@ fn render_tasks(
 
     frame.render_widget(
         Paragraph::new(Text::from(lines))
-            .block(panel_block("Tasks / Employee", ui_state.focus == FocusPanel::Tasks))
+            .block(panel_block(
+                "Tasks / Employee",
+                ui_state.focus == FocusPanel::Tasks,
+            ))
             .wrap(Wrap { trim: true })
             .scroll((ui_state.scroll_for(FocusPanel::Tasks), 0)),
         area,
@@ -285,12 +319,7 @@ fn render_timeline(
         lines.push(weather);
     }
 
-    let mut timeline = state
-        .timeline
-        .iter()
-        .rev()
-        .take(80)
-        .collect::<Vec<_>>();
+    let mut timeline = state.timeline.iter().rev().take(80).collect::<Vec<_>>();
     timeline.reverse();
     lines.extend(
         timeline
@@ -299,9 +328,10 @@ fn render_timeline(
             .chain(answer_preview(state)),
     );
 
-    if let Some(pending_line) =
-        pending_actions_line(&state.pending_actions, area.width.saturating_sub(2) as usize)
-    {
+    if let Some(pending_line) = pending_actions_line(
+        &state.pending_actions,
+        area.width.saturating_sub(2) as usize,
+    ) {
         let block = panel_block("Timeline", ui_state.focus == FocusPanel::Timeline);
         let inner = inner_panel_rect(area);
         frame.render_widget(block, area);
@@ -335,7 +365,10 @@ fn render_timeline(
 
     frame.render_widget(
         Paragraph::new(Text::from(lines))
-            .block(panel_block("Timeline", ui_state.focus == FocusPanel::Timeline))
+            .block(panel_block(
+                "Timeline",
+                ui_state.focus == FocusPanel::Timeline,
+            ))
             .wrap(Wrap { trim: true })
             .scroll((ui_state.scroll_for(FocusPanel::Timeline), 0)),
         area,
@@ -352,28 +385,43 @@ fn render_artifacts(
     if state.artifacts.is_empty() {
         lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM))));
     }
-    for artifact in &state.artifacts {
+    for artifact in artifact_panel_rows(state) {
         lines.push(Line::from(vec![
+            Span::styled(artifact.marker, Style::default().fg(ACCENT)),
             Span::styled(
-                status_symbol(&artifact.status),
-                Style::default().fg(status_color(&artifact.status)),
+                status_symbol(artifact.status.as_str()),
+                Style::default().fg(status_color(artifact.status.as_str())),
             ),
-            Span::raw(format!(
-                " {}",
-                artifact.name.as_deref().unwrap_or("(unnamed)")
-            )),
+            Span::raw(format!(" {}", artifact.name)),
         ]));
-        if let Some(path) = &artifact.path {
-            lines.push(Line::from(Span::styled(format!("  {path}"), Style::default().fg(DIM))));
+        for detail in artifact.details {
+            lines.push(Line::from(Span::styled(
+                format!("  {detail}"),
+                Style::default().fg(DIM),
+            )));
         }
-        for check in &artifact.checks {
-            lines.push(Line::from(format!("  {SYM_WAIT} {check}")));
+    }
+    if let Some(preview) = artifact_preview_row(state) {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Preview",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(format!("{} {}", SYM_RUNNING, preview.title)));
+        if !preview.detail.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!("  {}", preview.detail),
+                Style::default().fg(DIM),
+            )));
         }
     }
 
     frame.render_widget(
         Paragraph::new(Text::from(lines))
-            .block(panel_block("Artifacts / Checks", ui_state.focus == FocusPanel::Artifacts))
+            .block(panel_block(
+                "Artifacts / Checks",
+                ui_state.focus == FocusPanel::Artifacts,
+            ))
             .wrap(Wrap { trim: true })
             .scroll((ui_state.scroll_for(FocusPanel::Artifacts), 0)),
         area,
@@ -392,10 +440,16 @@ fn render_tools(
     }
     for tool in state.tools.values() {
         lines.push(Line::from(vec![
-            Span::styled(status_symbol(&tool.status), Style::default().fg(status_color(&tool.status))),
+            Span::styled(
+                status_symbol(&tool.status),
+                Style::default().fg(status_color(&tool.status)),
+            ),
             Span::raw(format!(" {}", tool.tool.as_deref().unwrap_or("tool"))),
             Span::styled(
-                format!(" {}", tool.summary.as_deref().unwrap_or(tool.status.as_str())),
+                format!(
+                    " {}",
+                    tool.summary.as_deref().unwrap_or(tool.status.as_str())
+                ),
                 Style::default().fg(DIM),
             ),
         ]));
@@ -460,9 +514,29 @@ fn render_inspect(
         lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM))));
     }
 
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Debug",
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+    )));
+    if state.debug.is_empty() {
+        lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM))));
+    } else {
+        let debug_start = state.debug.len().saturating_sub(6);
+        for item in &state.debug[debug_start..] {
+            lines.push(Line::from(Span::styled(
+                item.clone(),
+                Style::default().fg(DIM),
+            )));
+        }
+    }
+
     frame.render_widget(
         Paragraph::new(Text::from(lines))
-            .block(panel_block("Inspect", ui_state.focus == FocusPanel::Inspect))
+            .block(panel_block(
+                "Inspect",
+                ui_state.focus == FocusPanel::Inspect,
+            ))
             .wrap(Wrap { trim: true })
             .scroll((ui_state.scroll_for(FocusPanel::Inspect), 0)),
         area,
@@ -474,6 +548,7 @@ fn render_bottom(
     state: &AppState,
     ui_state: &UiState,
     input: &str,
+    input_cursor: usize,
     area: ratatui::layout::Rect,
 ) {
     let machine = state_machine_line(state);
@@ -485,11 +560,7 @@ fn render_bottom(
             state
                 .pending_actions
                 .iter()
-                .filter_map(|action| {
-                    let key = action.get("key")?.as_str()?;
-                    let label = action.get("label").and_then(|v| v.as_str()).unwrap_or("");
-                    Some(format!("{key} {label}"))
-                })
+                .map(|action| format!("{} {}", action.key, action.label))
                 .collect::<Vec<_>>()
                 .join(" / ")
         )
@@ -499,20 +570,109 @@ fn render_bottom(
     } else {
         "Input"
     };
-    let lines = vec![
-        machine,
-        Line::from(actions),
-        Line::from(vec![
-            Span::styled(format!("{input_label}> "), Style::default().fg(ACCENT)),
-            Span::raw(input.to_string()),
-        ]),
-    ];
+    let mut lines = vec![machine, Line::from(actions)];
+    lines.extend(input_lines(input_label, input));
+    if let Some(picker) = &state.ref_picker {
+        let items = picker
+            .candidates
+            .iter()
+            .enumerate()
+            .take(4)
+            .map(|(index, candidate)| {
+                let marker = if index == picker.selected { ">" } else { " " };
+                format!("{marker} {} {}", candidate.kind, candidate.token)
+            })
+            .collect::<Vec<_>>()
+            .join("  ");
+        lines.push(Line::from(Span::styled(
+            truncate_display_width(
+                &format!("@refs {items}"),
+                area.width.saturating_sub(2) as usize,
+            ),
+            Style::default().fg(ACCENT),
+        )));
+    }
     frame.render_widget(
         Paragraph::new(Text::from(lines))
             .block(Block::default().borders(Borders::ALL))
             .wrap(Wrap { trim: true }),
         area,
     );
+    if let Some(position) = input_cursor_position(ui_state, input_label, input, input_cursor, area)
+    {
+        frame.set_cursor_position(position);
+    }
+}
+
+fn input_cursor_position(
+    ui_state: &UiState,
+    input_label: &str,
+    input: &str,
+    input_cursor: usize,
+    area: Rect,
+) -> Option<Position> {
+    if !ui_state.input_focused || area.width <= 2 || area.height <= 2 {
+        return None;
+    }
+
+    let cursor = closest_char_boundary(input, input_cursor.min(input.len()));
+    let prompt = format!("{input_label}> ");
+    let (cursor_row, cursor_line_prefix) = input_cursor_line_prefix(input, cursor);
+    let offset =
+        UnicodeWidthStr::width(prompt.as_str()) + UnicodeWidthStr::width(cursor_line_prefix);
+    let max_offset = area.width.saturating_sub(2) as usize;
+    let max_input_row = area.height.saturating_sub(4) as usize;
+    Some(Position {
+        x: area.x + 1 + offset.min(max_offset) as u16,
+        y: area.y + 3 + cursor_row.min(max_input_row) as u16,
+    })
+}
+
+fn input_lines(input_label: &str, input: &str) -> Vec<Line<'static>> {
+    let prompt = format!("{input_label}> ");
+    let prompt_padding = " ".repeat(UnicodeWidthStr::width(prompt.as_str()));
+    let mut lines = Vec::new();
+    for (index, line) in input.split('\n').enumerate() {
+        if index == 0 {
+            lines.push(Line::from(vec![
+                Span::styled(prompt.clone(), Style::default().fg(ACCENT)),
+                Span::raw(line.to_string()),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::raw(prompt_padding.clone()),
+                Span::raw(line.to_string()),
+            ]));
+        }
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(Span::styled(
+            prompt,
+            Style::default().fg(ACCENT),
+        )));
+    }
+    lines
+}
+
+fn input_cursor_line_prefix(input: &str, cursor: usize) -> (usize, &str) {
+    let before_cursor = &input[..cursor];
+    let row = before_cursor.bytes().filter(|byte| *byte == b'\n').count();
+    let line_start = before_cursor
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    (row, &input[line_start..cursor])
+}
+
+fn closest_char_boundary(text: &str, index: usize) -> usize {
+    if text.is_char_boundary(index) {
+        return index;
+    }
+    text.char_indices()
+        .map(|(boundary, _)| boundary)
+        .take_while(|boundary| *boundary < index)
+        .last()
+        .unwrap_or(0)
 }
 
 fn render_overlay(frame: &mut Frame<'_>, ui_state: &UiState) {
@@ -614,11 +774,7 @@ fn approval_modal_rect(area: Rect) -> Rect {
     }
 }
 
-fn centered_rect(
-    percent_x: u16,
-    percent_y: u16,
-    area: Rect,
-) -> Rect {
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -660,11 +816,17 @@ fn inner_panel_rect(area: Rect) -> Rect {
 
 fn timeline_line(entry: &TimelineEntry) -> Line<'static> {
     let mut spans = vec![
-        Span::styled(entry.status.clone(), Style::default().fg(symbol_color(&entry.status))),
+        Span::styled(
+            entry.status.clone(),
+            Style::default().fg(symbol_color(&entry.status)),
+        ),
         Span::raw(format!(" {}", entry.label)),
     ];
     if !entry.detail.is_empty() {
-        spans.push(Span::styled(format!("  {}", entry.detail), Style::default().fg(DIM)));
+        spans.push(Span::styled(
+            format!("  {}", entry.detail),
+            Style::default().fg(DIM),
+        ));
     }
     Line::from(spans)
 }
@@ -698,9 +860,7 @@ fn quick_utility_weather_line(state: &AppState, max_width: usize) -> Option<Line
     let temp_c = integer_value(value, "temp_c");
     let feels_c = integer_value(value, "feels_c");
     let humidity = integer_value(value, "humidity");
-    let label = format!(
-        "🌤 {city}  {condition}  {temp_c}°C（体感 {feels_c}°C · 湿度 {humidity}%）"
-    );
+    let label = format!("🌤 {city}  {condition}  {temp_c}°C（体感 {feels_c}°C · 湿度 {humidity}%）");
 
     Some(Line::from(Span::styled(
         truncate_display_width(&label, max_width),
@@ -711,30 +871,28 @@ fn quick_utility_weather_line(state: &AppState, max_width: usize) -> Option<Line
 fn integer_value(value: &Value, key: &str) -> i64 {
     value
         .get(key)
-        .and_then(|item| item.as_i64().or_else(|| item.as_f64().map(|number| number as i64)))
+        .and_then(|item| {
+            item.as_i64()
+                .or_else(|| item.as_f64().map(|number| number as i64))
+        })
         .unwrap_or_default()
 }
 
-fn pending_actions_line(actions: &[serde_json::Value], max_width: usize) -> Option<String> {
+fn pending_actions_line(actions: &[PendingAction], max_width: usize) -> Option<String> {
     let items = actions
         .iter()
-        .filter_map(|action| {
-            let key = action.get("key").and_then(|v| v.as_str())?;
-            let label = action.get("label").and_then(|v| v.as_str())?;
-            Some(format!("[{key}] {label}"))
-        })
+        .map(|action| format!("[{}] {}", action.key, action.label))
         .collect::<Vec<_>>();
 
     if items.is_empty() {
         return None;
     }
 
-    Some(truncate_display_width(
-        &format!("可执行：{}", items.join("  ")),
-        max_width,
+    Some(
+        truncate_display_width(&format!("可执行：{}", items.join("  ")), max_width)
+            .trim_end()
+            .to_string(),
     )
-    .trim_end()
-    .to_string())
 }
 
 fn pending_action_hint_line(text: &str) -> Line<'static> {
@@ -812,10 +970,10 @@ fn memory_mark(status: &str) -> &'static str {
 
 fn status_symbol(status: &str) -> &'static str {
     match status {
-        "ok" | "done" | "ready" | "accepted" => SYM_OK,
-        "failed" | "rejected" => SYM_FAIL,
+        "ok" | "done" | "ready" | "accepted" | "exported" => SYM_OK,
+        "failed" | "rejected" | "deleted" => SYM_FAIL,
         "running" => SYM_RUNNING,
-        "blocked" => SYM_WARN,
+        "blocked" | "needs_review" | "needs_artifact" => SYM_WARN,
         "idle" | "draft" | "awaiting_approval" | "proposed" => SYM_WAIT,
         _ => SYM_WARN,
     }
@@ -827,10 +985,10 @@ fn status_label(status: &str) -> String {
 
 fn status_color(status: &str) -> Color {
     match status {
-        "ok" | "done" | "ready" | "accepted" => OK,
-        "failed" | "rejected" => BAD,
+        "ok" | "done" | "ready" | "accepted" | "exported" => OK,
+        "failed" | "rejected" | "deleted" => BAD,
         "running" => ACCENT,
-        "draft" | "awaiting_approval" => WARN,
+        "draft" | "awaiting_approval" | "needs_review" | "needs_artifact" => WARN,
         _ => DIM,
     }
 }
@@ -850,7 +1008,7 @@ mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend};
 
-    use super::super::state::{Approval, QuickUtility};
+    use super::super::state::{Approval, PendingAction, QuickUtility};
 
     #[test]
     fn truncates_cjk_by_display_width_not_char_count() {
@@ -873,7 +1031,9 @@ mod tests {
         assert_eq!(status_symbol("failed"), SYM_FAIL);
         assert_eq!(status_symbol("running"), SYM_RUNNING);
         assert_eq!(status_symbol("blocked"), SYM_WARN);
+        assert_eq!(status_symbol("needs_artifact"), SYM_WARN);
         assert_eq!(status_symbol("idle"), SYM_WAIT);
+        assert_eq!(status_color("needs_artifact"), WARN);
     }
 
     #[test]
@@ -903,6 +1063,102 @@ mod tests {
         assert!(compact.contains("需要执行受控命令"));
         assert!(compact.contains("工具:shell.exec"));
         assert!(compact.contains("[a]允许执行[d]拒绝"));
+    }
+
+    #[test]
+    fn render_shows_artifact_statuses_with_symbols() {
+        let mut state = AppState::default();
+        state.artifacts = vec![
+            super::super::state::Artifact {
+                id: Some("a1".to_string()),
+                name: Some("ready.md".to_string()),
+                kind: Some("report".to_string()),
+                artifact_type: None,
+                path: None,
+                status: "ready".to_string(),
+                summary: None,
+                checks: Vec::new(),
+            },
+            super::super::state::Artifact {
+                id: Some("a2".to_string()),
+                name: Some("review.md".to_string()),
+                kind: Some("report".to_string()),
+                artifact_type: None,
+                path: None,
+                status: "needs_review".to_string(),
+                summary: None,
+                checks: Vec::new(),
+            },
+            super::super::state::Artifact {
+                id: Some("a3".to_string()),
+                name: Some("exported.md".to_string()),
+                kind: Some("report".to_string()),
+                artifact_type: None,
+                path: None,
+                status: "exported".to_string(),
+                summary: None,
+                checks: Vec::new(),
+            },
+            super::super::state::Artifact {
+                id: Some("a4".to_string()),
+                name: Some("rejected.md".to_string()),
+                kind: Some("report".to_string()),
+                artifact_type: None,
+                path: None,
+                status: "rejected".to_string(),
+                summary: None,
+                checks: Vec::new(),
+            },
+        ];
+        let mut ui_state = UiState::default();
+        ui_state.focus = FocusPanel::Artifacts;
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).expect("test terminal");
+
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw frame");
+
+        let contents = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact = contents.replace(' ', "");
+        assert!(compact.contains("✓ready.md"));
+        assert!(compact.contains("!review.md"));
+        assert!(compact.contains("✓exported.md"));
+        assert!(compact.contains("✗rejected.md"));
+    }
+
+    #[test]
+    fn render_inspect_shows_recent_debug_details() {
+        let mut state = AppState::default();
+        state.debug = vec![
+            "tool_call_id=abc latency=12ms provider=test".to_string(),
+            "raw response truncated".to_string(),
+        ];
+        let mut ui_state = UiState::default();
+        ui_state.focus = FocusPanel::Inspect;
+        ui_state.active_tab = NarrowTab::Inspect;
+        let mut terminal = Terminal::new(TestBackend::new(60, 40)).expect("test terminal");
+
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw frame");
+
+        let contents = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact = contents.replace(' ', "");
+        assert!(compact.contains("Debug"));
+        assert!(compact.contains("tool_call_id=abclatency=12msprovider=test"));
+        assert!(compact.contains("rawresponsetruncated"));
     }
 
     #[test]
@@ -975,9 +1231,16 @@ mod tests {
     #[test]
     fn pending_actions_line_formats_valid_actions_and_skips_incomplete_items() {
         let actions = vec![
-            serde_json::json!({"key":"1","label":"接受"}),
-            serde_json::json!({"key":"2"}),
-            serde_json::json!({"key":"3","label":"修改"}),
+            PendingAction {
+                key: "1".to_string(),
+                label: "接受".to_string(),
+                command: None,
+            },
+            PendingAction {
+                key: "3".to_string(),
+                label: "修改".to_string(),
+                command: None,
+            },
         ];
 
         let line = pending_actions_line(&actions, 80).expect("pending action line");
@@ -987,10 +1250,63 @@ mod tests {
 
     #[test]
     fn pending_actions_line_truncates_by_display_width() {
-        let actions = vec![serde_json::json!({"key":"1","label":"你好abc"})];
+        let actions = vec![PendingAction {
+            key: "1".to_string(),
+            label: "你好abc".to_string(),
+            command: None,
+        }];
 
         let line = pending_actions_line(&actions, 12).expect("pending action line");
 
         assert_eq!(line, "可执行：[1]");
+    }
+
+    #[test]
+    fn render_places_cursor_at_cjk_aware_input_position() {
+        let state = AppState::default();
+        let mut ui_state = UiState::default();
+        ui_state.input_focused = true;
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).expect("test terminal");
+
+        terminal
+            .draw(|frame| render_with_input(frame, &state, &ui_state, "a你b", "a你".len()))
+            .expect("draw frame");
+
+        let contents = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact = contents.replace(' ', "");
+        assert!(compact.contains("Slashcommand>a你b"), "{compact}");
+        terminal.backend_mut().assert_cursor_position((19, 18));
+    }
+
+    #[test]
+    fn render_places_cursor_on_multiline_input_row() {
+        let state = AppState::default();
+        let mut ui_state = UiState::default();
+        ui_state.input_focused = true;
+        let input = "/revise 第一行\n第二你行";
+        let cursor = input.len();
+        let mut terminal = Terminal::new(TestBackend::new(80, 22)).expect("test terminal");
+
+        terminal
+            .draw(|frame| render_with_input(frame, &state, &ui_state, input, cursor))
+            .expect("draw frame");
+
+        let contents = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact = contents.replace(' ', "");
+        assert!(compact.contains("Slashcommand>/revise第一行"), "{compact}");
+        assert!(compact.contains("第二你行"), "{compact}");
+        terminal.backend_mut().assert_cursor_position((24, 20));
     }
 }

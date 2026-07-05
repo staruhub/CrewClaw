@@ -41,10 +41,11 @@ import { generateQueries, FAILURE_PLAYBOOK } from "./search-harness.mjs";
 import { summarizeAction } from "./event-summary.mjs";
 import { estimateCost, formatBudget } from "./budget-guard.mjs";
 import { renderReport } from "./task-report.mjs";
+import { applyUserAction, createTaskJsonlEmitter, createTaskModeSink, parseUserActionLine } from "./tui/task-jsonl.mjs";
 import { newEvidenceCard, addEvidence, loadEvidence, assembleSources } from "./evidence-store.mjs";
 import { isJsShell, routeBySize, extractPrompt } from "./web-extract.mjs";
 import { renderPage } from "./render-provider.mjs";
-import yaml from "js-yaml";
+import yaml from "./yaml.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
@@ -540,7 +541,7 @@ function isSearchEnginePage(url) {
   }
 }
 
-async function runTool(name, args, { confirm } = {}) {
+async function runTool(name, args, { confirm, quiet = false } = {}) {
   if (name === "web_fetch") {
     const url = String(args?.url ?? "");
     if (isSearchEnginePage(url))
@@ -587,7 +588,9 @@ async function runTool(name, args, { confirm } = {}) {
         : computeWrite(path, args?.content);
     if (!r.ok) return `（${name === "edit_file" ? "编辑" : "写入"}失败：${r.error}）`;
     const diffColor = process.env.CREW_MD === "1" || !!process.stdout.isTTY;
-    process.stdout.write("\n" + reindent(diffCard({ path, oldText: r.oldContent, newText: r.newContent }, { color: diffColor })) + "\n");
+    if (!quiet) {
+      process.stdout.write("\n" + reindent(diffCard({ path, oldText: r.oldContent, newText: r.newContent }, { color: diffColor })) + "\n");
+    }
     if (!confirm) return "（非交互模式，未写入；以上为改动预览）";
     const ok = await confirm("应用以上改动到 " + path + " ?");
     if (!ok) return "（用户取消，未写入）";
@@ -699,7 +702,7 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
               "\n" + reindent(permissionRequest({ employeeName: name, toolLabel: toolName, scope: decision.scope, level: decision.level, reason: decision.reason }), GUTTER) + "\n",
             );
           }
-          result = await runTool(toolName, args, { confirm });
+          result = await runTool(toolName, args, { confirm, quiet });
         }
         const elapsedMs = Date.now() - t0;
         // a denied/refused/skipped call shows as "not confirmed" in the tool line
@@ -1018,6 +1021,45 @@ function printSearchKeyHelp() {
   console.log(GUTTER + "  配好后重跑：crew run <agent> --task <id>\n");
 }
 
+function createTaskModeActionReader({ emit }) {
+  const approvals = new Map();
+  const rl = createInterface({ input: process.stdin });
+
+  rl.on("line", (raw) => {
+    let action;
+    try {
+      action = parseUserActionLine(raw);
+    } catch (error) {
+      emit("debug.line", { line: `user action parse error: ${String(error?.message || error)}` });
+      return;
+    }
+    if (!action) return;
+
+    const applied = applyUserAction(action, { emit });
+    if (action.type === "approval.resolve") {
+      const id = action.data?.id;
+      const resolve = approvals.get(id);
+      if (resolve) {
+        approvals.delete(id);
+        resolve(!!applied.approval);
+      }
+      return;
+    }
+    if (!applied.handled) {
+      emit("debug.line", { line: `user action routed: ${action.type} ${applied.text || ""}`.trim() });
+    }
+  });
+
+  return {
+    waitForApproval(id) {
+      return new Promise((resolve) => approvals.set(id, resolve));
+    },
+    close() {
+      rl.close();
+    },
+  };
+}
+
 // `crew run <agent> --task <id>` — the v0.3 Task Runtime. Resolve a manifest demo
 // task, run it through the permission-gated agent loop while recording a TaskRun
 // (state machine + tool-call audit), store the deliverable as an Artifact, grade
@@ -1026,11 +1068,20 @@ function printSearchKeyHelp() {
 async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
   const { model, temperature, system, displayName, title, runtime } = profile;
   const name = displayName || titleizeId(agentId);
+  const taskSink = process.env.CREW_TUI === "ratatui"
+    ? createTaskModeSink({ emit: createTaskJsonlEmitter() })
+    : null;
+  const actionReader = taskSink
+    ? createTaskModeActionReader({ emit: taskSink.emitRaw })
+    : null;
+  taskSink?.sessionReady({ name, role: title, mode: "Task", model });
   const tasks = Array.isArray(runtime?.demo_tasks) ? runtime.demo_tasks : [];
   const demo = tasks.find((t) => t && t.id === taskId);
   if (!demo) {
     const ids = tasks.map((t) => t?.id).filter(Boolean).join(", ") || "(无)";
-    console.error(`Error: 员工 ${agentId} 没有任务 "${taskId}"。可用任务：${ids}`);
+    const message = `员工 ${agentId} 没有任务 "${taskId}"。可用任务：${ids}`;
+    taskSink?.taskRejected({ reason: message });
+    console.error(`Error: ${message}`);
     process.exit(1);
   }
   const taskText = demo.input?.task_text || demo.title || taskId;
@@ -1045,8 +1096,11 @@ async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
   const run = newTaskRun({ employeeId: agentId, goal: taskText, taskId: `task_${Date.now()}` });
   const gateway = makeGateway();
 
-  console.log(statusHeader({ name, role: title, status: "working", model }));
-  console.log(GUTTER + `\x1b[2m▸ ${demo.title || taskId}\x1b[0m\n`);
+  taskSink?.taskStarted({ id: taskId, title: demo.title || taskText });
+  if (!taskSink) {
+    console.log(statusHeader({ name, role: title, status: "working", model }));
+    console.log(GUTTER + `\x1b[2m▸ ${demo.title || taskId}\x1b[0m\n`);
+  }
 
   // Search Planner (PRD §11.1): if the task carries research hints, show the plan
   // (multi-strategy queries, official-domain-first) before working, and pass it in.
@@ -1054,9 +1108,12 @@ async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
   if (demo.research_hints) {
     const h = demo.research_hints;
     const queries = generateQueries({ entity: h.entity, aliases: h.aliases, officialDomains: h.official_domains, productIds: h.product_ids });
-    console.log(GUTTER + "\x1b[2m研究计划（Search Planner · 官方域名优先）：\x1b[0m");
-    queries.slice(0, 6).forEach((q, i) => console.log(GUTTER + `\x1b[2m  ${i + 1}. ${q}\x1b[0m`));
-    console.log("");
+    taskSink?.planCreated({ id: `${taskId}:research-plan`, steps: queries.slice(0, 6) });
+    if (!taskSink) {
+      console.log(GUTTER + "\x1b[2m研究计划（Search Planner · 官方域名优先）：\x1b[0m");
+      queries.slice(0, 6).forEach((q, i) => console.log(GUTTER + `\x1b[2m  ${i + 1}. ${q}\x1b[0m`));
+      console.log("");
+    }
     planNote =
       "\n\n# 研究计划（按此检索，官方域名优先；某条搜不到就换下一条策略，绝不放弃）\n建议检索式：\n" +
       queries.map((q) => "- " + q).join("\n") +
@@ -1068,13 +1125,18 @@ async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
   // formally; let the user configure, or degrade to "知识库初判"(NOT counted effective).
   let degradeNote = "";
   if (demo.research_hints && pickBackend().name === "ddg") {
-    console.log(GUTTER + "\x1b[33m⚠ Preflight：未配置 Web Search Provider（Tavily / Serper / Brave）\x1b[0m");
-    console.log(GUTTER + "\x1b[2m   研究类任务需要可验证搜索链路；没有它只能给「仅凭已有知识」的初步判断，不计为有效任务。\x1b[0m");
-    const choice = await askLine(GUTTER + "   [回车]=降级运行(不计有效)  [c]=看配置方法  [n]=取消 › ");
+    taskSink?.toolPreflightChecked({ id: "web_search", tool: "web_search", status: "blocked", reason: "missing search provider" });
+    if (!taskSink) {
+      console.log(GUTTER + "\x1b[33m⚠ Preflight：未配置 Web Search Provider（Tavily / Serper / Brave）\x1b[0m");
+      console.log(GUTTER + "\x1b[2m   研究类任务需要可验证搜索链路；没有它只能给「仅凭已有知识」的初步判断，不计为有效任务。\x1b[0m");
+    }
+    const choice = taskSink ? "" : await askLine(GUTTER + "   [回车]=降级运行(不计有效)  [c]=看配置方法  [n]=取消 › ");
     if (choice === "c") { printSearchKeyHelp(); process.exit(0); }
     if (choice === "n") { console.log(GUTTER + "已取消。\n"); process.exit(0); }
     run.degraded = true;
-    console.log(GUTTER + "\x1b[2m   → 降级运行：仅基于已有知识，关键数字标 [需核实]。\x1b[0m\n");
+    if (!taskSink) {
+      console.log(GUTTER + "\x1b[2m   → 降级运行：仅基于已有知识，关键数字标 [需核实]。\x1b[0m\n");
+    }
     degradeNote =
       "\n\n# 重要：本次没有可靠联网检索（无 Search Provider，web_search 大概率返回空），任务已降级为「仅凭已有知识的初步判断」。不要靠反复 web_fetch 猜 URL 或抓搜索引擎结果页硬凑——既烧钱又拿不到结果。请：①开头说明本次为降级初判、需用户配置 TAVILY_API_KEY（免费）才能做可靠调研；②按交付物结构（含 来源/置信度/建议）给初步结论，关键数字一律标 [需核实]，置信度标「低」；③最多试 1–2 个官方 URL 后即收尾。";
   }
@@ -1095,14 +1157,22 @@ async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
       onInvocation: (rec) => {
         run.tool_invocations.push(rec);
         addEvent(run, { type: "tool_called", summary: rec.action || rec.tool_name, tool_name: rec.tool_name, status: rec.status });
+        taskSink?.onInvocation(rec);
       },
       onUsage: (u) => {
         if (!u) return;
         promptTok += u.prompt_tokens || 0;
         completionTok += u.completion_tokens || 0;
+        taskSink?.onUsage(u);
       },
+      onDelta: taskSink ? (text) => taskSink.onDelta(text) : undefined,
       budget: { costCap: demo.budget_limit ?? 0.5, maxSearchEmpty: 2, maxFetchShell: 2 },
       confirm: async (msg) => {
+        if (taskSink) {
+          const id = `approval-${Date.now()}`;
+          taskSink.approvalRequired({ id, reason: msg });
+          return actionReader ? await actionReader.waitForApproval(id) : false;
+        }
         const a = await askLine("\n" + GUTTER + "⚠ " + msg + " [y/N] ");
         return a === "y" || a === "yes" || a === "是";
       },
@@ -1110,6 +1180,8 @@ async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
   } catch (error) {
     transition(run, "failed");
     saveTaskRun(ROOT, run);
+    taskSink?.taskRejected({ reason: error.message });
+    actionReader?.close();
     console.error(`\nError: ${error.message}`);
     process.exit(1);
   }
@@ -1117,14 +1189,22 @@ async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
   transition(run, "extracting_evidence");
   transition(run, "drafting_artifact");
   const artifact = newArtifact({ taskId: run.id, type: "research_report", title: demo.title || taskId, content: output });
-  saveArtifact(ROOT, artifact);
+  const savedArtifact = saveArtifact(ROOT, artifact);
   run.artifact = artifact.id;
+  taskSink?.artifactCreated({
+    id: artifact.id,
+    name: `${artifact.id}.md`,
+    kind: artifact.type,
+    path: savedArtifact.ok ? savedArtifact.mdPath : undefined,
+    status: "ready",
+  });
 
   transition(run, "grading");
   const graded = await grade({ task: taskText, artifact: output });
   const missing = required.filter((s) => !output.includes(s));
   const outputValid = graded.passed && missing.length === 0;
   run.output_valid = outputValid;
+  taskSink?.outcomeChecked({ passed: outputValid, feedback: graded.feedback, missing, artifactId: artifact.id });
 
   // Dream/reflect: derive memory + playbook candidates from this run and keep the
   // good ones — reliable sources, a project fact, the tool playbook. (PRD §14.4.)
@@ -1154,7 +1234,7 @@ async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
   transition(run, "delivered");
 
   const noCriticalBlock = !run.tool_invocations.some((r) => r.decision === "deny");
-  const useful = await askUseful();
+  const useful = taskSink ? null : await askUseful();
   run.user_feedback = useful === null ? "skipped" : useful ? "useful" : "not_useful";
   const effective = outputValid && noCriticalBlock && useful === true && !run.degraded;
   run.effective = effective;
@@ -1180,23 +1260,30 @@ async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
   // Task Report (PRD §19.1): export a shareable markdown report next to the run.
   const reportPath = join(ROOT, ".crewclaw", "runs", `${run.id}.report.md`);
   try { writeFileSync(reportPath, renderReport({ taskRun: run, deliverable: output, sources, grade: graded }), "utf8"); } catch {}
+  if (learned || lessons.length) {
+    taskSink?.memorySaved({ learned, lessons: lessons.length });
+  }
+  taskSink?.taskCompleted({ id: run.id, artifactId: artifact.id, reportPath });
 
   // Workbench info layer (PRD §17.3): main view shows human action summaries.
-  if (run.tool_invocations.length) {
-    console.log("\n" + GUTTER + "\x1b[2m员工动作：\x1b[0m");
-    run.tool_invocations.forEach((r, i) => console.log(GUTTER + `\x1b[2m  ${i + 1}. ${r.action || r.tool_name}\x1b[0m`));
+  if (!taskSink) {
+    if (run.tool_invocations.length) {
+      console.log("\n" + GUTTER + "\x1b[2m员工动作：\x1b[0m");
+      run.tool_invocations.forEach((r, i) => console.log(GUTTER + `\x1b[2m  ${i + 1}. ${r.action || r.tool_name}\x1b[0m`));
+    }
+    const tick = (b) => (b ? "\x1b[32m✓\x1b[0m" : "\x1b[31m✗\x1b[0m");
+    console.log("\n" + GUTTER + "\x1b[1m任务验收\x1b[0m");
+    console.log(GUTTER + `  交付物 ${artifact.id} · 工具调用 ${run.tool_invocations.length} 次 · 状态 ${run.status}`);
+    console.log(GUTTER + `  ${tick(outputValid)} 结构达标${missing.length ? `（缺：${missing.join("、")}）` : ""}   ${tick(graded.passed)} 验收规则${graded.passed ? "" : `（待补：${graded.feedback}）`}`);
+    console.log(GUTTER + `  ${tick(effective)} 有效任务 · 反馈：${run.user_feedback}${run.degraded ? " · 降级运行（未配 Search Provider）" : ""}`);
+    console.log(GUTTER + `  \x1b[2m${formatBudget({ tokens, cost, limit: demo.budget_limit })}\x1b[0m`);
+    if (learned) console.log(GUTTER + `  \x1b[2m📓 沉淀 ${learned} 条记忆（来源/事实/SOP）\x1b[0m`);
+    if (run.evidence_count) console.log(GUTTER + `  \x1b[2m🔖 ${run.evidence_count} 条证据卡 → ${run.id}.evidence.json\x1b[0m`);
+    if (lessons.length) console.log(GUTTER + `  \x1b[2m📕 复盘出 ${lessons.length} 条失败教训 → failure_paths\x1b[0m`);
+    console.log(GUTTER + `  \x1b[2mTaskRun → .crewclaw/runs/${run.id}.json · 报告 ${run.id}.report.md\x1b[0m`);
+    console.log(GUTTER + `  \x1b[2m${actionBar(["accept", "reject", "dream", "inspect"])}\x1b[0m\n`);
   }
-  const tick = (b) => (b ? "\x1b[32m✓\x1b[0m" : "\x1b[31m✗\x1b[0m");
-  console.log("\n" + GUTTER + "\x1b[1m任务验收\x1b[0m");
-  console.log(GUTTER + `  交付物 ${artifact.id} · 工具调用 ${run.tool_invocations.length} 次 · 状态 ${run.status}`);
-  console.log(GUTTER + `  ${tick(outputValid)} 结构达标${missing.length ? `（缺：${missing.join("、")}）` : ""}   ${tick(graded.passed)} 验收规则${graded.passed ? "" : `（待补：${graded.feedback}）`}`);
-  console.log(GUTTER + `  ${tick(effective)} 有效任务 · 反馈：${run.user_feedback}${run.degraded ? " · 降级运行（未配 Search Provider）" : ""}`);
-  console.log(GUTTER + `  \x1b[2m${formatBudget({ tokens, cost, limit: demo.budget_limit })}\x1b[0m`);
-  if (learned) console.log(GUTTER + `  \x1b[2m📓 沉淀 ${learned} 条记忆（来源/事实/SOP）\x1b[0m`);
-  if (run.evidence_count) console.log(GUTTER + `  \x1b[2m🔖 ${run.evidence_count} 条证据卡 → ${run.id}.evidence.json\x1b[0m`);
-  if (lessons.length) console.log(GUTTER + `  \x1b[2m📕 复盘出 ${lessons.length} 条失败教训 → failure_paths\x1b[0m`);
-  console.log(GUTTER + `  \x1b[2mTaskRun → .crewclaw/runs/${run.id}.json · 报告 ${run.id}.report.md\x1b[0m`);
-  console.log(GUTTER + `  \x1b[2m${actionBar(["accept", "reject", "dream", "inspect"])}\x1b[0m\n`);
+  actionReader?.close();
 }
 
 async function main() {

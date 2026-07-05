@@ -22,6 +22,13 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "task.mode_changed")]
+    TaskModeChanged {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "plan.created")]
     PlanCreated {
         #[serde(default)]
@@ -99,6 +106,27 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "artifact.selected")]
+    ArtifactSelected {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "artifact.deleted")]
+    ArtifactDeleted {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "artifact.revealed")]
+    ArtifactRevealed {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "evidence.created")]
     EvidenceCreated {
         #[serde(default)]
@@ -127,6 +155,27 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "approval.accepted")]
+    ApprovalAccepted {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "approval.rejected")]
+    ApprovalRejected {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "assistant.message")]
+    AssistantMessage {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "token.delta")]
     TokenDelta {
         #[serde(default)]
@@ -150,6 +199,13 @@ pub enum TaskEvent {
     },
     #[serde(rename = "task.rejected")]
     TaskRejected {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "task.blocked")]
+    TaskBlocked {
         #[serde(default)]
         ts: u64,
         #[serde(default)]
@@ -232,8 +288,64 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "debug.line")]
+    DebugLine {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(other)]
     Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct ResolvedReference {
+    pub kind: String,
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct UserAction {
+    #[serde(rename = "type")]
+    pub action_type: String,
+    #[serde(default)]
+    pub data: Value,
+}
+
+impl UserAction {
+    pub fn user_message(text: String, refs: Vec<ResolvedReference>) -> Self {
+        Self {
+            action_type: "user.message".to_string(),
+            data: serde_json::json!({ "text": text, "refs": refs }),
+        }
+    }
+
+    pub fn pending_run(key: String, command: Option<String>) -> Self {
+        let mut data = serde_json::json!({ "key": key });
+        if let Some(command) = command {
+            data["command"] = Value::String(command);
+        }
+        Self {
+            action_type: "pending.run".to_string(),
+            data,
+        }
+    }
+
+    pub fn artifact(action_type: &str, artifact_id: String) -> Self {
+        Self {
+            action_type: action_type.to_string(),
+            data: serde_json::json!({ "artifact_id": artifact_id }),
+        }
+    }
+
+    pub fn approval_resolve(id: String, decision: String) -> Self {
+        Self {
+            action_type: "approval.resolve".to_string(),
+            data: serde_json::json!({ "id": id, "decision": decision }),
+        }
+    }
 }
 
 impl TaskEvent {
@@ -241,6 +353,7 @@ impl TaskEvent {
         match event_type {
             "session.ready" => Self::SessionReady { ts, data },
             "task.started" => Self::TaskStarted { ts, data },
+            "task.mode_changed" => Self::TaskModeChanged { ts, data },
             "plan.created" => Self::PlanCreated { ts, data },
             "plan.approved" => Self::PlanApproved { ts, data },
             "step.started" => Self::StepStarted { ts, data },
@@ -252,14 +365,21 @@ impl TaskEvent {
             "tool.blocked" => Self::ToolBlocked { ts, data },
             "artifact.created" => Self::ArtifactCreated { ts, data },
             "artifact.updated" => Self::ArtifactUpdated { ts, data },
+            "artifact.selected" => Self::ArtifactSelected { ts, data },
+            "artifact.deleted" => Self::ArtifactDeleted { ts, data },
+            "artifact.revealed" => Self::ArtifactRevealed { ts, data },
             "evidence.created" => Self::EvidenceCreated { ts, data },
             "approval.required" => Self::ApprovalRequired { ts, data },
             "approval.requested" => Self::ApprovalRequested { ts, data },
             "approval.resolved" => Self::ApprovalResolved { ts, data },
+            "approval.accepted" => Self::ApprovalAccepted { ts, data },
+            "approval.rejected" => Self::ApprovalRejected { ts, data },
+            "assistant.message" => Self::AssistantMessage { ts, data },
             "token.delta" => Self::TokenDelta { ts, data },
             "token.usage" => Self::TokenUsage { ts, data },
             "task.completed" => Self::TaskCompleted { ts, data },
             "task.rejected" => Self::TaskRejected { ts, data },
+            "task.blocked" => Self::TaskBlocked { ts, data },
             "task.upgraded_from_chat" => Self::TaskUpgradedFromChat { ts, data },
             "skill.launched" => Self::SkillLaunched { ts, data },
             "tool.preflight_checked" => Self::ToolPreflightChecked { ts, data },
@@ -271,6 +391,7 @@ impl TaskEvent {
             "memory.saved" => Self::MemorySaved { ts, data },
             "workspace.revealed" => Self::WorkspaceRevealed { ts, data },
             "outcome.checked" => Self::OutcomeChecked { ts, data },
+            "debug.line" => Self::DebugLine { ts, data },
             _ => Self::Unknown,
         }
     }
@@ -279,6 +400,7 @@ impl TaskEvent {
         match self {
             Self::SessionReady { .. } => "session.ready",
             Self::TaskStarted { .. } => "task.started",
+            Self::TaskModeChanged { .. } => "task.mode_changed",
             Self::PlanCreated { .. } => "plan.created",
             Self::PlanApproved { .. } => "plan.approved",
             Self::StepStarted { .. } => "step.started",
@@ -290,14 +412,21 @@ impl TaskEvent {
             Self::ToolBlocked { .. } => "tool.blocked",
             Self::ArtifactCreated { .. } => "artifact.created",
             Self::ArtifactUpdated { .. } => "artifact.updated",
+            Self::ArtifactSelected { .. } => "artifact.selected",
+            Self::ArtifactDeleted { .. } => "artifact.deleted",
+            Self::ArtifactRevealed { .. } => "artifact.revealed",
             Self::EvidenceCreated { .. } => "evidence.created",
             Self::ApprovalRequired { .. } => "approval.required",
             Self::ApprovalRequested { .. } => "approval.requested",
             Self::ApprovalResolved { .. } => "approval.resolved",
+            Self::ApprovalAccepted { .. } => "approval.accepted",
+            Self::ApprovalRejected { .. } => "approval.rejected",
+            Self::AssistantMessage { .. } => "assistant.message",
             Self::TokenDelta { .. } => "token.delta",
             Self::TokenUsage { .. } => "token.usage",
             Self::TaskCompleted { .. } => "task.completed",
             Self::TaskRejected { .. } => "task.rejected",
+            Self::TaskBlocked { .. } => "task.blocked",
             Self::TaskUpgradedFromChat { .. } => "task.upgraded_from_chat",
             Self::SkillLaunched { .. } => "skill.launched",
             Self::ToolPreflightChecked { .. } => "tool.preflight_checked",
@@ -309,6 +438,7 @@ impl TaskEvent {
             Self::MemorySaved { .. } => "memory.saved",
             Self::WorkspaceRevealed { .. } => "workspace.revealed",
             Self::OutcomeChecked { .. } => "outcome.checked",
+            Self::DebugLine { .. } => "debug.line",
             Self::Unknown => "unknown",
         }
     }
@@ -317,6 +447,7 @@ impl TaskEvent {
         match self {
             Self::SessionReady { data, .. }
             | Self::TaskStarted { data, .. }
+            | Self::TaskModeChanged { data, .. }
             | Self::PlanCreated { data, .. }
             | Self::PlanApproved { data, .. }
             | Self::StepStarted { data, .. }
@@ -328,14 +459,21 @@ impl TaskEvent {
             | Self::ToolBlocked { data, .. }
             | Self::ArtifactCreated { data, .. }
             | Self::ArtifactUpdated { data, .. }
+            | Self::ArtifactSelected { data, .. }
+            | Self::ArtifactDeleted { data, .. }
+            | Self::ArtifactRevealed { data, .. }
             | Self::EvidenceCreated { data, .. }
             | Self::ApprovalRequired { data, .. }
             | Self::ApprovalRequested { data, .. }
             | Self::ApprovalResolved { data, .. }
+            | Self::ApprovalAccepted { data, .. }
+            | Self::ApprovalRejected { data, .. }
+            | Self::AssistantMessage { data, .. }
             | Self::TokenDelta { data, .. }
             | Self::TokenUsage { data, .. }
             | Self::TaskCompleted { data, .. }
             | Self::TaskRejected { data, .. }
+            | Self::TaskBlocked { data, .. }
             | Self::TaskUpgradedFromChat { data, .. }
             | Self::SkillLaunched { data, .. }
             | Self::ToolPreflightChecked { data, .. }
@@ -346,8 +484,57 @@ impl TaskEvent {
             | Self::MemoryRequested { data, .. }
             | Self::MemorySaved { data, .. }
             | Self::WorkspaceRevealed { data, .. }
-            | Self::OutcomeChecked { data, .. } => data,
+            | Self::OutcomeChecked { data, .. }
+            | Self::DebugLine { data, .. } => data,
             Self::Unknown => UNKNOWN_DATA.get_or_init(|| Value::Null),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn user_action_serializes_structured_workbench_commands() {
+        let message = UserAction::user_message(
+            "请基于 @artifact:a1 修改".to_string(),
+            vec![ResolvedReference {
+                kind: "artifact".to_string(),
+                id: "a1".to_string(),
+                label: "roi_report.md".to_string(),
+            }],
+        );
+
+        assert_eq!(
+            serde_json::to_value(&message).expect("message action"),
+            json!({
+                "type":"user.message",
+                "data":{
+                    "text":"请基于 @artifact:a1 修改",
+                    "refs":[{"kind":"artifact","id":"a1","label":"roi_report.md"}]
+                }
+            })
+        );
+
+        let pending =
+            UserAction::pending_run("1".to_string(), Some("create_roi_sheet".to_string()));
+        assert_eq!(
+            serde_json::to_value(&pending).expect("pending action"),
+            json!({"type":"pending.run","data":{"key":"1","command":"create_roi_sheet"}})
+        );
+
+        let artifact = UserAction::artifact("artifact.delete", "a1".to_string());
+        assert_eq!(
+            serde_json::to_value(&artifact).expect("artifact action"),
+            json!({"type":"artifact.delete","data":{"artifact_id":"a1"}})
+        );
+
+        let approval = UserAction::approval_resolve("ap1".to_string(), "accept".to_string());
+        assert_eq!(
+            serde_json::to_value(&approval).expect("approval action"),
+            json!({"type":"approval.resolve","data":{"id":"ap1","decision":"accept"}})
+        );
     }
 }

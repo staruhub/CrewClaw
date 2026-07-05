@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use super::protocol::TaskEvent;
+use super::{preview::compact_markdown_summary, protocol::TaskEvent};
 
 pub const SYM_RUNNING: &str = "→";
 pub const SYM_OK: &str = "✓";
@@ -25,9 +25,15 @@ pub struct AppState {
     pub usage: Usage,
     pub status: String,
     pub debug: Vec<String>,
-    pub pending_actions: Vec<Value>,
+    pub pending_actions: Vec<PendingAction>,
+    pub focus: FocusPanel,
+    pub inspect: InspectState,
+    pub ref_picker: Option<RefPicker>,
+    pub selected_artifact: Option<String>,
+    pub preview: Option<ArtifactPreview>,
     pub memory: Memory,
     pub quick_utility: Option<QuickUtility>,
+    task_artifact_start: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -257,7 +263,45 @@ pub struct Artifact {
     pub artifact_type: Option<String>,
     pub path: Option<String>,
     pub status: String,
+    pub summary: Option<String>,
     pub checks: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArtifactPreview {
+    pub artifact_id: String,
+    pub title: String,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingAction {
+    pub key: String,
+    pub label: String,
+    pub command: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct InspectState {
+    pub task_status: Option<String>,
+    pub selected_artifact: Option<String>,
+    pub approval_status: Option<String>,
+    pub recent_debug: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferenceCandidate {
+    pub kind: String,
+    pub id: String,
+    pub label: String,
+    pub token: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefPicker {
+    pub query: String,
+    pub selected: usize,
+    pub candidates: Vec<ReferenceCandidate>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -314,12 +358,18 @@ impl Default for AppState {
             status: "idle".to_string(),
             debug: Vec::new(),
             pending_actions: Vec::new(),
+            focus: FocusPanel::Tasks,
+            inspect: InspectState::default(),
+            ref_picker: None,
+            selected_artifact: None,
+            preview: None,
             memory: Memory {
                 session: "available".to_string(),
                 persistent: "unavailable".to_string(),
                 workspace: "unavailable".to_string(),
             },
             quick_utility: None,
+            task_artifact_start: 0,
         }
     }
 }
@@ -331,6 +381,13 @@ impl AppState {
 
         match ev {
             TaskEvent::SessionReady { .. } => self.reduce_session_ready(data),
+            TaskEvent::TaskModeChanged { .. } => {
+                if let Some(mode) = string_field(data, "mode") {
+                    self.mode = mode.clone();
+                    let line_id = self.id_for(data);
+                    self.push(line_id, SYM_OK, format!("模式：{mode}"), String::new());
+                }
+            }
             TaskEvent::TaskStarted { .. } => {
                 let id = string_field(data, "id");
                 let title = string_field(data, "title").unwrap_or_default();
@@ -344,8 +401,14 @@ impl AppState {
                 }
                 self.status = "running".to_string();
                 self.answer.clear();
+                self.task_artifact_start = self.artifacts.len();
                 let line_id = self.id_for(data);
-                self.push(line_id, SYM_RUNNING, format!("任务：{title}"), String::new());
+                self.push(
+                    line_id,
+                    SYM_RUNNING,
+                    format!("任务：{title}"),
+                    String::new(),
+                );
             }
             TaskEvent::PlanCreated { .. } => {
                 let steps = string_array_field(data, "steps");
@@ -404,7 +467,8 @@ impl AppState {
             }
             TaskEvent::ArtifactCreated { .. } => {
                 let kind = string_field(data, "kind").or_else(|| string_field(data, "type"));
-                let artifact_type = string_field(data, "type").or_else(|| string_field(data, "kind"));
+                let artifact_type =
+                    string_field(data, "type").or_else(|| string_field(data, "kind"));
                 let artifact = Artifact {
                     id: string_field(data, "id"),
                     name: string_field(data, "name"),
@@ -412,6 +476,7 @@ impl AppState {
                     artifact_type,
                     path: string_field(data, "path"),
                     status: string_field(data, "status").unwrap_or_else(|| "draft".to_string()),
+                    summary: string_field(data, "summary"),
                     checks: string_array_field(data, "checks"),
                 };
                 let label = format!("交付物：{}", artifact.name.clone().unwrap_or_default());
@@ -431,7 +496,9 @@ impl AppState {
                                 if let Some(kind) = patch.get("kind").and_then(Value::as_str) {
                                     artifact.kind = Some(kind.to_string());
                                 }
-                                if let Some(artifact_type) = patch.get("type").and_then(Value::as_str) {
+                                if let Some(artifact_type) =
+                                    patch.get("type").and_then(Value::as_str)
+                                {
                                     artifact.artifact_type = Some(artifact_type.to_string());
                                 }
                                 if let Some(path) = patch.get("path").and_then(Value::as_str) {
@@ -440,12 +507,43 @@ impl AppState {
                                 if let Some(status) = patch.get("status").and_then(Value::as_str) {
                                     artifact.status = status.to_string();
                                 }
+                                if let Some(summary) = patch.get("summary").and_then(Value::as_str)
+                                {
+                                    artifact.summary = Some(summary.to_string());
+                                }
                                 if let Some(checks) = patch.get("checks") {
                                     artifact.checks = value_string_array(checks);
                                 }
                             }
                         }
                     }
+                }
+            }
+            TaskEvent::ArtifactSelected { .. } => {
+                if let Some(id) = artifact_id_field(data) {
+                    self.select_artifact(&id);
+                    let line_id = self.id_for(data);
+                    self.push(line_id, SYM_OK, "选择产物".to_string(), id);
+                }
+            }
+            TaskEvent::ArtifactDeleted { .. } => {
+                if let Some(id) = artifact_id_field(data) {
+                    self.patch_artifact_status(&id, "deleted");
+                    let line_id = self.id_for(data);
+                    self.push(line_id, SYM_WARN, "删除产物".to_string(), id);
+                }
+            }
+            TaskEvent::ArtifactRevealed { .. } => {
+                if let Some(id) = artifact_id_field(data) {
+                    self.select_artifact(&id);
+                    let status = if bool_field(data, "ok") == Some(false) {
+                        SYM_WARN
+                    } else {
+                        SYM_OK
+                    };
+                    let detail = string_field(data, "path").unwrap_or(id);
+                    let line_id = self.id_for(data);
+                    self.push(line_id, status, "打开位置".to_string(), detail);
                 }
             }
             TaskEvent::EvidenceCreated { .. } => {
@@ -465,13 +563,33 @@ impl AppState {
                 });
                 self.status = "awaiting_approval".to_string();
             }
-            TaskEvent::ApprovalResolved { .. } => {
+            TaskEvent::ApprovalResolved { .. }
+            | TaskEvent::ApprovalAccepted { .. }
+            | TaskEvent::ApprovalRejected { .. } => {
+                let accepted = matches!(ev, TaskEvent::ApprovalAccepted { .. });
+                let rejected = matches!(ev, TaskEvent::ApprovalRejected { .. });
                 self.approval = None;
                 self.status = if self.task.is_some() {
                     "running".to_string()
                 } else {
                     "idle".to_string()
                 };
+                if accepted || rejected {
+                    let line_id = self.id_for(data);
+                    self.push(
+                        line_id,
+                        if accepted { SYM_OK } else { SYM_WARN },
+                        if accepted {
+                            "授权已接受".to_string()
+                        } else {
+                            "授权已拒绝".to_string()
+                        },
+                        string_field(data, "id").unwrap_or_default(),
+                    );
+                }
+            }
+            TaskEvent::AssistantMessage { .. } => {
+                self.reduce_assistant_message(data);
             }
             TaskEvent::TokenDelta { .. } => {
                 self.answer
@@ -485,12 +603,25 @@ impl AppState {
                 self.usage.completion_tok += u64_field(data, "completion");
             }
             TaskEvent::TaskCompleted { .. } => {
-                if let Some(task) = &mut self.task {
-                    task.status = "done".to_string();
-                }
-                self.status = "done".to_string();
                 let line_id = self.id_for(data);
-                self.push(line_id, SYM_OK, "完成".to_string(), String::new());
+                if !self.current_task_has_artifact() {
+                    if let Some(task) = &mut self.task {
+                        task.status = "needs_artifact".to_string();
+                    }
+                    self.status = "needs_artifact".to_string();
+                    self.push(
+                        line_id,
+                        SYM_WARN,
+                        "缺少交付物".to_string(),
+                        "正式任务不能在没有 artifact 的情况下 Done".to_string(),
+                    );
+                } else {
+                    if let Some(task) = &mut self.task {
+                        task.status = "done".to_string();
+                    }
+                    self.status = "done".to_string();
+                    self.push(line_id, SYM_OK, "完成".to_string(), String::new());
+                }
             }
             TaskEvent::TaskRejected { .. } => {
                 if let Some(task) = &mut self.task {
@@ -500,6 +631,19 @@ impl AppState {
                 let reason = string_field(data, "reason").unwrap_or_default();
                 let line_id = self.id_for(data);
                 self.push(line_id, SYM_FAIL, format!("打回：{reason}"), String::new());
+            }
+            TaskEvent::TaskBlocked { .. } => {
+                if let Some(task) = &mut self.task {
+                    task.status = "blocked".to_string();
+                }
+                self.status = "blocked".to_string();
+                let line_id = self.id_for(data);
+                self.push(
+                    line_id,
+                    SYM_WARN,
+                    "任务阻塞".to_string(),
+                    string_field(data, "reason").unwrap_or_default(),
+                );
             }
             TaskEvent::TaskUpgradedFromChat { .. } => {
                 self.mode = "chat-upgraded".to_string();
@@ -516,7 +660,12 @@ impl AppState {
                     .or_else(|| string_field(data, "name"))
                     .unwrap_or_default();
                 let line_id = self.id_for(data);
-                self.push(line_id, SYM_RUNNING, format!("启动技能：{skill}"), String::new());
+                self.push(
+                    line_id,
+                    SYM_RUNNING,
+                    format!("启动技能：{skill}"),
+                    String::new(),
+                );
             }
             TaskEvent::ToolPreflightChecked { .. } => {
                 let label = string_field(data, "label").unwrap_or_default();
@@ -549,11 +698,7 @@ impl AppState {
                 );
             }
             TaskEvent::PendingActions { .. } => {
-                self.pending_actions = data
-                    .get("actions")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
+                self.pending_actions = pending_actions_from_data(data);
             }
             TaskEvent::QuickUtility { .. } => {
                 self.quick_utility = Some(QuickUtility {
@@ -579,7 +724,12 @@ impl AppState {
             TaskEvent::MemoryRequested { .. } => {
                 let summary = string_field(data, "summary").unwrap_or_default();
                 let line_id = self.id_for(data);
-                self.push(line_id, SYM_WAIT, format!("记忆请求：{summary}"), String::new());
+                self.push(
+                    line_id,
+                    SYM_WAIT,
+                    format!("记忆请求：{summary}"),
+                    String::new(),
+                );
             }
             TaskEvent::MemorySaved { .. } => {
                 let summary = string_field(data, "summary").unwrap_or_default();
@@ -613,14 +763,171 @@ impl AppState {
             TaskEvent::OutcomeChecked { .. } => {
                 let valid = bool_field(data, "valid") != Some(false);
                 let status = if valid { SYM_OK } else { SYM_WARN };
-                let label = if valid { "验收：可交付" } else { "验收：未达标" };
+                let label = if valid {
+                    "验收：可交付"
+                } else {
+                    "验收：未达标"
+                };
                 let detail = string_field(data, "reason")
                     .or_else(|| string_field(data, "deliverable"))
                     .unwrap_or_default();
                 let line_id = self.id_for(data);
                 self.push(line_id, status, label.to_string(), detail);
             }
+            TaskEvent::DebugLine { .. } => {
+                if let Some(line) =
+                    string_field(data, "line").or_else(|| string_field(data, "message"))
+                {
+                    self.debug.push(line);
+                }
+            }
             TaskEvent::Unknown => {}
+        }
+        self.refresh_inspect();
+    }
+
+    fn current_task_has_artifact(&self) -> bool {
+        self.artifacts
+            .iter()
+            .skip(self.task_artifact_start)
+            .any(|artifact| artifact.status != "deleted")
+    }
+
+    pub fn pending_action_for_key(&self, ch: char) -> Option<&PendingAction> {
+        let key = ch.to_string();
+        self.pending_actions.iter().find(|action| action.key == key)
+    }
+
+    pub fn select_next_artifact(&mut self) {
+        if self.artifacts.is_empty() {
+            return;
+        }
+        let current = self.selected_artifact_index().unwrap_or(usize::MAX);
+        let next = if current == usize::MAX {
+            0
+        } else {
+            (current + 1).min(self.artifacts.len().saturating_sub(1))
+        };
+        self.select_artifact_at(next);
+    }
+
+    pub fn select_previous_artifact(&mut self) {
+        if self.artifacts.is_empty() {
+            return;
+        }
+        let current = self.selected_artifact_index().unwrap_or(0);
+        self.select_artifact_at(current.saturating_sub(1));
+    }
+
+    pub fn selected_artifact_id(&self) -> Option<String> {
+        self.selected_artifact.clone().or_else(|| {
+            self.artifacts
+                .iter()
+                .find_map(|artifact| artifact.id.clone())
+        })
+    }
+
+    pub fn sync_focus(&mut self, ui: &UiState) {
+        self.focus = ui.focus;
+        self.refresh_inspect();
+    }
+
+    pub fn set_ref_picker(&mut self, picker: Option<RefPicker>) {
+        self.ref_picker = picker;
+        self.refresh_inspect();
+    }
+
+    pub fn move_ref_picker(&mut self, delta: i16) -> bool {
+        let Some(picker) = &mut self.ref_picker else {
+            return false;
+        };
+        if picker.candidates.is_empty() {
+            return true;
+        }
+        if delta.is_negative() {
+            picker.selected = picker
+                .selected
+                .saturating_sub(delta.unsigned_abs() as usize);
+        } else {
+            picker.selected = (picker.selected + delta as usize).min(picker.candidates.len() - 1);
+        }
+        self.refresh_inspect();
+        true
+    }
+
+    pub fn selected_ref_candidate(&self) -> Option<&ReferenceCandidate> {
+        let picker = self.ref_picker.as_ref()?;
+        picker.candidates.get(picker.selected)
+    }
+
+    fn selected_artifact_index(&self) -> Option<usize> {
+        let selected = self.selected_artifact.as_deref()?;
+        self.artifacts
+            .iter()
+            .position(|artifact| artifact.id.as_deref() == Some(selected))
+    }
+
+    fn select_artifact_at(&mut self, index: usize) {
+        let Some(id) = self
+            .artifacts
+            .get(index)
+            .and_then(|artifact| artifact.id.clone())
+        else {
+            return;
+        };
+        self.select_artifact(&id);
+    }
+
+    fn select_artifact(&mut self, id: &str) {
+        self.selected_artifact = Some(id.to_string());
+        if let Some(artifact) = self
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.id.as_deref() == Some(id))
+        {
+            self.preview = Some(ArtifactPreview {
+                artifact_id: id.to_string(),
+                title: artifact.name.clone().unwrap_or_else(|| id.to_string()),
+                detail: artifact
+                    .summary
+                    .clone()
+                    .or_else(|| artifact.path.clone())
+                    .unwrap_or_else(|| artifact.kind.clone().unwrap_or_default()),
+            });
+        }
+        self.refresh_inspect();
+    }
+
+    fn patch_artifact_status(&mut self, id: &str, status: &str) {
+        for artifact in &mut self.artifacts {
+            if artifact.id.as_deref() == Some(id) {
+                artifact.status = status.to_string();
+            }
+        }
+        self.select_artifact(id);
+    }
+
+    fn reduce_assistant_message(&mut self, data: &Value) {
+        let text = string_field(data, "text").unwrap_or_default();
+        if text.chars().count() > 800 && self.task.is_some() {
+            self.status = "needs_artifact".to_string();
+            let detail = compact_markdown_summary(&text, 60);
+            let id = format!("assistant-long-{}", self.artifacts.len() + 1);
+            self.artifacts.push(Artifact {
+                id: Some(id.clone()),
+                name: Some(format!("{id}.md")),
+                kind: Some("markdown".to_string()),
+                artifact_type: Some("markdown".to_string()),
+                path: None,
+                status: "draft".to_string(),
+                summary: Some(detail.clone()),
+                checks: vec!["timeline-summary-only".to_string()],
+            });
+            self.select_artifact(&id);
+            let line_id = self.id_for(data);
+            self.push(line_id, SYM_WARN, "长内容转为 artifact".to_string(), detail);
+        } else {
+            self.answer.push_str(&text);
         }
     }
 
@@ -659,12 +966,14 @@ impl AppState {
             });
             self.status = "awaiting_approval".to_string();
         }
-        let label = string_field(data, "label")
-            .or(tool)
-            .unwrap_or_default();
+        let label = string_field(data, "label").or(tool).unwrap_or_default();
         self.push(
             id,
-            if needs_approval { SYM_WAIT } else { SYM_RUNNING },
+            if needs_approval {
+                SYM_WAIT
+            } else {
+                SYM_RUNNING
+            },
             label,
             string_field(data, "reason").unwrap_or_default(),
         );
@@ -681,6 +990,18 @@ impl AppState {
             label,
             detail,
         });
+    }
+
+    fn refresh_inspect(&mut self) {
+        self.inspect.task_status = self.task.as_ref().map(|task| task.status.clone());
+        self.inspect.selected_artifact = self.selected_artifact.clone();
+        self.inspect.approval_status = self
+            .approval
+            .as_ref()
+            .and_then(|approval| approval.id.clone())
+            .map(|id| format!("awaiting:{id}"));
+        let start = self.debug.len().saturating_sub(8);
+        self.inspect.recent_debug = self.debug[start..].to_vec();
     }
 
     fn mark(&mut self, id: Option<&str>, status: &str, detail: Option<String>) {
@@ -703,12 +1024,15 @@ impl AppState {
     }
 
     fn set_tool(&mut self, id: &str, patch: ToolPatch) {
-        let tool = self.tools.entry(id.to_string()).or_insert_with(|| ToolState {
-            tool: None,
-            status: String::new(),
-            summary: None,
-            args: None,
-        });
+        let tool = self
+            .tools
+            .entry(id.to_string())
+            .or_insert_with(|| ToolState {
+                tool: None,
+                status: String::new(),
+                summary: None,
+                args: None,
+            });
         if let Some(name) = patch.tool {
             tool.tool = Some(name);
         }
@@ -733,7 +1057,9 @@ struct ToolPatch {
 }
 
 fn string_field(data: &Value, key: &str) -> Option<String> {
-    data.get(key).and_then(Value::as_str).map(ToString::to_string)
+    data.get(key)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
 }
 
 fn bool_field(data: &Value, key: &str) -> Option<bool> {
@@ -746,6 +1072,35 @@ fn u64_field(data: &Value, key: &str) -> u64 {
 
 fn string_array_field(data: &Value, key: &str) -> Vec<String> {
     data.get(key).map(value_string_array).unwrap_or_default()
+}
+
+fn artifact_id_field(data: &Value) -> Option<String> {
+    string_field(data, "artifact_id")
+        .or_else(|| string_field(data, "artifactId"))
+        .or_else(|| string_field(data, "id"))
+}
+
+fn pending_actions_from_data(data: &Value) -> Vec<PendingAction> {
+    data.get("actions")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let key = string_field(item, "key")?;
+                    if key.len() != 1 || !key.chars().all(|ch| ('1'..='9').contains(&ch)) {
+                        return None;
+                    }
+                    let label = string_field(item, "label")?;
+                    Some(PendingAction {
+                        key,
+                        label,
+                        command: string_field(item, "command"),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn value_string_array(value: &Value) -> Vec<String> {
@@ -780,16 +1135,43 @@ mod tests {
     #[test]
     fn research_turn_reduces_to_timeline_answer_and_tools() {
         let state = reduce_all(vec![
-            ev("task.started", serde_json::json!({"id":"task1","title":"调研火山 Seed 2.1","mode":"Trial"})),
-            ev("plan.created", serde_json::json!({"id":"plan1","steps":["官方源优先","抽字段","组装报告"]})),
-            ev("tool.requested", serde_json::json!({"id":"tool1","tool":"browser.render","reason":"JS 空壳","needsApproval":true})),
-            ev("approval.resolved", serde_json::json!({"id":"tool1","decision":"approve"})),
-            ev("tool.succeeded", serde_json::json!({"id":"tool1","summary":"读到正文"})),
-            ev("evidence.created", serde_json::json!({"id":"ev1","fact":"Seed 2.1 上下文 256k","source":"official","confidence":0.8})),
+            ev(
+                "task.started",
+                serde_json::json!({"id":"task1","title":"调研火山 Seed 2.1","mode":"Trial"}),
+            ),
+            ev(
+                "plan.created",
+                serde_json::json!({"id":"plan1","steps":["官方源优先","抽字段","组装报告"]}),
+            ),
+            ev(
+                "tool.requested",
+                serde_json::json!({"id":"tool1","tool":"browser.render","reason":"JS 空壳","needsApproval":true}),
+            ),
+            ev(
+                "approval.resolved",
+                serde_json::json!({"id":"tool1","decision":"approve"}),
+            ),
+            ev(
+                "tool.succeeded",
+                serde_json::json!({"id":"tool1","summary":"读到正文"}),
+            ),
+            ev(
+                "evidence.created",
+                serde_json::json!({"id":"ev1","fact":"Seed 2.1 上下文 256k","source":"official","confidence":0.8}),
+            ),
             ev("token.delta", serde_json::json!({"text":"根据官方文档，"})),
-            ev("token.delta", serde_json::json!({"text":"Seed 2.1 适合接入。"})),
-            ev("artifact.created", serde_json::json!({"id":"art1","name":"seed-2.1-research.md","type":"report","status":"draft","checks":["≥2 来源"]})),
-            ev("token.usage", serde_json::json!({"prompt":1000,"completion":200})),
+            ev(
+                "token.delta",
+                serde_json::json!({"text":"Seed 2.1 适合接入。"}),
+            ),
+            ev(
+                "artifact.created",
+                serde_json::json!({"id":"art1","name":"seed-2.1-research.md","type":"report","status":"draft","checks":["≥2 来源"]}),
+            ),
+            ev(
+                "token.usage",
+                serde_json::json!({"prompt":1000,"completion":200}),
+            ),
             ev("task.completed", serde_json::json!({"id":"task1"})),
         ]);
 
@@ -799,26 +1181,49 @@ mod tests {
         assert_eq!(state.plan.as_ref().unwrap().steps.len(), 3);
         assert_eq!(state.tools.get("tool1").unwrap().status, "ok");
         assert_eq!(state.evidence[0].source.as_deref(), Some("official"));
-        assert_eq!(state.artifacts[0].name.as_deref(), Some("seed-2.1-research.md"));
+        assert_eq!(
+            state.artifacts[0].name.as_deref(),
+            Some("seed-2.1-research.md")
+        );
         assert_eq!(state.answer, "根据官方文档，Seed 2.1 适合接入。");
         assert_eq!(state.usage.prompt_tok, 1000);
         assert_eq!(state.usage.completion_tok, 200);
         assert_eq!(state.status, "done");
         assert_eq!(state.approval, None);
-        assert!(state.timeline.iter().any(|line| line.label.contains("browser.render") && line.status == SYM_OK));
-        assert!(state.timeline.iter().any(|line| line.status == SYM_OK && line.label.contains("完成")));
+        assert!(
+            state
+                .timeline
+                .iter()
+                .any(|line| line.label.contains("browser.render") && line.status == SYM_OK)
+        );
+        assert!(
+            state
+                .timeline
+                .iter()
+                .any(|line| line.status == SYM_OK && line.label.contains("完成"))
+        );
     }
 
     #[test]
     fn failed_tool_marks_failed_tool_and_timeline_code() {
         let state = reduce_all(vec![
             ev("task.started", serde_json::json!({"id":"t","title":"x"})),
-            ev("tool.requested", serde_json::json!({"id":"srch","tool":"web.search"})),
-            ev("tool.failed", serde_json::json!({"id":"srch","code":"missing_key"})),
+            ev(
+                "tool.requested",
+                serde_json::json!({"id":"srch","tool":"web.search"}),
+            ),
+            ev(
+                "tool.failed",
+                serde_json::json!({"id":"srch","code":"missing_key"}),
+            ),
         ]);
 
         assert_eq!(state.tools.get("srch").unwrap().status, "failed");
-        let line = state.timeline.iter().find(|line| line.id == "srch").unwrap();
+        let line = state
+            .timeline
+            .iter()
+            .find(|line| line.id == "srch")
+            .unwrap();
         assert_eq!(line.status, SYM_FAIL);
         assert_eq!(line.detail, "missing_key");
     }
@@ -826,20 +1231,191 @@ mod tests {
     #[test]
     fn v06_events_capture_pending_memory_and_artifact_path() {
         let state = reduce_all(vec![
-            ev("task.started", serde_json::json!({"id":"t","title":"ROI 示例"})),
-            ev("task.upgraded_from_chat", serde_json::json!({"reason":"需生成报告"})),
-            ev("pending.actions", serde_json::json!({"actions":[{"key":"1","label":"看示例"},{"key":"2","label":"改假设"}]})),
-            ev("memory.state", serde_json::json!({"memory":{"persistent":"disabled"}})),
-            ev("artifact.created", serde_json::json!({"id":"a","name":"roi_report.md","kind":"report","path":"/x/.crewclaw/artifacts/t/roi_report.md"})),
+            ev(
+                "task.started",
+                serde_json::json!({"id":"t","title":"ROI 示例"}),
+            ),
+            ev(
+                "task.upgraded_from_chat",
+                serde_json::json!({"reason":"需生成报告"}),
+            ),
+            ev(
+                "pending.actions",
+                serde_json::json!({"actions":[{"key":"1","label":"看示例"},{"key":"2","label":"改假设"}]}),
+            ),
+            ev(
+                "memory.state",
+                serde_json::json!({"memory":{"persistent":"disabled"}}),
+            ),
+            ev(
+                "artifact.created",
+                serde_json::json!({"id":"a","name":"roi_report.md","kind":"report","path":"/x/.crewclaw/artifacts/t/roi_report.md"}),
+            ),
         ]);
 
         assert_eq!(state.mode, "chat-upgraded");
         assert_eq!(state.pending_actions.len(), 2);
         assert_eq!(state.memory.persistent, "disabled");
         assert_eq!(state.memory.session, "available");
-        assert_eq!(state.artifacts[0].path.as_deref(), Some("/x/.crewclaw/artifacts/t/roi_report.md"));
+        assert_eq!(
+            state.artifacts[0].path.as_deref(),
+            Some("/x/.crewclaw/artifacts/t/roi_report.md")
+        );
         assert_eq!(state.artifacts[0].kind.as_deref(), Some("report"));
-        assert!(state.timeline.iter().any(|line| line.label.contains("升级")));
+        assert!(
+            state
+                .timeline
+                .iter()
+                .any(|line| line.label.contains("升级"))
+        );
+    }
+
+    #[test]
+    fn pending_actions_reduce_to_typed_actions_and_skip_invalid_items() {
+        let state = reduce_all(vec![ev(
+            "pending.actions",
+            serde_json::json!({
+                "actions":[
+                    {"key":"1","label":"生成 ROI 示例","command":"run_roi_demo"},
+                    {"key":"2","label":"生成可编辑表格"},
+                    {"key":"x","label":"不是数字"},
+                    {"key":"3"}
+                ]
+            }),
+        )]);
+
+        assert_eq!(state.pending_actions.len(), 2);
+        assert_eq!(state.pending_actions[0].key, "1");
+        assert_eq!(state.pending_actions[0].label, "生成 ROI 示例");
+        assert_eq!(
+            state.pending_actions[0].command.as_deref(),
+            Some("run_roi_demo")
+        );
+        assert_eq!(state.pending_actions[1].key, "2");
+        assert_eq!(
+            state.pending_action_for_key('1').unwrap().label,
+            "生成 ROI 示例"
+        );
+        assert!(state.pending_action_for_key('3').is_none());
+        assert!(state.pending_action_for_key('x').is_none());
+    }
+
+    #[test]
+    fn artifact_events_select_soft_delete_and_reveal_artifacts() {
+        let state = reduce_all(vec![
+            ev(
+                "artifact.created",
+                serde_json::json!({
+                    "id":"a1",
+                    "name":"roi_report.md",
+                    "kind":"markdown",
+                    "path":"/tmp/roi_report.md",
+                    "status":"ready",
+                    "summary":"ROI 报告"
+                }),
+            ),
+            ev("artifact.selected", serde_json::json!({"artifact_id":"a1"})),
+            ev(
+                "artifact.revealed",
+                serde_json::json!({"artifact_id":"a1","path":"/tmp/roi_report.md","ok":true}),
+            ),
+            ev("artifact.deleted", serde_json::json!({"artifact_id":"a1"})),
+        ]);
+
+        assert_eq!(state.selected_artifact.as_deref(), Some("a1"));
+        assert_eq!(state.artifacts[0].status, "deleted");
+        assert_eq!(state.artifacts[0].summary.as_deref(), Some("ROI 报告"));
+        assert_eq!(state.preview.as_ref().unwrap().artifact_id, "a1");
+        assert!(
+            state
+                .timeline
+                .iter()
+                .any(|line| line.label.contains("选择产物"))
+        );
+        assert!(
+            state
+                .timeline
+                .iter()
+                .any(|line| line.label.contains("打开位置"))
+        );
+        assert!(
+            state
+                .timeline
+                .iter()
+                .any(|line| line.label.contains("删除产物"))
+        );
+    }
+
+    #[test]
+    fn long_assistant_markdown_becomes_artifact_required_summary() {
+        let long_markdown = format!("# ROI\n\n{}", "很长的段落。".repeat(140));
+        let state = reduce_all(vec![
+            ev(
+                "task.started",
+                serde_json::json!({"id":"t","title":"生成 ROI 报告","mode":"Task"}),
+            ),
+            ev(
+                "assistant.message",
+                serde_json::json!({"text":long_markdown}),
+            ),
+        ]);
+
+        assert!(state.answer.is_empty());
+        assert_eq!(state.status, "needs_artifact");
+        assert_eq!(state.artifacts.len(), 1);
+        assert_eq!(state.artifacts[0].kind.as_deref(), Some("markdown"));
+        assert_eq!(state.selected_artifact.as_deref(), Some("assistant-long-1"));
+        assert!(state.timeline.iter().any(|line| {
+            line.status == SYM_WARN
+                && line.label.contains("长内容转为 artifact")
+                && line.detail.len() <= 180
+        }));
+        assert!(
+            !state
+                .timeline
+                .iter()
+                .any(|line| line.detail.contains("# ROI"))
+        );
+    }
+
+    #[test]
+    fn approval_accept_reject_events_are_visible_in_timeline() {
+        let state = reduce_all(vec![
+            ev(
+                "approval.required",
+                serde_json::json!({"id":"ap1","tool":"write","reason":"confirm"}),
+            ),
+            ev(
+                "approval.accepted",
+                serde_json::json!({"id":"ap1","decision":"accept"}),
+            ),
+            ev(
+                "approval.rejected",
+                serde_json::json!({"id":"ap2","decision":"reject"}),
+            ),
+        ]);
+
+        assert_eq!(state.approval, None);
+        assert!(state.timeline.iter().any(|line| line.label == "授权已接受"));
+        assert!(state.timeline.iter().any(|line| line.label == "授权已拒绝"));
+        assert!(
+            state
+                .inspect
+                .recent_debug
+                .iter()
+                .any(|line| line.contains("approval.rejected"))
+        );
+    }
+
+    #[test]
+    fn app_state_tracks_focus_and_inspect_as_first_class_state() {
+        let mut state = AppState::default();
+        let mut ui = UiState::default();
+        ui.focus = FocusPanel::Inspect;
+        state.sync_focus(&ui);
+
+        assert_eq!(state.focus, FocusPanel::Inspect);
+        assert_eq!(state.inspect.task_status, None);
     }
 
     #[test]
@@ -848,15 +1424,75 @@ mod tests {
             "outcome.checked",
             serde_json::json!({"valid":true,"deliverable":"/x/roi.md"}),
         )]);
-        assert!(ok.timeline.iter().any(|l| l.status == SYM_OK && l.label.contains("验收")));
+        assert!(
+            ok.timeline
+                .iter()
+                .any(|l| l.status == SYM_OK && l.label.contains("验收"))
+        );
 
         let bad = reduce_all(vec![ev(
             "outcome.checked",
             serde_json::json!({"valid":false,"reason":"无可交付文件"}),
         )]);
-        let line = bad.timeline.iter().find(|l| l.label.contains("验收")).unwrap();
+        let line = bad
+            .timeline
+            .iter()
+            .find(|l| l.label.contains("验收"))
+            .unwrap();
         assert_eq!(line.status, SYM_WARN);
         assert_eq!(line.detail, "无可交付文件");
+    }
+
+    #[test]
+    fn completed_task_without_artifact_is_not_done() {
+        let state = reduce_all(vec![
+            ev(
+                "task.started",
+                serde_json::json!({"id":"t","title":"ROI 示例"}),
+            ),
+            ev("task.completed", serde_json::json!({"id":"t"})),
+        ]);
+
+        assert_eq!(state.status, "needs_artifact");
+        assert_eq!(state.task.as_ref().unwrap().status, "needs_artifact");
+        assert!(
+            state
+                .timeline
+                .iter()
+                .any(|line| { line.status == SYM_WARN && line.label.contains("缺少交付物") })
+        );
+    }
+
+    #[test]
+    fn prior_task_artifact_does_not_complete_current_task() {
+        let state = reduce_all(vec![
+            ev(
+                "task.started",
+                serde_json::json!({"id":"old","title":"上一轮"}),
+            ),
+            ev(
+                "artifact.created",
+                serde_json::json!({"id":"old-art","name":"old.md"}),
+            ),
+            ev("task.completed", serde_json::json!({"id":"old"})),
+            ev(
+                "task.started",
+                serde_json::json!({"id":"new","title":"新任务"}),
+            ),
+            ev("task.completed", serde_json::json!({"id":"new"})),
+        ]);
+
+        assert_eq!(state.status, "needs_artifact");
+        assert_eq!(state.task.as_ref().unwrap().id.as_deref(), Some("new"));
+        assert_eq!(state.task.as_ref().unwrap().status, "needs_artifact");
+        assert_eq!(
+            state
+                .timeline
+                .iter()
+                .filter(|line| line.status == SYM_WARN && line.label.contains("缺少交付物"))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -882,17 +1518,15 @@ mod tests {
 
     #[test]
     fn task_event_deserializes_known_and_unknown_wire_shapes() {
-        let event: TaskEvent = serde_json::from_str(
-            r#"{"type":"token.delta","ts":1719,"data":{"text":"hello"}}"#,
-        )
-        .expect("known event");
+        let event: TaskEvent =
+            serde_json::from_str(r#"{"type":"token.delta","ts":1719,"data":{"text":"hello"}}"#)
+                .expect("known event");
         assert_eq!(event.event_type(), "token.delta");
         assert_eq!(string_field(event.data(), "text").as_deref(), Some("hello"));
 
-        let unknown: TaskEvent = serde_json::from_str(
-            r#"{"type":"new.future_event","ts":1719,"data":{"x":1}}"#,
-        )
-        .expect("unknown event");
+        let unknown: TaskEvent =
+            serde_json::from_str(r#"{"type":"new.future_event","ts":1719,"data":{"x":1}}"#)
+                .expect("unknown event");
         assert_eq!(unknown.event_type(), "unknown");
     }
 

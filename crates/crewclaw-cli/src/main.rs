@@ -1,3 +1,4 @@
+use crossterm::tty::IsTty;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::ffi::OsStr;
@@ -158,9 +159,7 @@ fn run_cli(args: &[String], root: &Path) -> Result<i32, String> {
             };
             run_inspect(root, &registry, target)
         }
-        Some("list") => {
-            run_list(root, &registry)
-        }
+        Some("list") => run_list(root, &registry),
         Some("hire" | "install") => {
             let Some(target) = target else {
                 return run_interactive_hire(args, root, &registry);
@@ -230,18 +229,26 @@ fn show_help(root: &Path) {
     println!("Commands");
     println!("  search [keyword]  Search the employee registry");
     println!("  inspect <expert>  Show an AI employee resume from registry + hire.yaml");
-    println!("  hire <expert>     Hire an AI employee (scripted onboarding; --live installs for real)");
+    println!(
+        "  hire <expert>     Hire an AI employee (scripted onboarding; --live installs for real)"
+    );
     println!("  run <expert> <task>  Put a hired employee to work — live model, real output");
     println!("  chat <expert>     Open an interactive multi-turn chat with a hired employee");
-    println!("  deploy <agent> [--target openwork]  Generate an OpenWork deployment package + show compatibility level");
+    println!(
+        "  deploy <agent> [--target openwork]  Generate an OpenWork deployment package + show compatibility level"
+    );
     println!("  standup <brief>   Fan the whole crew out on one brief — live, in parallel");
-    println!("  workbench [--demo]  Open the Ratatui Trial Workbench; reads TaskEvent JSONL on stdin");
+    println!(
+        "  workbench [--demo]  Open the Ratatui Trial Workbench; reads TaskEvent JSONL on stdin"
+    );
     println!("  badge <expert>    Show a hired employee's manifest as an ID card");
     println!("  fire <expert>     Offboard a hired AI employee");
     println!("  update [expert]   Show available employee upgrades; --apply updates team state");
     println!("  logs [expert]     Show CrewClaw activity records");
     println!("  list              Show available and coming-soon experts");
-    println!("  doctor [expert]   Check an employee package, or git/Hermes when no expert is given");
+    println!(
+        "  doctor [expert]   Check an employee package, or git/Hermes when no expert is given"
+    );
     println!("  validate <path>   Validate one expert distribution");
     println!("  remove <profile>  Run official Hermes profile delete");
     println!("  verify            Run all agents in parallel to check the project is runnable");
@@ -251,14 +258,26 @@ fn show_help(root: &Path) {
     println!("  --yes             Skip CrewClaw prompts where safe");
     println!("  --force           Pass --force to Hermes profile install");
     println!("  --run-first       Start the first Hermes chat test after install");
-    println!("  --live            verify: run each agent's real command instead of the scripted demo");
+    println!(
+        "  --live            verify: run each agent's real command instead of the scripted demo"
+    );
     println!("  --ascii           verify: plain output with no emoji or color");
+    println!("  --plain           chat/run --task: use legacy plain output instead of Workbench");
+    println!(
+        "  --tui/--ratatui   chat: request Ratatui Workbench explicitly (chat defaults on TTY)"
+    );
     println!();
     println!("Agent instruction");
     println!("  Invoke every command as:  crew <command>");
-    println!("    e.g.  crew search macao  |  crew inspect <expert>  |  crew hire <expert>  |  crew run <expert> \"<task>\"");
-    println!("  Discover employees with `crew search` / `crew inspect` before raw Hermes commands.");
-    println!("  NOTE: \"crewhire\" (project folder) and \"crewclaw\" (binary) are NOT commands — always start with `crew`.");
+    println!(
+        "    e.g.  crew search macao  |  crew inspect <expert>  |  crew hire <expert>  |  crew run <expert> \"<task>\""
+    );
+    println!(
+        "  Discover employees with `crew search` / `crew inspect` before raw Hermes commands."
+    );
+    println!(
+        "  NOTE: \"crewhire\" (project folder) and \"crewclaw\" (binary) are NOT commands — always start with `crew`."
+    );
 }
 
 fn run_search(registry: &Registry, keyword: Option<&str>) -> Result<i32, String> {
@@ -280,7 +299,10 @@ fn run_search(registry: &Registry, keyword: Option<&str>) -> Result<i32, String>
         .collect::<Vec<_>>();
 
     if matches.is_empty() {
-        println!("No experts matched keyword: {}", keyword.unwrap_or("(empty)"));
+        println!(
+            "No experts matched keyword: {}",
+            keyword.unwrap_or("(empty)")
+        );
         return Ok(0);
     }
 
@@ -300,7 +322,10 @@ fn run_inspect(root: &Path, registry: &Registry, target: &str) -> Result<i32, St
         return Ok(1);
     };
     let Some(local_source) = expert.local_source.as_deref() else {
-        eprintln!("Error: {} has no local employee package yet.", expert.display_name);
+        eprintln!(
+            "Error: {} has no local employee package yet.",
+            expert.display_name
+        );
         return Ok(1);
     };
     let manifest = match manifest::read_manifest(root, local_source) {
@@ -315,7 +340,10 @@ fn run_inspect(root: &Path, registry: &Registry, target: &str) -> Result<i32, St
     println!("name: {}", expert.name);
     println!("display_name: {}", expert.display_name);
     println!("status: {}", expert.status);
-    println!("version: {}", expert.version.as_deref().unwrap_or("unknown"));
+    println!(
+        "version: {}",
+        expert.version.as_deref().unwrap_or("unknown")
+    );
     println!("certification: {}", expert.certification);
     println!();
     println!("identity:");
@@ -425,7 +453,12 @@ fn persist_hire(
     Ok(())
 }
 
-fn run_fire(root: &Path, registry: &Registry, target: &str, args: &[String]) -> Result<i32, String> {
+fn run_fire(
+    root: &Path,
+    registry: &Registry,
+    target: &str,
+    args: &[String],
+) -> Result<i32, String> {
     let Some(expert) = find_expert(registry, target) else {
         eprintln!("Error: Unknown expert: {target}");
         return Ok(1);
@@ -436,7 +469,10 @@ fn run_fire(root: &Path, registry: &Registry, target: &str, args: &[String]) -> 
         return Ok(1);
     };
 
-    println!("Impact: {} will be marked fired; history remains in .crewclaw/team.json.", expert.name);
+    println!(
+        "Impact: {} will be marked fired; history remains in .crewclaw/team.json.",
+        expert.name
+    );
     employee.status = team::WorkspaceEmployeeStatus::Fired;
     employee.fired_at = Some(team::now_iso8601());
     team::write_team(root, &employees)?;
@@ -446,7 +482,10 @@ fn run_fire(root: &Path, registry: &Registry, target: &str, args: &[String]) -> 
         let code = hire_demo::run_fire_ceremony(args, root, &expert.name)?;
         return Ok(code);
     }
-    println!("Fired {}. New tasks are disabled for this employee.", expert.name);
+    println!(
+        "Fired {}. New tasks are disabled for this employee.",
+        expert.name
+    );
     Ok(0)
 }
 
@@ -693,27 +732,23 @@ fn run_first_task(profile_name: &str, task: &str, root: &Path) -> Result<i32, St
 /// answer streams live to the terminal. Everything after the verb (the agent id
 /// and the task) is passed straight through.
 fn run_agent_live(args: &[String], root: &Path) -> Result<i32, String> {
-    let positionals = positionals(args);
-    if positionals.first().map(String::as_str) == Some("chat") && has_flag(args, "--ratatui") {
-        let Some(agent) = positionals.get(1) else {
+    let forward = node_runtime_forward_args(args);
+    if chat_requires_tty(args, io::stdout().is_tty()) {
+        eprintln!(
+            "Error: crew chat requires an interactive terminal. Use `crew run <expert> \"<task>\"` for non-interactive runs."
+        );
+        return Ok(2);
+    }
+    if should_use_ratatui_workbench(args, io::stdout().is_tty()) {
+        let Some(agent) = forward.first() else {
             eprintln!("Error: Missing agent name.");
             return Ok(1);
         };
-        let code = workbench::run_workbench_live(agent, root)?;
+        let code = workbench::run_workbench_live(&forward, root)?;
         if code == 0 {
             append_activity(root, "run", agent)?;
         }
         return Ok(code);
-    }
-
-    let mut forward = Vec::new();
-    let mut consumed_verb = false;
-    for arg in args {
-        if !consumed_verb && matches!(arg.as_str(), "run" | "chat") {
-            consumed_verb = true;
-            continue;
-        }
-        forward.push(arg.clone());
     }
 
     let script = root.join("packages/runtime/run.mjs");
@@ -728,6 +763,42 @@ fn run_agent_live(args: &[String], root: &Path) -> Result<i32, String> {
         }
     }
     Ok(code)
+}
+
+fn chat_requires_tty(args: &[String], stdout_is_tty: bool) -> bool {
+    if stdout_is_tty {
+        return false;
+    }
+    matches!(positionals(args).first().map(String::as_str), Some("chat"))
+        && !has_flag(args, "--input")
+}
+
+fn should_use_ratatui_workbench(args: &[String], stdout_is_tty: bool) -> bool {
+    if !stdout_is_tty || has_flag(args, "--plain") {
+        return false;
+    }
+    let positionals = positionals(args);
+    match positionals.first().map(String::as_str) {
+        Some("chat") => true,
+        Some("run") => has_flag(args, "--task"),
+        _ => false,
+    }
+}
+
+fn node_runtime_forward_args(args: &[String]) -> Vec<String> {
+    let mut forward = Vec::new();
+    let mut consumed_verb = false;
+    for arg in args {
+        if !consumed_verb && matches!(arg.as_str(), "run" | "chat") {
+            consumed_verb = true;
+            continue;
+        }
+        if matches!(arg.as_str(), "--plain" | "--tui" | "--ratatui") {
+            continue;
+        }
+        forward.push(arg.clone());
+    }
+    forward
 }
 
 fn run_deploy(args: &[String], root: &Path) -> Result<i32, String> {
@@ -867,10 +938,7 @@ fn available_updates(
         .collect()
 }
 
-fn apply_updates(
-    employees: &mut [team::WorkspaceEmployee],
-    updates: &[UpdateCandidate],
-) -> usize {
+fn apply_updates(employees: &mut [team::WorkspaceEmployee], updates: &[UpdateCandidate]) -> usize {
     let mut changed = 0;
     for update in updates {
         if let Some(employee) = employees.iter_mut().find(|employee| {
@@ -1185,11 +1253,7 @@ fn print_list(label: &str, values: &[String]) {
 }
 
 fn blank(value: &str) -> &str {
-    if value.is_empty() {
-        "(missing)"
-    } else {
-        value
-    }
+    if value.is_empty() { "(missing)" } else { value }
 }
 
 fn quote_shell(value: &str) -> String {
@@ -1292,6 +1356,73 @@ mod tests {
                 "--target".to_string(),
                 "custom".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn chat_defaults_to_ratatui_on_tty_unless_plain_is_requested() {
+        assert!(should_use_ratatui_workbench(
+            &strings(&["chat", "ai-adoption-whale"]),
+            true
+        ));
+        assert!(should_use_ratatui_workbench(
+            &strings(&["chat", "ai-adoption-whale", "--tui"]),
+            true
+        ));
+        assert!(should_use_ratatui_workbench(
+            &strings(&["chat", "ai-adoption-whale", "--ratatui"]),
+            true
+        ));
+        assert!(!should_use_ratatui_workbench(
+            &strings(&["chat", "ai-adoption-whale", "--plain"]),
+            true
+        ));
+        assert!(!should_use_ratatui_workbench(
+            &strings(&["chat", "ai-adoption-whale"]),
+            false
+        ));
+        assert!(chat_requires_tty(
+            &strings(&["chat", "ai-adoption-whale"]),
+            false
+        ));
+        assert!(!chat_requires_tty(
+            &strings(&["chat", "ai-adoption-whale"]),
+            true
+        ));
+    }
+
+    #[test]
+    fn run_task_defaults_to_ratatui_on_tty_unless_plain_is_requested() {
+        assert!(should_use_ratatui_workbench(
+            &strings(&["run", "ai-adoption-whale", "--task", "roi-demo"]),
+            true
+        ));
+        assert!(!should_use_ratatui_workbench(
+            &strings(&["run", "ai-adoption-whale", "write a report"]),
+            true
+        ));
+        assert!(!should_use_ratatui_workbench(
+            &strings(&["run", "ai-adoption-whale", "--task", "roi-demo", "--plain"]),
+            true
+        ));
+        assert!(!should_use_ratatui_workbench(
+            &strings(&["run", "ai-adoption-whale", "--task", "roi-demo"]),
+            false
+        ));
+    }
+
+    #[test]
+    fn node_runtime_args_strip_rust_tui_control_flags() {
+        assert_eq!(
+            node_runtime_forward_args(&strings(&[
+                "chat",
+                "ai-adoption-whale",
+                "--plain",
+                "--tui",
+                "--ratatui",
+                "--resume"
+            ])),
+            vec!["ai-adoption-whale".to_string(), "--resume".to_string()]
         );
     }
 

@@ -1,4 +1,4 @@
-import yaml from "js-yaml";
+import yaml from "../yaml.mjs";
 import { computeCompatibility } from "../compatibility.mjs";
 import { validateEmployeePackage } from "../employee-package.mjs";
 import { defineAdapter } from "./adapter-interface.mjs";
