@@ -90,7 +90,23 @@ function parseYamlArray(lines: YamlLine[], index: number, indent: number): [unkn
     const item = lines[index].text.slice(2).trim();
     index += 1;
     if (item) {
-      output.push(parseScalar(item));
+      const inlineObjectItem = item.match(/^([A-Za-z0-9_]+):(?:\s+(.*)|\s*)$/);
+      if (inlineObjectItem) {
+        const [, key, value = ""] = inlineObjectItem;
+        const objectItem: Record<string, unknown> = {
+          [key]: parseScalar(value),
+        };
+        if (index < lines.length && lines[index].indent > indent) {
+          const [continuation, nextIndex] = parseYamlBlock(lines, index, lines[index].indent);
+          if (continuation && typeof continuation === "object" && !Array.isArray(continuation)) {
+            Object.assign(objectItem, continuation);
+            index = nextIndex;
+          }
+        }
+        output.push(objectItem);
+      } else {
+        output.push(parseScalar(item));
+      }
     } else {
       const [nested, nextIndex] = parseYamlBlock(lines, index, indent + 2);
       output.push(nested);
@@ -121,7 +137,7 @@ function parseYamlObject(lines: YamlLine[], index: number, indent: number): [Rec
   return [output, index];
 }
 
-function parseYaml(raw: string): unknown {
+export function parseYaml(raw: string): unknown {
   const lines = parseYamlLines(raw);
   if (lines.length === 0) return {};
   return parseYamlBlock(lines, 0, lines[0].indent)[0];
