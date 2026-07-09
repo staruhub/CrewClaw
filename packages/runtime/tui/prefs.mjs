@@ -28,3 +28,9 @@ export function readApprovalPolicy(root) {
   const v = Number(p.approval);
   return v === APPROVAL_ARTIFACTS_ONLY || v === APPROVAL_TRUST_AUTO ? v : APPROVAL_ALL_DELIVERIES;
 }
+
+/** The monthly-budget option index (0..3 → $20/$50/$100/$200). Default 0. */
+export function readBudgetIndex(root) {
+  const v = Number(readPrefs(root).budget);
+  return Number.isInteger(v) && v >= 0 ? v : 0;
+}

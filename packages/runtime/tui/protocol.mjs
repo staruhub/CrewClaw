@@ -48,6 +48,9 @@ export const EVENTS = {
   SOURCE_CHECKED: "source.checked",
   PENDING_ACTIONS: "pending.actions",
   QUICK_UTILITY: "quick.utility",
+  // v0.18 C3 — monthly budget crossed a threshold. level:"warn" at ≥80% (one-shot), level:"block"
+  // when a new task is refused at ≥100%. The notification center's first budget-sourced entry.
+  BUDGET_WARNING: "budget.warning",
   MEMORY_STATE: "memory.state",
   MEMORY_REQUESTED: "memory.requested",
   MEMORY_SAVED: "memory.saved",

@@ -275,6 +275,14 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    /// v0.18 C3：月度预算告警（level:"warn" 80% / "block" 100%）。
+    #[serde(rename = "budget.warning")]
+    BudgetWarning {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "memory.state")]
     MemoryState {
         #[serde(default)]
@@ -428,6 +436,7 @@ impl TaskEvent {
             "source.checked" => Self::SourceChecked { ts, data },
             "pending.actions" => Self::PendingActions { ts, data },
             "quick.utility" => Self::QuickUtility { ts, data },
+            "budget.warning" => Self::BudgetWarning { ts, data },
             "memory.state" => Self::MemoryState { ts, data },
             "memory.requested" => Self::MemoryRequested { ts, data },
             "memory.saved" => Self::MemorySaved { ts, data },
@@ -478,6 +487,7 @@ impl TaskEvent {
             Self::SourceChecked { .. } => "source.checked",
             Self::PendingActions { .. } => "pending.actions",
             Self::QuickUtility { .. } => "quick.utility",
+            Self::BudgetWarning { .. } => "budget.warning",
             Self::MemoryState { .. } => "memory.state",
             Self::MemoryRequested { .. } => "memory.requested",
             Self::MemorySaved { .. } => "memory.saved",
@@ -528,6 +538,7 @@ impl TaskEvent {
             | Self::SourceChecked { data, .. }
             | Self::PendingActions { data, .. }
             | Self::QuickUtility { data, .. }
+            | Self::BudgetWarning { data, .. }
             | Self::MemoryState { data, .. }
             | Self::MemoryRequested { data, .. }
             | Self::MemorySaved { data, .. }
@@ -580,6 +591,7 @@ impl TaskEvent {
             | Self::SourceChecked { ts, .. }
             | Self::PendingActions { ts, .. }
             | Self::QuickUtility { ts, .. }
+            | Self::BudgetWarning { ts, .. }
             | Self::MemoryState { ts, .. }
             | Self::MemoryRequested { ts, .. }
             | Self::MemorySaved { ts, .. }

@@ -22,7 +22,8 @@ import { assembleProofPack } from "../proofpack.mjs";
 import { estimateCost } from "../budget-guard.mjs";
 import { readKpi, recordTaskOutcome } from "../kpi.mjs";
 import { readEvalResult } from "../eval-runner.mjs";
-import { readApprovalPolicy, APPROVAL_TRUST_AUTO, TRUST_AUTO_THRESHOLD } from "./prefs.mjs";
+import { readApprovalPolicy, readBudgetIndex, APPROVAL_TRUST_AUTO, TRUST_AUTO_THRESHOLD } from "./prefs.mjs";
+import { recordSpend, readSpend, isOverBudget, capForBudgetIndex, monthKey } from "../spend.mjs";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 
@@ -64,6 +65,16 @@ export async function startJsonlBridge({
   let pendingApproval = null; // {taskRunId, root, goal, artifact, usage} while a task awaits accept (§11)
   let usageAcc = { prompt: 0, completion: 0 }; // running token usage for the ProofPack cost summary
   const turnUsage = () => ({ ...usageAcc });
+
+  // v0.18 C3: add a settled task's estimated cost to this month's ledger; emit a one-shot
+  // budget.warning the moment cumulative spend crosses 80% of the SETTINGS cap (the ledger's
+  // warned_80 flag keeps it from firing every task after that).
+  const accrueSpend = (cost) => {
+    const { total, cap, crossedWarn } = recordSpend(bridgeRoot, readBudgetIndex(bridgeRoot), cost);
+    if (crossedWarn) {
+      emit(EVENTS.BUDGET_WARNING, { level: "warn", month: monthKey(), spent: total, cap });
+    }
+  };
 
   const sink = {
     onDelta: (text) => { turnText += text ?? ""; emit(EVENTS.TOKEN_DELTA, { text }); },
@@ -141,6 +152,18 @@ export async function startJsonlBridge({
       return;
     }
     if (busy) return; // a task is already running; ignore stray input
+    // v0.18 C3: monthly budget enforcement. At ≥100% of the SETTINGS cap, refuse to start a NEW
+    // task. A digit that matches a pending action ("1"=accept/"2"=revise/"3"=reveal) is NOT a new
+    // task — it closes an existing one — so it's exempt. The refusal names the cap + points at SETTINGS.
+    const isPendingActionInput = sessionPendingActions.some((a) => a && a.key === text.trim());
+    const budgetIndex = readBudgetIndex(bridgeRoot);
+    if (!isPendingActionInput && isOverBudget(bridgeRoot, budgetIndex)) {
+      const total = readSpend(bridgeRoot).total;
+      const cap = capForBudgetIndex(budgetIndex);
+      emit(EVENTS.BUDGET_WARNING, { level: "block", month: monthKey(), spent: total, cap });
+      emit(EVENTS.TOKEN_DELTA, { text: `\n⛔ 本月已达预算上限（$${total.toFixed(2)}/$${cap}）。新任务已暂停——去 SETTINGS 调高月度预算上限后再派活。` });
+      return;
+    }
     busy = true;
     // v0.15 P0-1: snapshot the pending actions BEFORE task.started wipes them. The digit the user
     // pressed matches against what was on screen; task.started clears the list for the NEXT turn.
@@ -200,6 +223,7 @@ export async function startJsonlBridge({
         emit(EVENTS.TASK_COMPLETED, { usage: produced, est_cost: acceptedCost });
         // v0.17 P2 C1：真实验收落盘累计（EMPLOYEE 面板"累计"区 + MARKET/EVAL 真 KPI 的数据源）。
         recordTaskOutcome(root, meta.agentId, { accepted: true, cost: acceptedCost });
+        accrueSpend(acceptedCost); // v0.18 C3
       } else if (art && !decision.blocked) {
         // v0.18 C4: honor the SETTINGS approval policy (was stored-but-ignored). "信任后自动"
         // auto-accepts once the employee has earned ≥N cumulative accepts — but still emits the
@@ -217,6 +241,7 @@ export async function startJsonlBridge({
           const cost = estimateCost({ promptTokens: held.usage.prompt, completionTokens: held.usage.completion }).cost;
           emit(EVENTS.TASK_COMPLETED, { usage: held.usage, est_cost: cost });
           recordTaskOutcome(root, meta.agentId, { accepted: true, cost });
+          accrueSpend(cost); // v0.18 C3
         } else {
           pendingApproval = held;
           emit(EVENTS.APPROVAL_REQUESTED, {
@@ -237,6 +262,7 @@ export async function startJsonlBridge({
         // v0.17 P2 C1：非验收终态也计入累计"任务数"（与本会话 KPI 的 tasks 定义一致——
         // task_meta 挂在每个 completed/blocked/rejected 任务头上，不只挂验收产出）。
         recordTaskOutcome(root, meta.agentId, { accepted: false, cost: plainCost });
+        accrueSpend(plainCost); // v0.18 C3
       }
     } catch (e) {
       emit(EVENTS.TASK_REJECTED, { reason: String((e && e.message) || e) });

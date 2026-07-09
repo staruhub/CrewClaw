@@ -23,6 +23,7 @@ fn kind_color(kind: NoticeKind) -> ratatui::style::Color {
         NoticeKind::Delivered => config::green(),
         NoticeKind::Accepted => config::green(),
         NoticeKind::Rejected => config::red(),
+        NoticeKind::Budget => config::yellow(),
     }
 }
 
@@ -33,6 +34,7 @@ fn action_text(kind: NoticeKind) -> &'static str {
         NoticeKind::Delivered => "→ 看详情",
         NoticeKind::Accepted => "→ 看 KPI",
         NoticeKind::Rejected => "→ 去处理",
+        NoticeKind::Budget => "→ 调预算",
     }
 }
 

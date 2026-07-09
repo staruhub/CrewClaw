@@ -111,6 +111,8 @@ pub enum NoticeKind {
     Accepted,
     /// 异常（task.rejected/blocked）。
     Rejected,
+    /// v0.18 C3：月度预算告警（budget.warning，80% 提醒 / 100% 拒任务）。
+    Budget,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -891,6 +893,7 @@ impl NoticeKind {
             NoticeKind::Delivered => "★",
             NoticeKind::Accepted => "✓",
             NoticeKind::Rejected => "✗",
+            NoticeKind::Budget => "$",
         }
     }
 }
@@ -1109,6 +1112,24 @@ impl AppState {
                     confidence: data.get("confidence").and_then(Value::as_f64),
                     source_type: string_field(data, "source_type"),
                 });
+            }
+            TaskEvent::BudgetWarning { .. } => {
+                // v0.18 C3：月度预算 80% 提醒 / 100% 拒任务 → 通知中心真条目（第一个预算真源）。
+                let level = string_field(data, "level").unwrap_or_default();
+                let spent = data.get("spent").and_then(Value::as_f64).unwrap_or(0.0);
+                let cap = data.get("cap").and_then(Value::as_f64).unwrap_or(0.0);
+                let (title, body) = if level == "block" {
+                    (
+                        "预算已达上限".to_string(),
+                        format!("本月 ${spent:.2}/${cap:.0}，新任务已暂停 · 去 SETTINGS 调上限"),
+                    )
+                } else {
+                    (
+                        "预算告警".to_string(),
+                        format!("本月已用 ${spent:.2}/${cap:.0}（≥80%）· 注意成本"),
+                    )
+                };
+                self.push_notice(NoticeKind::Budget, title, body);
             }
             TaskEvent::ApprovalRequired { .. } | TaskEvent::ApprovalRequested { .. } => {
                 self.approval = Some(Approval {
@@ -2184,6 +2205,25 @@ mod tests {
         assert_eq!(state.notices[1].kind, NoticeKind::Accepted);
         assert_eq!(state.notices[2].kind, NoticeKind::Delivered);
         assert_eq!(state.notices[3].kind, NoticeKind::Rejected);
+    }
+
+    /// v0.18 C3：budget.warning（引擎月度预算 80%/100%）→ 通知中心真条目（第一个预算真源）。
+    #[test]
+    fn budget_warning_becomes_a_notice() {
+        let warn = reduce_all(vec![ev(
+            "budget.warning",
+            serde_json::json!({"level":"warn","month":"2026-07","spent":16.5,"cap":20}),
+        )]);
+        assert_eq!(warn.notices.len(), 1);
+        assert_eq!(warn.notices[0].kind, NoticeKind::Budget);
+        assert!(warn.notices[0].body.contains("16.5"), "warn body carries the real spend");
+
+        let block = reduce_all(vec![ev(
+            "budget.warning",
+            serde_json::json!({"level":"block","month":"2026-07","spent":25.0,"cap":20}),
+        )]);
+        assert_eq!(block.notices[0].kind, NoticeKind::Budget);
+        assert!(block.notices[0].title.contains("上限"), "block title signals the hard stop");
     }
 
     /// accept 回声的 outcome.checked(reason=用户已验收) 不重复产出「已交付」通知。

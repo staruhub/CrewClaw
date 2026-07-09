@@ -117,10 +117,12 @@ fn rows(ui_state: &UiState) -> Vec<RowView> {
             group: None,
         },
         RowView {
+            // v0.18 C3：月度预算已接线（spend.mjs 累计月成本；80% 发 budget.warning 进通知中心、
+            // 100% 引擎拒新任务）。不再是"存而不用"。
             label: "月度预算上限",
             desc: "触达 80% 告警 · 100% 硬停",
             value: BUDGET_OPTS[p.budget % BUDGET_OPTS.len()].to_string(),
-            unsupported: true,
+            unsupported: false,
             group: None,
         },
         RowView {
