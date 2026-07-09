@@ -25,6 +25,7 @@ export const ANALYTICS_EVENTS = [
   "employee_review_submitted",
   "demo_task_copied",
   "task_run_viewed",
+  "package_downloaded",
 ] as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number];

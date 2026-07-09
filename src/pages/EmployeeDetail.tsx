@@ -6,12 +6,13 @@ import {
   CheckCircle2,
   Clock3,
   Copy,
+  Download,
   FileText,
   Heart,
   MessageSquare,
   ShieldCheck,
   Star,
-  Users,
+  Tag,
 } from "lucide-react";
 import { PermissionLevelList } from "@/components/employee/PermissionLevel";
 import { formatPricingLabel, PricingBadge, pricingTone } from "@/components/PricingInfo";
@@ -195,7 +196,9 @@ export default function EmployeeDetail() {
   const { id } = useParams();
   const employee = id ? getEmployee(id) : undefined;
   const saved = useSavedEmployees();
-  const reviews = useEmployeeReviews(employee?.employee_id ?? "missing", employee?.rating ?? 0);
+  // Fallback 0 (not the fabricated employee.rating) so the reviews average reflects only real,
+  // user-submitted reviews — no invented baseline.
+  const reviews = useEmployeeReviews(employee?.employee_id ?? "missing", 0);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
   const [reviewMessage, setReviewMessage] = useState<string | null>(null);
@@ -338,6 +341,29 @@ export default function EmployeeDetail() {
               >
                 <Link to="/team">View team</Link>
               </Button>
+              {employee.local_source && (
+                // v0.18 Phase 2: a REAL download — the packaged employee (gzipped tar + sha256)
+                // served by /api/employees/:slug/package, not just a copyable command. Gated on
+                // local_source (the same field the API requires) — coming-soon employees have none.
+                <Button
+                  asChild
+                  className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
+                  variant="outline"
+                >
+                  <a
+                    href={`/api/employees/${employee.employee_id}/package`}
+                    onClick={() =>
+                      track("package_downloaded", {
+                        employee_id: employee.employee_id,
+                        employee_name: employee.name,
+                      })
+                    }
+                  >
+                    <Download className="size-4" />
+                    Download package
+                  </a>
+                </Button>
+              )}
             </div>
           </div>
 
@@ -362,9 +388,13 @@ export default function EmployeeDetail() {
           </Card>
         </section>
 
+        {/* v0.18 Phase 2: honest stats only. The fabricated Rating (4.9) and Hires (860) had no
+            data source — a bundled site can't read local eval/kpi files. Show real registry facts
+            (certification, version) instead; live user reviews still surface in the Reviews section
+            below when they exist. */}
         <section className="mt-8 grid gap-4 sm:grid-cols-3">
-          <Stat icon={Star} label="Rating" value={reviews.averageRating.toFixed(1)} />
-          <Stat icon={Users} label="Hires" value={employee.hire_count.toLocaleString()} />
+          <Stat icon={ShieldCheck} label="Certification" value={employee.certification} />
+          <Stat icon={Tag} label="Version" value={`v${employee.version}`} />
           <Stat icon={Clock3} label="Updated" value={new Date(employee.updated_at).toLocaleDateString()} />
         </section>
 
