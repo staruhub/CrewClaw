@@ -64,7 +64,13 @@ export function applyUserAction(action, { emit }) {
       emit(EVENTS.DEBUG_LINE, { line: `pending action ${data.key}${data.command ? ` ${data.command}` : ""}` });
       return { handled: false, text: data.command || data.label || data.key };
     case "user.message":
-      return { handled: false, text: data.text || "", refs: Array.isArray(data.refs) ? data.refs : [] };
+      // v0.8 M6：透传结构化 parts（可选）。老前端不发 parts → undefined，下游降级纯文本。
+      return {
+        handled: false,
+        text: data.text || "",
+        refs: Array.isArray(data.refs) ? data.refs : [],
+        parts: Array.isArray(data.parts) ? data.parts : undefined,
+      };
     default:
       return { handled: false, text: "" };
   }

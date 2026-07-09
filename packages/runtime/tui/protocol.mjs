@@ -23,11 +23,20 @@ export const EVENTS = {
   ARTIFACT_EXPORTED: "artifact.exported",
   EVIDENCE_CREATED: "evidence.created",
   APPROVAL_REQUIRED: "approval.required",
+  // approval.required = mid-task L2 tool confirm; approval.requested = the task-end
+  // acceptance gate (§5.4/§11): a deliverable-producing task enters Approval before Done.
+  APPROVAL_REQUESTED: "approval.requested",
   APPROVAL_RESOLVED: "approval.resolved",
   APPROVAL_ACCEPTED: "approval.accepted",
   APPROVAL_REJECTED: "approval.rejected",
   ASSISTANT_MESSAGE: "assistant.message",
+  // v0.8 M2 — the fully-assembled assistant turn, pre-rendered to ANSI lines so every
+  // front-end shares one markdown renderer (ui-markdown.mjs). token.delta still streams the
+  // raw text live; assistant.rendered "sets" the typeset version once the turn completes.
+  ASSISTANT_RENDERED: "assistant.rendered",
   TOKEN_DELTA: "token.delta",
+  // v0.11 M4：模型推理增量（真·思考，来自 delta.reasoning_content）。前端收进可折叠「思考」块。
+  THINKING_DELTA: "thinking.delta",
   TOKEN_USAGE: "token.usage",
   TASK_COMPLETED: "task.completed",
   TASK_REJECTED: "task.rejected",
@@ -44,6 +53,10 @@ export const EVENTS = {
   MEMORY_SAVED: "memory.saved",
   WORKSPACE_REVEALED: "workspace.revealed",
   OUTCOME_CHECKED: "outcome.checked", // completion verdict (§5.8 No-Chat-only-Done): did the task leave a real deliverable?
+  // v0.8 M3 — a slash command's result. The engine executes commands (they depend on engine
+  // state: registry/history/model); the front-end only shows output. `clear:true` also tells
+  // the front-end to reset its transcript so /clear stays a single source of truth.
+  COMMAND_OUTPUT: "command.output",
   DEBUG_LINE: "debug.line",
 };
 

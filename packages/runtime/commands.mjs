@@ -27,6 +27,16 @@ export function isCommand(line) {
   return String(line ?? "").startsWith("/");
 }
 
+// v0.8 M3: the catalog broadcast on session.ready caps.commands so ANY front-end can offer
+// slash completion without hardcoding the list. Each entry's primary name (the token before the
+// first comma/space) drives the popup; aliases stay in the human description.
+export function commandCatalog() {
+  return COMMANDS.map(([names, desc]) => {
+    const name = String(names).split(",")[0].trim().split(/\s+/)[0];
+    return { name, desc };
+  });
+}
+
 export function runCommand(line, ctx = {}) {
   if (!isCommand(line)) return { handled: false };
 

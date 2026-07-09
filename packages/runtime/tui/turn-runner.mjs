@@ -1,6 +1,8 @@
 // Pure per-turn runners shared by Ink and JSONL frontends. This file must not
 // import React/Ink so headless JSONL tests can run with only Node built-ins.
 
+import { expandPartsToContent } from "./parts.mjs";
+
 export function historyToTurns(history) {
   const out = [];
   for (const m of history || []) {
@@ -24,14 +26,21 @@ export function historyToTurns(history) {
   return out;
 }
 
-export function buildRunTurn({ agentLoop, agentLoopDeps = {}, history, saveSession }) {
-  return async function runTurn(text, sink) {
-    history.push({ role: "user", content: text });
+export function buildRunTurn({ agentLoop, agentLoopDeps = {}, history, saveSession, root }) {
+  // `input` is either a plain string (legacy) or {text, parts} (v0.8 M6). With parts, expand
+  // attachments to content blocks via the shared parts.mjs; without, push the string unchanged.
+  return async function runTurn(input, sink) {
+    const content =
+      typeof input === "string"
+        ? input
+        : await expandPartsToContent(input, { root: root || agentLoopDeps.root });
+    history.push({ role: "user", content });
     const output = await agentLoop({
       ...agentLoopDeps,
       messages: history,
       renderMd: false,
       onDelta: sink.onDelta,
+      onThinking: sink.onThinking,
       onInvocation: sink.onInvocation,
       onUsage: sink.onUsage,
       confirm: sink.confirm || agentLoopDeps.confirm,
@@ -50,6 +59,7 @@ export function buildQuickUtilityTurn({ agentLoop, agentLoopDeps = {} }) {
       messages: [{ role: "user", content: text }],
       renderMd: false,
       onDelta: sink.onDelta,
+      onThinking: sink.onThinking,
       onInvocation: sink.onInvocation,
       onUsage: sink.onUsage,
       confirm: sink.confirm || agentLoopDeps.confirm,

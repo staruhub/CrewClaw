@@ -97,7 +97,7 @@ export async function runSpecVector(vector, ctx = {}) {
   const intent = textInput ? classifyIntent(textInput, ctx) : undefined;
 
   if ('route' in expect) {
-    const actualRoute = routeFromIntent(input, intent);
+    const actualRoute = intent?.type;
     addCheck(
       checks,
       'route',
@@ -107,7 +107,7 @@ export async function runSpecVector(vector, ctx = {}) {
   }
 
   if ('loadsFullContext' in expect) {
-    const loadsFullContext = routeFromIntent(input, intent) === 'employee_task';
+    const loadsFullContext = intent?.type === 'employee_task';
     addCheck(
       checks,
       'loadsFullContext',
@@ -117,7 +117,7 @@ export async function runSpecVector(vector, ctx = {}) {
   }
 
   if ('scored' in expect) {
-    const scored = routeFromIntent(input, intent) === 'employee_task';
+    const scored = intent?.type === 'employee_task';
     addCheck(
       checks,
       'scored',
@@ -184,16 +184,4 @@ function addCheck(checks, name, ok, detail) {
 
 function findCapability(states, capability) {
   return states.find((state) => state.capability === capability);
-}
-
-function routeFromIntent(input, intent) {
-  if (intent?.type === 'ambiguous' && isLightGreeting(input)) {
-    return 'employee_chat';
-  }
-
-  return intent?.type;
-}
-
-function isLightGreeting(input) {
-  return /^(?:hi|hello|hey|你好|嗨)$/i.test(String(input ?? '').trim());
 }
