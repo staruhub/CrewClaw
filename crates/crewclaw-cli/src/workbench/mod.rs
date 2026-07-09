@@ -255,6 +255,7 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
             skills: Vec::new(),
             avatar: Vec::new(),
             kpi_cumulative: state::KpiCumulative::default(),
+            eval: None,
         });
         state.mode = "Trial".to_string();
     }
@@ -2677,6 +2678,7 @@ mod tests {
             skills: Vec::new(),
             avatar: Vec::new(),
             kpi_cumulative: state::KpiCumulative::default(),
+            eval: None,
         });
         state.task = Some(state::Task {
             id: Some("task1".to_string()),

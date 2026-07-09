@@ -13,7 +13,7 @@ use ratatui::{
 };
 
 use super::super::config;
-use super::super::state::{AppState, KpiCumulative, UiState};
+use super::super::state::{AppState, EvalReport, KpiCumulative, UiState};
 use super::{bar, mock_badge, pad_left, screen_block, section};
 
 /// 月度条形/上岗考试/REPUTATION 侧栏——引擎无数据源，静态演示看板。deterministic——不随机、
@@ -70,20 +70,22 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState, _ui_state: &UiState, area
         .as_ref()
         .map(|e| e.kpi_cumulative)
         .unwrap_or_default();
+    // v0.18 B2：上岗考试真评测（None=从未评测,回落 MOCK 占位）。
+    let eval = state.employee.as_ref().and_then(|e| e.eval.as_ref());
     // 规范 §8：左主区 | 右 REPUTATION 侧栏（280px ≈ 35ch）。窄于 90 列时退化为单栏（不挤压）。
     if inner.width >= 90 {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(40), Constraint::Length(35)])
             .split(inner);
-        render_main(frame, &b, &cum, pad_left(cols[0]));
+        render_main(frame, &b, &cum, eval, pad_left(cols[0]));
         render_reputation(frame, &b, cols[1]);
     } else {
-        render_main(frame, &b, &cum, pad_left(inner));
+        render_main(frame, &b, &cum, eval, pad_left(inner));
     }
 }
 
-fn render_main(frame: &mut Frame<'_>, b: &EvalBoard, cum: &KpiCumulative, area: Rect) {
+fn render_main(frame: &mut Frame<'_>, b: &EvalBoard, cum: &KpiCumulative, eval: Option<&EvalReport>, area: Rect) {
     let dim = Style::default().fg(config::dim());
     let fg = Style::default().fg(config::fg());
 
@@ -119,34 +121,89 @@ fn render_main(frame: &mut Frame<'_>, b: &EvalBoard, cum: &KpiCumulative, area: 
     }
     lines.push(Line::from(""));
 
-    // 上岗考试成绩。
-    lines.push(section("上岗考试"));
-    for (name, score) in b.exams {
-        let color = if score >= 85 {
-            config::green()
-        } else {
-            config::yellow()
-        };
-        lines.push(Line::from(vec![
-            Span::styled(format!("  {name:<14}"), dim),
-            Span::styled(bar(score, 100, 18), Style::default().fg(color)),
-            Span::styled(format!(" {score}"), Style::default().fg(color)),
-        ]));
+    // v0.18 B2：上岗考试——三态。有真评测(eval-runner 落盘)→ 真分；mock 跑 → 橙色明示非认证；
+    // 从未评测 → 保留 EvalBoard::mock() 占位（明示 MOCK，等有人跑一次 eval:expert）。
+    render_exams(&mut lines, b, eval, dim, fg);
+
+    frame.render_widget(Paragraph::new(Text::from(lines)), rows[3]);
+}
+
+/// v0.18 B2：上岗考试 section 的三态渲染（真实 / MOCK 跑 / 从未评测占位）。
+fn render_exams(lines: &mut Vec<Line<'static>>, b: &EvalBoard, eval: Option<&EvalReport>, dim: Style, fg: Style) {
+    let score_bar = |score: u32| {
+        let color = if score >= 85 { config::green() } else if score >= 60 { config::yellow() } else { config::red() };
+        (bar(score, 100, 18), color)
+    };
+    match eval {
+        // 真实认证分。
+        Some(rep) if !rep.mock => {
+            lines.push(Line::from(vec![
+                Span::styled("上岗考试 · ", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("真实（{} · {}）", rep.model, crate::workbench::ui::fmt_date(rep.evaluated_at)),
+                    Style::default().fg(config::green()),
+                ),
+            ]));
+            for exam in &rep.exams {
+                let (glyph, color) = score_bar(exam.score);
+                let name = crate::workbench::ui::truncate_display_width(&exam.id, 14);
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  {name:<14}"), dim),
+                    Span::styled(glyph, Style::default().fg(color)),
+                    Span::styled(format!(" {}", exam.score), Style::default().fg(color)),
+                ]));
+            }
+            push_verdict(lines, &rep.verdict, dim);
+        }
+        // MOCK 跑（CREW_MOCK 机械 harness，非认证分）。
+        Some(rep) => {
+            lines.push(Line::from(vec![
+                Span::styled("上岗考试 · ", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD)),
+                Span::styled("MOCK 跑（CREW_MOCK · 非认证分）", Style::default().fg(config::orange())),
+            ]));
+            for exam in &rep.exams {
+                let name = crate::workbench::ui::truncate_display_width(&exam.id, 14);
+                let (glyph, _c) = score_bar(exam.score);
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  {name:<14}"), dim),
+                    Span::styled(glyph, Style::default().fg(config::dim())),
+                    Span::styled(format!(" {}", exam.score), dim),
+                ]));
+            }
+            push_verdict(lines, &rep.verdict, dim);
+        }
+        // 从未评测——保留占位（明示 MOCK；提示怎么跑真评测）。
+        None => {
+            lines.push(Line::from(vec![
+                Span::styled("上岗考试 · ", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD)),
+                Span::styled("示例数据（未评测,跑 eval:expert 出真分）", Style::default().fg(config::orange())),
+            ]));
+            for (name, score) in b.exams {
+                let color = if score >= 85 { config::green() } else { config::yellow() };
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  {name:<14}"), dim),
+                    Span::styled(bar(score, 100, 18), Style::default().fg(color)),
+                    Span::styled(format!(" {score}"), Style::default().fg(color)),
+                ]));
+            }
+            let _ = fg;
+            push_verdict(lines, "PASS", dim);
+        }
     }
-    // verdict 行（规范：绿色 PASS）。
+}
+
+fn push_verdict(lines: &mut Vec<Line<'static>>, verdict: &str, dim: Style) {
+    let pass = verdict.eq_ignore_ascii_case("pass");
     lines.push(Line::from(vec![
         Span::styled("  verdict ", dim),
         Span::styled(
-            " PASS ",
+            format!(" {} ", verdict.to_uppercase()),
             Style::default()
                 .fg(config::bg())
-                .bg(config::green())
+                .bg(if pass { config::green() } else { config::red() })
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("  全部科目达标", dim),
     ]));
-
-    frame.render_widget(Paragraph::new(Text::from(lines)), rows[3]);
 }
 
 /// v0.17 P2 C1：KPI 6 瓦片——真累计数据(bg1 底+bd 框,2 行×3 列;值大字彩色+可选第三行注记)。

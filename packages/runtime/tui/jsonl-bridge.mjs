@@ -21,6 +21,7 @@ import { applyUserAction, parseUserActionLine } from "./task-jsonl.mjs";
 import { assembleProofPack } from "../proofpack.mjs";
 import { estimateCost } from "../budget-guard.mjs";
 import { readKpi, recordTaskOutcome } from "../kpi.mjs";
+import { readEvalResult } from "../eval-runner.mjs";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 
@@ -47,7 +48,10 @@ export async function startJsonlBridge({
   // v0.17 P2 C1：kpi_cumulative = 跨会话真累计（本进程启动前，本 root 下这个员工历史 accept/
   // tasks/cost 的落盘快照）——EMPLOYEE 面板的"本会话"区不变，新增的"累计"区读这个。
   const kpiCumulative = readKpi(bridgeRoot, meta.agentId);
-  emit("session.ready", { employee: { name: agentName, role: meta.role, mode: meta.mode, model: meta.model, skills: meta.skills || [], avatar: meta.avatar || [], kpi_cumulative: kpiCumulative }, caps: { ansi: true, parts: true, commands: commandCatalog() } });
+  // v0.18 B2：eval = 上岗考试真评测结果（eval-runner 落 .crewclaw/eval/<agent>.json）。null=从未评测
+  // → EVAL 屏保留 MOCK 占位；mock:true → 屏上标注"非认证分"；mock:false → 真认证分。
+  const evalResult = readEvalResult(bridgeRoot, meta.agentId);
+  emit("session.ready", { employee: { name: agentName, role: meta.role, mode: meta.mode, model: meta.model, skills: meta.skills || [], avatar: meta.avatar || [], kpi_cumulative: kpiCumulative, eval: evalResult }, caps: { ansi: true, parts: true, commands: commandCatalog() } });
 
   // v0.8 M2: accumulate the assistant text streamed this turn (from EVERY source — model
   // deltas AND route.mjs's direct token.delta emits) so the completed turn can be typeset once.

@@ -597,6 +597,31 @@ pub struct Employee {
     /// v0.17 P2 C1：跨会话累计 KPI（session.ready employee.kpi_cumulative，engine 从
     /// `.crewclaw/kpi/<agentId>.json` 读入本次会话开始前的历史；旧引擎/无 agentId → 全零)。
     pub kpi_cumulative: KpiCumulative,
+    /// v0.18 B2：上岗考试真评测结果（session.ready employee.eval，eval-runner 落
+    /// `.crewclaw/eval/<agentId>.json`）。None = 从未评测 → EVAL 屏保留 MOCK 占位。
+    pub eval: Option<EvalReport>,
+}
+
+/// v0.18 B2：员工评测报告——EVAL 屏"上岗考试"区的真数据源。mock=true 时是机械 harness 跑
+/// (非认证分)，屏上明示;mock=false 是真模型评测的认证分。
+#[derive(Clone, Debug, PartialEq)]
+pub struct EvalReport {
+    pub score: u32,
+    /// "PASS" / "FAIL"。
+    pub verdict: String,
+    pub model: String,
+    pub mock: bool,
+    /// epoch ms；0 = 未知。
+    pub evaluated_at: u64,
+    pub exams: Vec<ExamEntry>,
+}
+
+/// v0.18 B2：单条 smoke test 的评测结果（EVAL 屏每行一条）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExamEntry {
+    pub id: String,
+    pub score: u32,
+    pub passed: bool,
 }
 
 /// v0.17 P2 C1：跨会话真累计——与 EMPLOYEE 面板"本会话"KPI 平行的历史区数据源。
@@ -1716,6 +1741,7 @@ impl AppState {
                 skills: string_array_field(employee, "skills"),
                 avatar: string_array_field(employee, "avatar"),
                 kpi_cumulative: kpi_cumulative_field(employee),
+                eval: eval_report_field(employee),
             });
             if let Some(mode) = string_field(employee, "mode") {
                 self.mode = mode;
@@ -2001,6 +2027,39 @@ fn kpi_cumulative_field(employee: &Value) -> KpiCumulative {
         total_cost: kpi.get("total_cost").and_then(Value::as_f64).unwrap_or(0.0),
         first_hired_ts: kpi.get("first_hired_ts").and_then(Value::as_u64),
     }
+}
+
+/// v0.18 B2：解析 session.ready 的 `employee.eval`（eval-runner 落盘、bridge readEvalResult 下发）。
+/// 缺键/null（从未评测）→ None，EVAL 屏据此保留 MOCK 占位，不伪造分数。
+fn eval_report_field(employee: &Value) -> Option<EvalReport> {
+    let eval = employee.get("eval")?;
+    if eval.is_null() {
+        return None;
+    }
+    let score = eval.get("score").and_then(Value::as_u64)? as u32;
+    let exams = eval
+        .get("exams")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| {
+                    Some(ExamEntry {
+                        id: string_field(e, "id")?,
+                        score: e.get("score").and_then(Value::as_u64).unwrap_or(0) as u32,
+                        passed: e.get("passed").and_then(Value::as_bool).unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(EvalReport {
+        score,
+        verdict: string_field(eval, "verdict").unwrap_or_else(|| "FAIL".to_string()),
+        model: string_field(eval, "model").unwrap_or_else(|| "unknown".to_string()),
+        mock: eval.get("mock").and_then(Value::as_bool).unwrap_or(true),
+        evaluated_at: eval.get("evaluated_at").and_then(Value::as_u64).unwrap_or(0),
+        exams,
+    })
 }
 
 fn artifact_id_field(data: &Value) -> Option<String> {
@@ -2815,6 +2874,38 @@ mod tests {
         )]);
         let emp = state.employee.expect("employee");
         assert_eq!(emp.kpi_cumulative, KpiCumulative::default());
+    }
+
+    /// v0.18 B2：session.ready 的 employee.eval（eval-runner 落盘、bridge 下发）落进 Employee.eval；
+    /// 缺键/null（从未评测）→ None，EVAL 屏据此保留 MOCK 占位，不伪造分数。
+    #[test]
+    fn session_ready_parses_eval_report_and_defaults_none_when_absent() {
+        let with = reduce_all(vec![ev(
+            "session.ready",
+            serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m",
+                "eval":{"score":84,"verdict":"PASS","model":"anthropic/claude-opus-4.8","mock":false,
+                    "evaluated_at":1_700_000_000_000_u64,
+                    "exams":[{"id":"research-seed-2.1","score":84,"passed":true}]}}}),
+        )]);
+        let rep = with.employee.expect("employee").eval.expect("eval report");
+        assert_eq!(rep.score, 84);
+        assert_eq!(rep.verdict, "PASS");
+        assert!(!rep.mock);
+        assert_eq!(rep.exams.len(), 1);
+        assert_eq!(rep.exams[0].id, "research-seed-2.1");
+        assert!(rep.exams[0].passed);
+
+        let without = reduce_all(vec![ev(
+            "session.ready",
+            serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m"}}),
+        )]);
+        assert!(without.employee.expect("employee").eval.is_none(), "no eval key → None, not fabricated");
+
+        let nulled = reduce_all(vec![ev(
+            "session.ready",
+            serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m","eval":null}}),
+        )]);
+        assert!(nulled.employee.expect("employee").eval.is_none(), "explicit null → None");
     }
 
     /// v0.11 M3：一次带工具的任务完结 → 任务头 timeline 条挂上 TaskMeta（按引擎真实工具名归类），

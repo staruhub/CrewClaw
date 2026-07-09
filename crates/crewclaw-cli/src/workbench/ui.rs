@@ -2395,6 +2395,7 @@ mod tests {
             skills: Vec::new(),
             avatar: Vec::new(),
             kpi_cumulative: super::super::state::KpiCumulative::default(),
+            eval: None,
         });
         state
     }
@@ -2748,6 +2749,44 @@ mod tests {
         assert!(compact.contains("$8.00"), "real cumulative cost");
         assert!(compact.contains("$0.80"), "average cost per task computed correctly (8.0/10)");
         assert!(compact.contains("2023-11"), "tenure tile annotates the real first-hired date");
+    }
+
+    /// v0.18 B2：EVAL 上岗考试 section 三态——真实评测分/MOCK 跑标注/从未评测占位。
+    #[test]
+    fn eval_exams_render_three_states_real_mock_and_absent() {
+        use super::super::protocol::TaskEvent;
+        let ev = |t: &str, ts: u64, d: serde_json::Value| TaskEvent::from_parts(t, ts, d);
+        let ready = |eval: serde_json::Value| {
+            let mut state = AppState::default();
+            state.reduce(&ev(
+                "session.ready",
+                1_783_400_000_000,
+                serde_json::json!({"employee":{"name":"AI 落地鲸","role":"顾问","model":"m","eval":eval}}),
+            ));
+            let mut ui = UiState::default();
+            ui.screen = Screen::Eval;
+            let mut t = Terminal::new(TestBackend::new(140, 40)).expect("term");
+            t.draw(|f| render(f, &state, &ui, "")).expect("draw");
+            screen(&t).replace(' ', "")
+        };
+
+        // 真实认证分：显示模型 + 真分,不带 MOCK/非认证 标注。
+        let real = ready(serde_json::json!({"score":84,"verdict":"PASS","model":"claude-opus","mock":false,
+            "evaluated_at":1_700_000_000_000_u64,
+            "exams":[{"id":"research-seed","score":84,"passed":true}]}));
+        assert!(real.contains("上岗考试·真实"), "real eval labeled 真实; got sample: has考试={}", real.contains("上岗考试"));
+        assert!(real.contains("claude-opus"), "shows the grading model");
+        assert!(!real.contains("非认证分"), "a real cert score must NOT carry the non-cert tag");
+
+        // MOCK 跑：分数照显但明确标非认证。
+        let mock = ready(serde_json::json!({"score":100,"verdict":"PASS","model":"mock","mock":true,
+            "evaluated_at":1_700_000_000_000_u64,
+            "exams":[{"id":"smoke-1","score":100,"passed":true}]}));
+        assert!(mock.contains("非认证分"), "a mock run is explicitly marked non-cert");
+
+        // 从未评测：回落占位,明示未评测 + 怎么跑真评测。
+        let absent = ready(serde_json::json!(null));
+        assert!(absent.contains("未评测") && absent.contains("eval:expert"), "absent state points at how to get a real score");
     }
 
     /// v0.16 W6.1：EVAL 的 KPI 网格 Layout 在窄终端下不panic(退化单栏路径已有,这里补宽栏路径)。
@@ -3153,6 +3192,7 @@ mod tests {
             skills: vec![],
             avatar: vec!["  .".to_string(), " (o)".to_string()],
             kpi_cumulative: crate::workbench::state::KpiCumulative::default(),
+            eval: None,
         });
         let mut ui = UiState::default();
         ui.onboarding = Some(OnboardingState { step: 1 });
@@ -4334,6 +4374,7 @@ mod tests {
             skills: Vec::new(),
             avatar: Vec::new(),
             kpi_cumulative: super::super::state::KpiCumulative::default(),
+            eval: None,
         });
 
         // dark：header 员工名用 Cyan（DARK.accent）。
