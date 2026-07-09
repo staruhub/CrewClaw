@@ -1,10 +1,11 @@
 use super::{
+    fuzzy,
     protocol::ResolvedReference,
     state::{AppState, RefPicker, ReferenceCandidate},
 };
 
 pub(crate) fn reference_candidates(state: &AppState, query: &str) -> Vec<ReferenceCandidate> {
-    let query = query.trim_start_matches('@').to_lowercase();
+    let query = query.trim_start_matches('@').to_string();
     let mut candidates = Vec::new();
 
     for artifact in &state.artifacts {
@@ -40,15 +41,10 @@ pub(crate) fn reference_candidates(state: &AppState, query: &str) -> Vec<Referen
         });
     }
 
-    candidates
-        .into_iter()
-        .filter(|candidate| {
-            query.is_empty()
-                || candidate.kind.contains(&query)
-                || candidate.id.to_lowercase().contains(&query)
-                || candidate.label.to_lowercase().contains(&query)
-        })
-        .collect()
+    // v0.8 M3: fuzzy rank on kind/id/label so an out-of-order subsequence still finds an artifact.
+    fuzzy::rank(candidates, &query, |candidate| {
+        format!("{} {} {}", candidate.kind, candidate.id, candidate.label)
+    })
 }
 
 pub(crate) fn picker_for_query(state: &AppState, query: &str) -> Option<RefPicker> {

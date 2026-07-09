@@ -8,12 +8,14 @@ use super::{
 pub(crate) fn should_route_pending_action_digit(
     state: &AppState,
     ui_state: &UiState,
+    input_empty: bool,
     ch: char,
 ) -> bool {
     if state.approval.is_some()
         || state.pending_actions.is_empty()
-        || ui_state.input_focused
+        || ui_state.drawer.is_some()
         || ui_state.overlay.is_some()
+        || !input_empty
         || !('1'..='9').contains(&ch)
     {
         return false;
@@ -25,9 +27,10 @@ pub(crate) fn should_route_pending_action_digit(
 pub(crate) fn user_action_for_pending_digit(
     state: &AppState,
     ui_state: &UiState,
+    input_empty: bool,
     ch: char,
 ) -> Option<UserAction> {
-    if !should_route_pending_action_digit(state, ui_state, ch) {
+    if !should_route_pending_action_digit(state, ui_state, input_empty, ch) {
         return None;
     }
     let action = state.pending_action_for_key(ch)?;

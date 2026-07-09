@@ -1,2 +1,9 @@
 pub(crate) mod artifact_panel;
 pub(crate) mod artifact_preview;
+pub(crate) mod input_area;
+pub(crate) mod overlay_notifications;
+pub(crate) mod overlay_preview;
+pub(crate) mod overlay_publish;
+pub(crate) mod overlay_settings;
+pub(crate) mod overlay_task_detail;
+pub(crate) mod workbench_panels;

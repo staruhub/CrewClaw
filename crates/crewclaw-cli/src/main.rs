@@ -26,8 +26,8 @@ pub(crate) const CREWCLAW_ASCII: &[&str] = &[
 ];
 
 #[derive(Debug, Deserialize)]
-struct Registry {
-    experts: Vec<Expert>,
+pub(crate) struct Registry {
+    pub(crate) experts: Vec<Expert>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1122,7 +1122,7 @@ fn run_hermes_passthrough(
     Ok(result.code)
 }
 
-fn read_registry(root: &Path) -> Result<Registry, String> {
+pub(crate) fn read_registry(root: &Path) -> Result<Registry, String> {
     let path = root.join("registry/experts.json");
     let content = fs::read_to_string(&path)
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;

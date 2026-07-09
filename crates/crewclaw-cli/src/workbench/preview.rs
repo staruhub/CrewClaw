@@ -2,6 +2,8 @@ use std::fs;
 
 const TRUNCATED_ARTIFACT_PREVIEW: &str = "… (truncated, open the file to read all)";
 
+/// 测试专用辅助函数（仅 `mod tests` 调用，不进 release 二进制——避免 `cargo build` 误报死代码）。
+#[cfg(test)]
 pub(crate) fn compact_markdown_summary(text: &str, max_chars: usize) -> String {
     let plain = text
         .chars()
