@@ -586,7 +586,12 @@ fn nav_screen_cursor(ui_state: &mut UiState, delta: i32) {
             (ui_state.dream_mem_cursor as i32 + delta).clamp(0, upper) as usize;
         return;
     }
-    let upper = ui_state.market.len().saturating_sub(1) as i32;
+    // v0.17 P1-B1：MARKET 游标要按 filtered 列表长度收敛（过滤生效时比 market.len() 短）。
+    let upper = if ui_state.screen == Screen::Market {
+        ui_state.market_filtered().len().saturating_sub(1) as i32
+    } else {
+        ui_state.market.len().saturating_sub(1) as i32
+    };
     let cursor = match ui_state.screen {
         Screen::Market => &mut ui_state.market_cursor,
         Screen::Hire => &mut ui_state.hire_cursor,
@@ -752,6 +757,37 @@ fn handle_key_event(
         }
         return Ok(TerminalAction::Continue);
     }
+    // v0.17 P1-B2：COMPARE 对比浮层打开时——Esc/q/c 关，其它键吞掉。
+    if ui_state.compare_open {
+        if matches!(key.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('c')) {
+            ui_state.compare_open = false;
+        }
+        return Ok(TerminalAction::Continue);
+    }
+    // v0.17 P1-B1：MARKET 搜索输入编辑态——字符写入 filter,Backspace 删,Enter/Esc 收起
+    // 输入框(过滤结果保留;Esc 额外清空 filter 文本,回到全量列表——两层退出对齐既有 Esc 语义)。
+    if ui_state.market_filter_active {
+        match key.code {
+            KeyCode::Esc => {
+                ui_state.market_filter.clear();
+                ui_state.market_filter_active = false;
+                ui_state.market_cursor = 0;
+            }
+            KeyCode::Enter => {
+                ui_state.market_filter_active = false;
+            }
+            KeyCode::Backspace => {
+                ui_state.market_filter.pop();
+                ui_state.market_cursor = 0;
+            }
+            KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
+                ui_state.market_filter.push(c);
+                ui_state.market_cursor = 0;
+            }
+            _ => {}
+        }
+        return Ok(TerminalAction::Continue);
+    }
     // v0.15 P1-3：TASK DETAIL 全屏浮层打开时，Esc/q/o 关闭；其它键吞掉（不穿透到工作台）。
     if ui_state.task_detail_open {
         if matches!(key.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('o')) {
@@ -804,19 +840,40 @@ fn handle_key_event(
         && state.approval.is_none()
     {
         // MARKET 上 h/Enter → 把当前选中员工带入 HIRE 屏体检。
+        // v0.17 P1-B1：market_cursor 现在是 filtered 列表下标，过滤生效时不再等于 market 真实
+        // 下标——必须经 market_selected_index() 翻译，否则搜索后 h/Enter 会带错员工进 HIRE。
         if ui_state.screen == Screen::Market
             && matches!(key.code, KeyCode::Char('h') | KeyCode::Enter)
         {
-            if !ui_state.market.is_empty() {
-                ui_state.hire_cursor = ui_state.market_cursor.min(ui_state.market.len() - 1);
+            if let Some(idx) = ui_state.market_selected_index() {
+                ui_state.hire_cursor = idx;
                 ui_state.set_screen(Screen::Hire);
             }
             return Ok(TerminalAction::Continue);
         }
         // v0.15 P1-4：MARKET 上 p → 打开发布浮层（对选中员工;步骤1真校验,2-4 MOCK）。
         if ui_state.screen == Screen::Market && key.code == KeyCode::Char('p') {
-            if !ui_state.market.is_empty() {
+            if ui_state.market_selected_index().is_some() {
                 ui_state.publish_step = Some(0);
+            }
+            return Ok(TerminalAction::Continue);
+        }
+        // v0.17 P1-B1：MARKET 上 `/` 进入本地搜索过滤(与全局 `/` 命令面板不同浮层——只在
+        // MARKET 屏拦截,别的屏 `/` 仍走下面的自动进 INSERT 打字聊天)。
+        if ui_state.screen == Screen::Market && key.code == KeyCode::Char('/') {
+            ui_state.market_filter_active = true;
+            ui_state.market_cursor = 0;
+            return Ok(TerminalAction::Continue);
+        }
+        // v0.17 P1-B2：MARKET 上 `x` 勾选/取消当前员工进对比候选(≤2 个)。
+        if ui_state.screen == Screen::Market && key.code == KeyCode::Char('x') {
+            ui_state.toggle_compare_selection();
+            return Ok(TerminalAction::Continue);
+        }
+        // v0.17 P1-B2：MARKET 上 `c` 打开对比浮层——须先勾满 2 个候选。
+        if ui_state.screen == Screen::Market && key.code == KeyCode::Char('c') {
+            if ui_state.compare_selection.len() == 2 {
+                ui_state.compare_open = true;
             }
             return Ok(TerminalAction::Continue);
         }
@@ -941,6 +998,17 @@ fn handle_key_event(
                     ui_state.session_cursor = None;
                     ui_state.follow = true;
                 }
+                return Ok(TerminalAction::Continue);
+            }
+            // v0.17 P1-B3：`:` 是设计稿的命令行前缀(`:settings`/`:help` 等)——别名到既有
+            // `/` 命令面板(同一浮层,不新增一套解析规则;之前 `:` 完全没有处理,会被当成
+            // 普通字符打进聊天框)。
+            KeyCode::Char(':') => {
+                ui_state.mode = InputMode::Insert;
+                ui_state.session_cursor = None;
+                ui_state.follow = true;
+                input.insert_char('/');
+                state.refresh_command_picker("");
                 return Ok(TerminalAction::Continue);
             }
             // v0.15 P0-1：NORMAL 下未绑定的可打印字符 → 自动进入 INSERT 并把它打进输入框。
@@ -1765,6 +1833,23 @@ mod tests {
         assert_eq!(ui.preview_scroll, 0, "[ switches artifact and resets scroll");
     }
 
+    /// v0.17 P1-B3：NORMAL 下 `:` 别名到既有 `/` 命令面板(设计稿 `:settings` 等命令行前缀,
+    /// 之前完全没处理,会被当普通字符打进聊天框)——断言输入框落的是 `/` 不是 `:`,且命令面板打开。
+    #[test]
+    fn colon_key_aliases_to_slash_command_palette() {
+        use crate::workbench::state::CommandInfo;
+        let mut state = AppState::default();
+        state.commands = vec![CommandInfo { name: "/help".to_string(), desc: "帮助".to_string() }];
+        let mut ui = UiState::default();
+        ui.mode = InputMode::Normal;
+        let mut input = InputBuffer::default();
+
+        press(&mut state, &mut ui, &mut input, KeyCode::Char(':'));
+        assert_eq!(ui.mode, InputMode::Insert, ": switches to INSERT");
+        assert_eq!(input.as_str(), "/", ": inserts / not literal :");
+        assert!(state.command_picker.is_some(), ": opens the command palette");
+    }
+
     /// v0.16 W6.2：DREAM 上 f 键循环 MEMORY tab(全部→K→P→E→全部),换 tab 重置游标。
     #[test]
     fn dream_f_key_cycles_memory_tabs() {
@@ -1913,6 +1998,101 @@ mod tests {
         ui.set_screen(Screen::Workbench);
         press(&mut state, &mut ui, &mut input, KeyCode::Char('p'));
         assert_eq!(ui.publish_step, None, "p does nothing off MARKET");
+    }
+
+    /// v0.17 P1-B2：MARKET `x` 勾选 ≤2 员工，`c` 打开 COMPARE 浮层；Esc/q/c 关闭。
+    /// 已选满 2 个时再对第三个按 x 应该无效（逼用户先取消一个），且 x 对已选中的项是切换
+    /// (再按一次取消勾选)。
+    #[test]
+    fn x_selects_up_to_two_for_compare_and_c_opens_overlay() {
+        use crate::workbench::state::MarketEntry;
+        let mut state = AppState::default();
+        let mut ui = UiState::default();
+        ui.mode = InputMode::Normal;
+        ui.market = vec![
+            MarketEntry { name: "whale".into(), display_name: "AI落地鲸".into(), ..Default::default() },
+            MarketEntry { name: "octopus".into(), display_name: "Docs Octopus".into(), ..Default::default() },
+            MarketEntry { name: "third".into(), display_name: "第三位".into(), ..Default::default() },
+        ];
+        ui.set_screen(Screen::Market);
+        let mut input = InputBuffer::default();
+
+        // c 在选够 2 个之前不开。
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('c'));
+        assert!(!ui.compare_open, "c does nothing until 2 are selected");
+
+        // 勾选 market[0]（cursor 0）。
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('x'));
+        assert_eq!(ui.compare_selection, vec![0]);
+
+        // 移到 market[1] 勾选。
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('j'));
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('x'));
+        assert_eq!(ui.compare_selection, vec![0, 1]);
+
+        // 已选满：对第三个按 x 无效。
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('j'));
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('x'));
+        assert_eq!(ui.compare_selection, vec![0, 1], "x is a no-op once 2 are already selected");
+
+        // c 打开对比浮层。
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('c'));
+        assert!(ui.compare_open, "c opens the overlay once 2 are selected");
+
+        // Esc 关闭浮层（不清空选择——只是关窗）。
+        press(&mut state, &mut ui, &mut input, KeyCode::Esc);
+        assert!(!ui.compare_open, "Esc closes the overlay");
+        assert_eq!(ui.compare_selection, vec![0, 1], "closing the overlay keeps the selection");
+
+        // 回到 market[0]（第三个员工在 cursor 位置向上两次）再取消勾选。
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('k'));
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('k'));
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('x'));
+        assert_eq!(ui.compare_selection, vec![1], "x on an already-selected entry deselects it");
+    }
+
+    /// v0.17 P1-B1：MARKET `/` 进入真过滤(不是全局命令面板)——键入缩小 filtered 列表，
+    /// Esc 清空恢复全量，且过滤态下 h/Enter 必须经 market_selected_index() 翻译真下标，
+    /// 不能拿 filtered 位置直接当 market 下标用（否则会带错员工进 HIRE）。
+    #[test]
+    fn market_slash_filters_list_and_selection_maps_to_real_index() {
+        use crate::workbench::state::MarketEntry;
+        let mut state = AppState::default();
+        let mut ui = UiState::default();
+        ui.mode = InputMode::Normal;
+        ui.market = vec![
+            MarketEntry { name: "whale".into(), display_name: "AI落地鲸".into(), status: "available".into(), ..Default::default() },
+            MarketEntry { name: "octopus".into(), display_name: "Docs Octopus".into(), status: "available".into(), ..Default::default() },
+        ];
+        ui.set_screen(Screen::Market);
+        let mut input = InputBuffer::default();
+
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('/'));
+        assert!(ui.market_filter_active, "/ opens MARKET-local filter, not the command palette");
+        assert!(state.command_picker.is_none(), "/ on MARKET must not open the global command palette");
+
+        for c in "octo".chars() {
+            press(&mut state, &mut ui, &mut input, KeyCode::Char(c));
+        }
+        assert_eq!(ui.market_filter, "octo");
+        assert_eq!(ui.market_filtered().len(), 1, "filter narrows to the matching expert only");
+        assert_eq!(ui.market_filtered()[0].name, "octopus");
+
+        press(&mut state, &mut ui, &mut input, KeyCode::Enter);
+        assert!(!ui.market_filter_active, "Enter closes the filter editor, keeps the filter applied");
+        assert_eq!(ui.market_cursor, 0, "cursor reset into the filtered list");
+
+        // h/Enter 必须带对真实员工（filtered[0] == octopus，而非 market[0] == whale）。
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('h'));
+        assert_eq!(ui.screen, Screen::Hire);
+        assert_eq!(ui.hire_cursor, 1, "hire_cursor resolves to octopus's real market index (1), not filtered index (0)");
+
+        // Esc 清空过滤，恢复全量列表。
+        ui.set_screen(Screen::Market);
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('/'));
+        press(&mut state, &mut ui, &mut input, KeyCode::Esc);
+        assert!(ui.market_filter.is_empty(), "Esc clears the filter text");
+        assert_eq!(ui.market_filtered().len(), 2, "empty filter shows all experts again");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 pub(crate) mod artifact_panel;
 pub(crate) mod artifact_preview;
 pub(crate) mod input_area;
+pub(crate) mod overlay_compare;
 pub(crate) mod overlay_notifications;
 pub(crate) mod overlay_preview;
 pub(crate) mod overlay_publish;

@@ -314,6 +314,15 @@ pub struct UiState {
     pub paste_enter_heuristic: bool,
     /// 上一次按键的时刻，供突发判定。每个 key press 都会刷新。
     pub last_key_at: Option<std::time::Instant>,
+    /// v0.17 P1-B1：MARKET `/` 搜索的查询文本（复用 fuzzy.rs 排序,不新写一套匹配）。
+    pub market_filter: String,
+    /// v0.17 P1-B1：MARKET 搜索输入是否处于编辑态（true 时字符键写进 filter,而非切屏/聊天）。
+    pub market_filter_active: bool,
+    /// v0.17 P1-B2：MARKET `x` 勾选的对比候选——存的是 `self.market` 的**真实下标**(不是
+    /// filtered 下标),最多 2 个,按勾选顺序排列。
+    pub compare_selection: Vec<usize>,
+    /// v0.17 P1-B2：COMPARE 对比浮层开关（选满 2 个后 `c` 开;Esc/q 关）。
+    pub compare_open: bool,
 }
 
 impl UiState {
@@ -327,6 +336,44 @@ impl UiState {
             .unwrap_or(false);
         self.last_key_at = Some(now);
         burst
+    }
+
+    /// v0.17 P1-B1：`market_filter` 按 fuzzy.rs 排序后的员工引用列表（空查询=原序全量）。
+    pub fn market_filtered(&self) -> Vec<&MarketEntry> {
+        crate::workbench::fuzzy::rank(self.market.iter().collect(), &self.market_filter, |e: &&MarketEntry| {
+            format!("{} {} {}", e.display_name, e.category, e.tags.join(" "))
+        })
+    }
+
+    /// v0.17 P1-B1：`self.market` 里某个条目引用对应的真实下标（按指针身份匹配,不靠 name
+    /// 唯一性假设）。
+    pub fn market_index_of(&self, entry: &MarketEntry) -> Option<usize> {
+        self.market.iter().position(|e| std::ptr::eq(e, entry))
+    }
+
+    /// v0.17 P1-B1：把 `market_cursor`（filtered 列表下标）翻译回 `self.market` 的真实下标——
+    /// 过滤生效时两者不再相等，凡是要用 market_cursor 去查 hire_reports/发布浮层等平行数组的
+    /// 地方，都必须经这个函数转换，不能直接拿 market_cursor 当 market 下标用。
+    pub fn market_selected_index(&self) -> Option<usize> {
+        let filtered = self.market_filtered();
+        if filtered.is_empty() {
+            return None;
+        }
+        let sel = self.market_cursor.min(filtered.len() - 1);
+        self.market_index_of(filtered[sel])
+    }
+
+    /// v0.17 P1-B2：MARKET `x` 键——把当前选中员工加入/移出对比候选(最多 2 个,已满且非
+    /// 候选内成员时按下 x 不做任何事,逼用户先取消一个)。
+    pub fn toggle_compare_selection(&mut self) {
+        let Some(idx) = self.market_selected_index() else {
+            return;
+        };
+        if let Some(pos) = self.compare_selection.iter().position(|&i| i == idx) {
+            self.compare_selection.remove(pos);
+        } else if self.compare_selection.len() < 2 {
+            self.compare_selection.push(idx);
+        }
     }
 }
 
@@ -376,6 +423,10 @@ impl Default for UiState {
             // live loop 启动时按 tui.json 显式置开（配置默认 true）。
             paste_enter_heuristic: false,
             last_key_at: None,
+            market_filter: String::new(),
+            market_filter_active: false,
+            compare_selection: Vec::new(),
+            compare_open: false,
         }
     }
 }

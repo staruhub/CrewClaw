@@ -143,6 +143,10 @@ pub(crate) fn render_with_input_spans(
     if ui_state.publish_step.is_some() {
         crate::workbench::widgets::overlay_publish::render_publish(frame, ui_state);
     }
+    // v0.17 P1-B2：COMPARE 对比浮层（MARKET x 勾选 2 个后 c 开,居中）。
+    if ui_state.compare_open {
+        crate::workbench::widgets::overlay_compare::render_compare(frame, ui_state);
+    }
     // v0.15 P1-2：通知中心浮层（居中）。
     if ui_state.notif_open {
         crate::workbench::widgets::overlay_notifications::render_notifications(frame, state, ui_state);
@@ -535,7 +539,13 @@ fn render_which_key(frame: &mut Frame<'_>, area: Rect) {
         ("SCREENS", &[("1-5", "切屏"), ("Tab/⇧Tab", "循环屏")]),
         (
             "NAVIGATE",
-            &[("j/k", "上下选择"), ("g/G", "顶部/回到跟随"), ("[ ]", "切换产物")],
+            &[
+                ("j/k", "上下选择"),
+                ("g/G", "顶部/回到跟随"),
+                ("[ ]", "切换产物"),
+                ("/", "MARKET 搜索"),
+                ("x/c", "MARKET 对比"),
+            ],
         ),
         (
             "ACTIONS",
@@ -2464,6 +2474,68 @@ mod tests {
         assert!(out.contains("employees"), "footer shows employee count");
     }
 
+    /// v0.17 P1-B1：MARKET 搜索框此前是纯装饰文案(标"待接")——现在过滤真生效，断言渲染层
+    /// 真反映查询文本/结果计数/无匹配态，不再是摆设。
+    #[test]
+    fn market_search_box_filters_real_list_and_shows_no_match_state() {
+        let state = employee_state();
+        let mut ui = UiState::default();
+        ui.screen = Screen::Market;
+        ui.market = market_fixture();
+
+        // 未过滤：两个专家都在，计数不带分母。CJK 宽字符在 flat buffer 里带续格空位，
+        // 断言前压缩掉空格（既有测试的通用 CJK 规避手法）。
+        let mut t0 = Terminal::new(TestBackend::new(84, 34)).expect("term");
+        t0.draw(|f| render(f, &state, &ui, "")).expect("draw");
+        let out0 = screen(&t0).replace(' ', "");
+        assert!(out0.contains("AI落地鲸") && out0.contains("DocsOctopus"), "no filter shows all experts");
+        assert!(out0.contains("2employees"), "unfiltered count has no denominator");
+
+        // 过滤生效：查询文本收窄列表，计数带分母，另一个专家从列表消失。
+        ui.market_filter = "octopus".to_string();
+        let mut t1 = Terminal::new(TestBackend::new(84, 34)).expect("term");
+        t1.draw(|f| render(f, &state, &ui, "")).expect("draw");
+        let out1 = screen(&t1).replace(' ', "");
+        assert!(out1.contains("DocsOctopus"), "matching expert stays listed");
+        assert!(!out1.contains("AI落地鲸"), "non-matching expert filtered out of the list");
+        assert!(out1.contains("1/2employees"), "filtered count shows matched/total");
+
+        // 无匹配：PROFILE 面板明确提示，不留空白/不崩溃。
+        ui.market_filter = "zzz-no-such-expert".to_string();
+        let mut t2 = Terminal::new(TestBackend::new(84, 34)).expect("term");
+        t2.draw(|f| render(f, &state, &ui, "")).expect("draw");
+        let out2 = screen(&t2).replace(' ', "");
+        assert!(out2.contains("无匹配员工"), "no-match state is explicit, not a blank panel");
+    }
+
+    /// v0.17 P1-B2：COMPARE 浮层——两列真 registry 字段(status/category/tags/hermes/env/
+    /// first_task);不含 ★评分等无真源指标。列表里勾选行有 `[x]` 反馈,底栏计数真显示。
+    #[test]
+    fn compare_overlay_shows_two_real_columns_and_list_marks_selection() {
+        let state = employee_state();
+        let mut ui = UiState::default();
+        ui.screen = Screen::Market;
+        ui.market = market_fixture();
+        ui.compare_selection = vec![0, 1];
+
+        // 未开对比浮层前：底栏计数 + 列表勾选标记已经真反映选择。
+        let mut t0 = Terminal::new(TestBackend::new(90, 34)).expect("term");
+        t0.draw(|f| render(f, &state, &ui, "")).expect("draw");
+        let out0 = screen(&t0).replace(' ', "");
+        assert!(out0.contains("对比2/2"), "footer shows real compare count");
+        assert!(out0.matches("[x]").count() >= 2, "both selected rows show the checked marker");
+
+        // 打开对比浮层：两员工的真实字段并排显示。
+        ui.compare_open = true;
+        let mut t1 = Terminal::new(TestBackend::new(90, 34)).expect("term");
+        t1.draw(|f| render(f, &state, &ui, "")).expect("draw");
+        let out1 = screen(&t1).replace(' ', "");
+        assert!(out1.contains("COMPARE"), "overlay titled COMPARE");
+        assert!(out1.contains("AI落地鲸") && out1.contains("DocsOctopus"), "both selected experts shown");
+        assert!(out1.contains("ai-advisory") && out1.contains("documentation"), "real category fields shown");
+        assert!(!out1.contains("★"), "no fabricated rating metric");
+    }
+
     /// v0.16 W5.1：MARKET 无最小宽度门槛(不像 WORKBENCH 有 120 列判定)——极窄终端下
     /// 双栏 Layout(Length(44)+Min(30))不能崩溃,只需优雅退化。
     #[test]
@@ -3044,6 +3116,17 @@ mod tests {
 
         ui.onboarding = Some(crate::workbench::state::OnboardingState { step: 0 });
         assert_no_leak(&ui, "ONBOARDING");
+        ui.onboarding = None;
+
+        // v0.17 P1-B2：COMPARE 也是居中弹层，同样得先铺幕布。
+        ui.market.push(MarketEntry {
+            name: "octopus".to_string(),
+            display_name: "Docs Octopus".to_string(),
+            ..Default::default()
+        });
+        ui.compare_selection = vec![0, 1];
+        ui.compare_open = true;
+        assert_no_leak(&ui, "COMPARE");
     }
 
     /// v0.17 P0-1：SETTINGS「信息密度 compact」必须**真的生效**——审计发现它只存值/持久化,
