@@ -220,9 +220,11 @@ pub struct OnboardingState {
     pub step: usize,
 }
 
-/// v0.12 MARKET：从 registry/experts.json 提炼的**真实**员工市场条目（Eq 友好，可入 UiState）。
+/// v0.12 MARKET：从 registry/experts.json 提炼的**真实**员工市场条目（可入 UiState）。
 /// 只保留渲染需要的字段，避免把 main.rs 的 Expert（非 Eq）塞进 UiState。
-#[derive(Clone, Debug, Eq, PartialEq, Default)]
+// kpi_cumulative.total_cost:f64 → 只能 PartialEq（同 Employee/TaskMeta 的先例），MarketEntry
+// 随之降级，UiState（内含 Vec<MarketEntry>）的 derive 也跟着摘掉 Eq。
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct MarketEntry {
     pub name: String,
     pub display_name: String,
@@ -234,6 +236,10 @@ pub struct MarketEntry {
     pub hermes_req: String,
     pub env_reqs: Vec<String>,
     pub first_task: String,
+    /// v0.17 P2 C1：跨会话真累计 KPI——启动时从 `.crewclaw/kpi/<name>.json` 直接读盘
+    /// (与 doctor 体检同一"启动时算好"模式；不等引擎 session.ready，因为 MARKET 要列出
+    /// **所有**员工，不只是当前上岗的那个)。文件不存在/解析失败 → 全零默认值。
+    pub kpi_cumulative: KpiCumulative,
 }
 
 /// v0.12 HIRE：某员工的 doctor 体检结论（真实——启动时 doctor::build_report 计算）。
@@ -246,7 +252,8 @@ pub struct HireHealth {
     pub suggestions: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+// MarketEntry (内含 KpiCumulative.total_cost:f64) 只有 PartialEq，UiState 随之降级。
+#[derive(Clone, Debug, PartialEq)]
 pub struct UiState {
     pub overlay: Option<Overlay>,
     pub drawer: Option<FocusPanel>,
@@ -577,7 +584,8 @@ impl UiState {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+// kpi_cumulative.total_cost:f64 → 只能 PartialEq（f64 无 Eq），Employee 随之降级（同 TaskMeta 的先例）。
+#[derive(Clone, Debug, PartialEq)]
 pub struct Employee {
     pub name: String,
     pub role: String,
@@ -586,6 +594,19 @@ pub struct Employee {
     pub skills: Vec<String>,
     /// v0.14 N2：员工包头像（experts/<slug>/avatar.txt 真文件，引擎下发；空回退内置像素块）。
     pub avatar: Vec<String>,
+    /// v0.17 P2 C1：跨会话累计 KPI（session.ready employee.kpi_cumulative，engine 从
+    /// `.crewclaw/kpi/<agentId>.json` 读入本次会话开始前的历史；旧引擎/无 agentId → 全零)。
+    pub kpi_cumulative: KpiCumulative,
+}
+
+/// v0.17 P2 C1：跨会话真累计——与 EMPLOYEE 面板"本会话"KPI 平行的历史区数据源。
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct KpiCumulative {
+    pub tasks: u64,
+    pub accepted: u64,
+    pub total_cost: f64,
+    /// epoch ms；None = 这个员工在本 root 下从未有过验收终态(真"新人")。
+    pub first_hired_ts: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1694,6 +1715,7 @@ impl AppState {
                 model: string_field(employee, "model").unwrap_or_else(|| "unknown".to_string()),
                 skills: string_array_field(employee, "skills"),
                 avatar: string_array_field(employee, "avatar"),
+                kpi_cumulative: kpi_cumulative_field(employee),
             });
             if let Some(mode) = string_field(employee, "mode") {
                 self.mode = mode;
@@ -1965,6 +1987,20 @@ fn u64_field(data: &Value, key: &str) -> u64 {
 
 fn string_array_field(data: &Value, key: &str) -> Vec<String> {
     data.get(key).map(value_string_array).unwrap_or_default()
+}
+
+/// v0.17 P2 C1：解析 session.ready 的 `employee.kpi_cumulative`（引擎 kpi.mjs 下发）。
+/// 缺字段/旧引擎无此键 → 全零默认值，不是 panic 也不是伪造非零历史。
+fn kpi_cumulative_field(employee: &Value) -> KpiCumulative {
+    let Some(kpi) = employee.get("kpi_cumulative") else {
+        return KpiCumulative::default();
+    };
+    KpiCumulative {
+        tasks: kpi.get("tasks").and_then(Value::as_u64).unwrap_or(0),
+        accepted: kpi.get("accepted").and_then(Value::as_u64).unwrap_or(0),
+        total_cost: kpi.get("total_cost").and_then(Value::as_f64).unwrap_or(0.0),
+        first_hired_ts: kpi.get("first_hired_ts").and_then(Value::as_u64),
+    }
 }
 
 fn artifact_id_field(data: &Value) -> Option<String> {
@@ -2753,6 +2789,32 @@ mod tests {
         )]);
         let emp = state.employee.expect("employee");
         assert_eq!(emp.skills, vec!["模型选型".to_string(), "ROI 评估".to_string()]);
+    }
+
+    /// v0.17 P2 C1：session.ready 的 `employee.kpi_cumulative`（引擎 kpi.mjs 下发的跨会话真累计）
+    /// 必须原样落进 Employee.kpi_cumulative；旧引擎/无此键时全零，不是 panic 也不是伪造非零历史。
+    #[test]
+    fn session_ready_stores_kpi_cumulative_when_present() {
+        let state = reduce_all(vec![ev(
+            "session.ready",
+            serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m",
+                "kpi_cumulative":{"tasks":7,"accepted":5,"total_cost":12.5,"first_hired_ts":1700000000000_u64}}}),
+        )]);
+        let emp = state.employee.expect("employee");
+        assert_eq!(emp.kpi_cumulative.tasks, 7);
+        assert_eq!(emp.kpi_cumulative.accepted, 5);
+        assert_eq!(emp.kpi_cumulative.total_cost, 12.5);
+        assert_eq!(emp.kpi_cumulative.first_hired_ts, Some(1700000000000));
+    }
+
+    #[test]
+    fn session_ready_defaults_kpi_cumulative_to_honest_zeros_when_absent() {
+        let state = reduce_all(vec![ev(
+            "session.ready",
+            serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m"}}),
+        )]);
+        let emp = state.employee.expect("employee");
+        assert_eq!(emp.kpi_cumulative, KpiCumulative::default());
     }
 
     /// v0.11 M3：一次带工具的任务完结 → 任务头 timeline 条挂上 TaskMeta（按引擎真实工具名归类），
