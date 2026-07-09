@@ -34,6 +34,17 @@ await sleep(80);
 const upd = lines.find((e) => e.type === "artifact.updated");
 assert.ok(upd && upd.data.patch.status === "accepted", "the '1' line accepted the artifact via the bridge");
 
+// v0.15 P0-1 regression: accepting the deliverable RELEASES the digit bindings. The last
+// pending.actions emit must be empty, so a later "2" switches to MARKET instead of re-triggering
+// the stale revise action (the user's real bug: digits captured forever after one delivery).
+const pendingEmits = lines.filter((e) => e.type === "pending.actions");
+assert.ok(pendingEmits.length >= 2, "a second pending.actions (the clear) is emitted after accept");
+assert.deepEqual(
+  pendingEmits[pendingEmits.length - 1].data.actions,
+  [],
+  "after accept the pending list is empty — digits are free to switch screens again",
+);
+
 input.push("/exit\n");
 await sleep(20);
 await done;

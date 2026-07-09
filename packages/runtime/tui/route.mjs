@@ -10,15 +10,29 @@
 //   employee_chat  → light model turn
 import { classifyIntent } from "../router.mjs";
 import { memoryCommandResponse } from "../memory-harness.mjs";
+import { loadMemory } from "../memory-store.mjs";
+import { addEvidence, newEvidenceCard, verifySourceType } from "../evidence-store.mjs";
 import { writeArtifact, revealStrategy } from "../artifact-contract.mjs";
-import { weatherCity, fetchWeatherCard } from "../weather.mjs";
+import { weatherCity, weatherDay, fetchWeatherCard } from "../weather.mjs";
+import { pickBackend } from "../tools-web.mjs";
 import { EVENTS } from "./protocol.mjs";
 
 // deps: { emit(type,data), runModelTurn(text)->Promise<answer>, pendingActions, employeeScope,
 //         env, role, taskRunId, root } — taskRunId+root opt the turn into real artifact persistence
 export async function routeTurn(message, deps = {}) {
-  const { emit = () => {}, runModelTurn = async () => {}, runQuickUtility, fetchWeather = fetchWeatherCard, pendingActions = [], employeeScope, env = {}, role, taskRunId, root } = deps;
+  const { emit = () => {}, runModelTurn = async () => {}, runQuickUtility, fetchWeather = fetchWeatherCard, pendingActions = [], employeeScope, env = {}, role, taskRunId, root, hasAttachments = false, recordExchange, agentId } = deps;
   const decision = classifyIntent(message, { pendingActions, employeeScope });
+  // v0.8 M6：带附件（图片/文件 parts）的消息天然是模型轮——看图/读文件必须真跑模型，不能被
+  // 短文本的 ambiguous/out_of_scope 分类拦成澄清语。仅在这两类（+未命中 PendingAction）时降级为 chat；
+  // employee_task 等正式意图保持原类，否则带附件的交付任务会跳过 TaskRun 升级/preflight 阻塞/交付物落盘。
+  if (
+    hasAttachments &&
+    !decision.matchedPendingAction &&
+    (decision.type === "ambiguous" || decision.type === "out_of_scope")
+  ) {
+    decision.type = "employee_chat";
+    decision.forcedByAttachment = true;
+  }
 
   // §6.4: a matched PendingAction takes priority over the model — system-owned, NOT guessed.
   if (decision.matchedPendingAction) {
@@ -28,12 +42,16 @@ export async function routeTurn(message, deps = {}) {
       if (a.artifactId) emit(EVENTS.ARTIFACT_UPDATED, { id: a.artifactId, patch: { status: "accepted" } });
       emit(EVENTS.OUTCOME_CHECKED, { valid: true, deliverable: a.path, reason: "用户已验收" });
       emit(EVENTS.TOKEN_DELTA, { text: `✓ 已接受交付物${a.path ? "：" + a.path : ""},记为有效任务。` });
+      // v0.15 P0-1: the deliverable is consumed — release the digit bindings so 1-5 switch screens again.
+      emit(EVENTS.PENDING_ACTIONS, { actions: [] });
     } else if (a.action_type === "reveal") {
       // AC-007: open the folder via the OS reveal, never raw bash.
       const reveal = revealStrategy(a.path);
       emit(EVENTS.WORKSPACE_REVEALED, { path: a.path, available: reveal.available, command: reveal.available ? `${reveal.command} ${(reveal.args || []).join(" ")}` : reveal.fallback?.manual_command });
     } else {
-      // revise / other → a fresh model turn on the action's payload
+      // revise / other → a fresh model turn on the action's payload.
+      // v0.15 P0-1: release the old digit bindings first; the new turn may set its own list.
+      emit(EVENTS.PENDING_ACTIONS, { actions: [] });
       emit(EVENTS.TOKEN_DELTA, { text: `执行待办：${a.label || a.key}` });
       await runModelTurn(a.payload || a.label || message);
     }
@@ -43,14 +61,30 @@ export async function routeTurn(message, deps = {}) {
   switch (decision.type) {
     case "employee_task": {
       if (decision.upgradeToTaskRun) emit(EVENTS.TASK_UPGRADED_FROM_CHAT, { reason: decision.reason });
+      // AC-003 / CC-TOOL-001 Preflight: a task that needs the live web must have a real
+      // search provider BEFORE the model runs. No provider (pickBackend ⇒ ddg scrape) ⇒
+      // block honestly instead of letting the agent burn tool calls guessing URLs and
+      // fabricate a "latest models" list. Tool Truth over tool hallucination (§4.5/§9.1).
+      if (decision.needsSearch && pickBackend(env).name === "ddg") {
+        emit(EVENTS.TOOL_PREFLIGHT_CHECKED, { id: "web_search", tool: "web.search", status: "missing_key", reason: "未配置 web.search provider（Tavily / Serper / Brave）" });
+        emit(EVENTS.TASK_BLOCKED, {
+          reason: "缺少可验证的联网搜索能力（web.search missing_key），本研究任务已阻塞；配置 TAVILY_API_KEY（免费）后可运行。",
+          tool: "web.search",
+          status: "missing_key",
+        });
+        decision.blocked = true;
+        break;
+      }
       const answer = await runModelTurn(message);
-      await persistDeliverable({ emit, answer, message, taskRunId, root });
+      const art = await persistDeliverable({ emit, answer, message, taskRunId, root });
+      if (art) decision.producedArtifact = art;
       break;
     }
 
     case "artifact_action": {
       const answer = await runModelTurn(message);
-      await persistDeliverable({ emit, answer, message, taskRunId, root });
+      const art = await persistDeliverable({ emit, answer, message, taskRunId, root });
+      if (art) decision.producedArtifact = art;
       break;
     }
 
@@ -59,20 +93,45 @@ export async function routeTurn(message, deps = {}) {
       // §5.3 Weather Card: a 天气 query fetches a STRUCTURED card from a free source (no model,
       // quota-independent), not prose. Non-weather quick utilities (time/换算) take the light path.
       const city = weatherCity(message);
-      const card = city ? await Promise.resolve(fetchWeather(city)).catch(() => null) : null;
+      const day = weatherDay(message); // 0=今天 1=明天 2=后天；更远 null → 交给模型
+      const card = city && day !== null ? await Promise.resolve(fetchWeather(city, { day })).catch(() => null) : null;
       if (card) {
         emit(EVENTS.QUICK_UTILITY, { intent: message, status: "done", result: card, source: card.source || "wttr.in" });
-        emit(EVENTS.TOKEN_DELTA, { text: `${card.city}：${card.condition} ${card.temp_c}°C（体感 ${card.feels_c}°C · 湿度 ${card.humidity}%）` });
-      } else {
+        // 预报日（带 label）显示温度区间；当天显示实况+体感/湿度。
+        const cardLine = card.label
+          ? `${card.city}${card.label}（${card.date}）：${card.condition} ${card.min_c}~${card.max_c}°C`
+          : `${card.city}：${card.condition} ${card.temp_c}°C（体感 ${card.feels_c}°C · 湿度 ${card.humidity}%）`;
+        emit(EVENTS.TOKEN_DELTA, { text: cardLine });
+        // 无模型轮 → 手动把这轮问答写进共享历史，后续追问（"那明天呢"）才有上文可接。
+        recordExchange?.(message, cardLine);
+      } else if (/天气|weather|气温|温度/i.test(message)) {
+        // 天气问但卡片答不了（没提城市、问得太远、源挂了）→ 走全上下文模型轮：
+        // "明天天气呢" 这类省略城市的追问，只有带历史的模型才接得住（轻路径无历史会反问）。
+        await runModelTurn(message);
+      } else if (runQuickUtility) {
         // §10.2: light path (minimal system, no full employee context). Un-scored either way.
-        await (runQuickUtility || runModelTurn)(message);
+        // 轻路径进模型时不带员工上下文（设计如此），但答案必须回写历史保持对话连续。
+        const answer = await runQuickUtility(message);
+        if (typeof answer === "string" && answer.trim()) recordExchange?.(message, answer);
+      } else {
+        await runModelTurn(message); // runModelTurn 自己维护历史
       }
       break;
     }
 
     case "memory_command": {
       const r = memoryCommandResponse(message, env) || {};
-      if (r.truth) emit(EVENTS.MEMORY_STATE, { memory: r.truth });
+      if (r.truth) {
+        // v0.13 M2：附带该员工记忆库的真实条目数（读不到就不发 count 字段——不发假 0）。
+        let count;
+        try {
+          if (root && agentId) {
+            const store = loadMemory(root, agentId);
+            if (store.ok) count = store.items.length;
+          }
+        } catch { /* count stays undefined */ }
+        emit(EVENTS.MEMORY_STATE, { memory: count === undefined ? r.truth : { ...r.truth, count } });
+      }
       emit(EVENTS.MEMORY_REQUESTED, { summary: message });
       if (r.note) emit(EVENTS.TOKEN_DELTA, { text: r.note });
       break; // no model turn — memory is a tool, not a sentence
@@ -115,6 +174,21 @@ async function persistDeliverable({ emit, answer, message, taskRunId, root }) {
   try {
     const art = writeArtifact({ name: artifactFileName(message), kind: "report", content: text, taskRunId, root });
     emit(EVENTS.ARTIFACT_CREATED, { id: art.artifact_id, name: art.name, kind: art.kind, path: art.path, status: art.status, bytes: art.bytes });
+    // v0.13 M2：真·证据链进 chat 交付轮——复用 crew run 的配方（run.mjs Step4）：报告引用的
+    // URL → evidence card 落 .crewclaw/runs/<id>.evidence.json（与 run 模式同一存储）并实时
+    // emit。只在交付轮触发；不造数字置信度（引擎置信度是分类，source_type 才是真值）。
+    try {
+      const cited = [...new Set(text.match(/https?:\/\/[^\s)]+/g) || [])];
+      for (const src of cited) {
+        const card = newEvidenceCard({ field: "来源", value: src, sourceUrl: src });
+        addEvidence(root, taskRunId, card);
+        emit(EVENTS.EVIDENCE_CREATED, {
+          fact: "报告引用来源",
+          source: src,
+          source_type: card.source_type,
+        });
+      }
+    } catch { /* 证据落盘失败不沉没交付轮 */ }
     const reveal = revealStrategy(art.path);
     emit(EVENTS.WORKSPACE_REVEALED, {
       path: art.path,

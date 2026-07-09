@@ -135,7 +135,50 @@ function parseArgs(argv) {
 // callModel now takes a `messages` array (the conversation so far: user/assistant
 // turns). The system prompt is prepended here. One-shot callers pass a single
 // user message; the chat REPL passes the growing history.
-async function callModel({ baseUrl, apiKey, model, temperature, system, messages, tools, stream, onDelta }) {
+// Deterministic offline model — CREW_MOCK=1 makes callModel return canned content
+// instead of hitting the network, so the conformance runner drives the full pipeline
+// key-free and reproducibly in CI. It never emits tool_calls (the mock produces the
+// final deliverable directly), which keeps the event sequence deterministic. The reply
+// echoes a Markdown-shaped body so persistDeliverable's "looks like a deliverable" test
+// passes and the artifact contract runs. (§12.4 conformance; PRD v0.6.1 G1.)
+function mockModelReply({ messages }) {
+  const lastUser = [...(messages || [])].reverse().find((m) => m && m.role === "user");
+  // v0.8 M6：若最后一条 user 消息是 content-block 数组（含附件），回显收到的块类型，让 conformance
+  // 断言 image_url/文本块确实抵达模型（AC-IMG-002）。仅在数组 content 时触发，纯文本路径不受影响。
+  let goal;
+  if (Array.isArray(lastUser?.content)) {
+    const kinds = lastUser.content.map((b) => (b && b.type) || "?").join(",");
+    const textBlock = lastUser.content.find((b) => b && b.type === "text");
+    goal = `[parts-received: ${kinds}] ${textBlock?.text || ""}`;
+  } else {
+    goal = typeof lastUser?.content === "string" ? lastUser.content : "任务";
+  }
+  const title = goal.replace(/\s+/g, " ").trim().slice(0, 40) || "任务";
+  return (
+    `# ${title}\n\n` +
+    `这是一份用于一致性验证的模拟交付物（CREW_MOCK）。\n\n` +
+    `## 假设\n- [假设] 示例假设 A\n- [假设] 示例假设 B\n\n` +
+    `## 结论\n- 要点一：说明。\n- 要点二：说明。\n\n` +
+    `## 风险\n- [需核实] 关键数字需要来源验证。\n`
+  );
+}
+
+async function callModel({ baseUrl, apiKey, model, temperature, system, messages, tools, stream, onDelta, onThinking }) {
+  if (process.env.CREW_MOCK === "1") {
+    const content = mockModelReply({ messages });
+    if (stream && typeof onThinking === "function") {
+      // v0.11 M4：mock 也吐一段"思考"，让 thinking 管道在 CREW_MOCK 下可端到端验证（无需真 API/额度）。
+      for (const ch of "先拆解需求，再决定检索与产出格式。".match(/.{1,12}/gs) || []) onThinking(ch);
+    }
+    if (stream && typeof onDelta === "function") {
+      for (const ch of content.match(/.{1,24}/gs) || [content]) onDelta(ch);
+    }
+    return {
+      content,
+      usage: { prompt_tokens: 64, completion_tokens: 128, total_tokens: 192 },
+      toolCalls: [],
+    };
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -193,6 +236,10 @@ async function callModel({ baseUrl, apiKey, model, temperature, system, messages
           const parsed = JSON.parse(payload);
           if (parsed?.usage) usage = parsed.usage;
           const delta = parsed?.choices?.[0]?.delta;
+          // v0.11 M4：真·思考——OpenAI 兼容聚合器把推理放在 delta.reasoning_content（部分为 reasoning）。
+          // 有则透出，无则不发（不造假：非推理模型/端点自然不出思考块）。
+          const reasoning = delta?.reasoning_content ?? delta?.reasoning;
+          if (reasoning) onThinking?.(reasoning);
           if (delta?.content) {
             content += delta.content;
             onDelta?.(delta.content);
@@ -257,6 +304,7 @@ async function loadProfile(agentId) {
     displayName,
     title,
     runtime,
+    profileDir, // v0.14 N2：员工包目录（avatar.txt 等员工资产从这读）
     system: buildSystemPrompt(soul, skills),
   };
 }
@@ -623,7 +671,7 @@ const AGENT_GUIDE = `
 // One agent turn: plan → (optional tool calls) → answer. Streams text with
 // markdown rendering, shows each tool call + result in the TUI, and loops until
 // the model returns a final answer. Mutates `messages` with the full exchange.
-async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages, name, isTTY, renderMd, confirm, onUsage, gateway, onInvocation, budget, onDelta }) {
+async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages, name, isTTY, renderMd, confirm, onUsage, gateway, onInvocation, budget, onDelta, onThinking }) {
   // Ink/sink mode: when onDelta is provided, stream text to the UI and NEVER draw to
   // stdout from here (Ink owns the screen). Every raw-renderer write below is gated on !quiet.
   const quiet = !!onDelta;
@@ -663,6 +711,8 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
         baseUrl, apiKey, model, temperature, system: sys,
         messages, tools: TOOLS, stream: true,
         onDelta: (d) => { streamed += d; if (quiet) onDelta(d); else { begin(); md.push(d); } },
+        // v0.11 M4：思考只在 sink 模式（quiet）透传给上层；裸终端不画思考，避免污染流式正文。
+        onThinking: (t) => { if (quiet) onThinking?.(t); },
       });
     } catch (error) {
       if (spin) clearInterval(spin);
@@ -760,7 +810,7 @@ async function agentLoop({ baseUrl, apiKey, model, temperature, system, messages
 // Uses an event queue (not await rl.question) so it stays correct while a model
 // call is in flight — works for both a real TTY and piped input.
 async function interactiveChat({ agentId, profile, apiKey, baseUrl, resume }) {
-  let { model, temperature, system, skills, displayName, title } = profile;
+  let { model, temperature, system, skills, displayName, title, profileDir } = profile;
   let name = displayName || titleizeId(agentId);
   let currentAgentId = agentId;
   const cyan = (s) => `\x1b[36m${s}\x1b[0m`;
@@ -778,11 +828,27 @@ async function interactiveChat({ agentId, profile, apiKey, baseUrl, resume }) {
       if (s.ok && s.messages.length) rHistory.push(...s.messages);
     }
     const { startJsonlBridge } = await import("./tui/jsonl-bridge.mjs");
+    // v0.13 M2：技能名清单进 session.ready——从 SKILL.md 原文提首个 `# ` 标题（无则 skill-N）。
+    // 不动 collectSkills（buildSystemPrompt 依赖其原文形状），只在这里做展示名提取。
+    const skillNames = (skills || []).map(
+      (s, i) => (s.match(/^#\s+(.+)$/m)?.[1] || `skill-${i + 1}`).trim(),
+    );
+    // v0.14 N2：员工包头像（真文件 experts/<slug>/avatar.txt）→ session.ready employee.avatar。
+    // 限 ≤8 行；读不到/为空 → 空数组（前端回退内置小像素块）。装饰性资产，读失败不拦启动。
+    let avatarLines = [];
+    try {
+      if (profileDir && existsSync(join(profileDir, "avatar.txt"))) {
+        avatarLines = (await readFile(join(profileDir, "avatar.txt"), "utf8"))
+          .split(/\r?\n/)
+          .filter((l) => l.length > 0)
+          .slice(0, 8);
+      }
+    } catch { /* ignore */ }
     await startJsonlBridge({
       agentLoop,
       agentLoopDeps: { baseUrl, apiKey, model, temperature, system, name, isTTY: false, gateway: makeGateway(), confirm: async () => true },
       agentName: name,
-      meta: { role: title, mode: "Chat", model },
+      meta: { role: title, mode: "Chat", model, skills: skillNames, agentId: currentAgentId, avatar: avatarLines },
       history: rHistory,
       saveSession: () => saveSession(ROOT, currentAgentId, rHistory),
     });

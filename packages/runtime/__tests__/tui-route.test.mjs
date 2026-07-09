@@ -28,19 +28,33 @@ function harness(extra = {}) {
   assert.equal(h.turns.length, 1, "runs the model turn");
 }
 
-// 2) quick_utility → emits quick.utility + runs the LIGHT path (§10.2), not the full employee turn
+// 2) quick_utility 分流（v0.11 修订）：
+//    时间/换算等自包含问题 → LIGHT path（§10.2，无员工上下文）；
+//    天气问但卡片答不了（没城市/太远/源挂）→ 全上下文模型轮（"明天天气呢"这类省略城市的
+//    追问只有带历史的模型接得住——轻路径无历史会反问哪个城市，实测用户卡点）。
 {
   const events = [], full = [], light = [];
-  const d = await routeTurn("杭州天气？", {
+  const d = await routeTurn("现在几点了", {
     emit: (t, dd) => events.push({ type: t, data: dd }),
     runModelTurn: async (m) => { full.push(m); },
     runQuickUtility: async (m) => { light.push(m); },
-    fetchWeather: async () => null, // no structured weather → falls to the light path
+    fetchWeather: async () => null,
   });
   assert.equal(d.type, "quick_utility");
-  assert.ok(events.some((e) => e.type === EVENTS.QUICK_UTILITY), "weather routes to Quick Utility (un-scored)");
-  assert.equal(light.length, 1, "quick utility uses the LIGHT path (no full employee context, §10.2)");
-  assert.equal(full.length, 0, "quick utility does NOT run the full employee turn");
+  assert.ok(events.some((e) => e.type === EVENTS.QUICK_UTILITY), "time routes to Quick Utility (un-scored)");
+  assert.equal(light.length, 1, "self-contained quick utility uses the LIGHT path (§10.2)");
+  assert.equal(full.length, 0, "self-contained quick utility does NOT run the full employee turn");
+}
+{
+  const events = [], full = [], light = [];
+  await routeTurn("明天天气呢", {
+    emit: (t, dd) => events.push({ type: t, data: dd }),
+    runModelTurn: async (m) => { full.push(m); },
+    runQuickUtility: async (m) => { light.push(m); },
+    fetchWeather: async () => null, // 没城市 → 卡片答不了
+  });
+  assert.equal(full.length, 1, "weather ask the card can't answer runs the FULL model turn (history-aware)");
+  assert.equal(light.length, 0, "weather fallback must NOT use the context-less light path");
 }
 
 // 2b) Weather Card (§5.3): a 天气 query fetches a STRUCTURED card → QUICK_UTILITY result, no model
