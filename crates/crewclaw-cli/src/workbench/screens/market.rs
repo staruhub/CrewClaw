@@ -37,17 +37,50 @@ pub fn render(frame: &mut Frame<'_>, _state: &AppState, ui_state: &UiState, area
         .constraints([Constraint::Length(44), Constraint::Min(30)])
         .split(area);
 
-    render_list(frame, ui_state, cols[0]);
-    let sel = ui_state.market_cursor.min(ui_state.market.len() - 1);
-    render_profile(frame, &ui_state.market[sel], cols[1]);
+    let filtered = ui_state.market_filtered();
+    render_list(frame, ui_state, &filtered, cols[0]);
+    if filtered.is_empty() {
+        render_no_matches(frame, cols[1]);
+    } else {
+        let sel = ui_state.market_cursor.min(filtered.len() - 1);
+        render_profile(frame, filtered[sel], cols[1]);
+    }
 }
 
-fn render_list(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
-    let n = ui_state.market.len();
+fn render_no_matches(frame: &mut Frame<'_>, area: Rect) {
+    let block = titled_block("PROFILE", config::aqua());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "  无匹配员工——按 Esc 清空搜索",
+            Style::default().fg(config::dim()),
+        ))),
+        pad_left(inner),
+    );
+}
+
+/// v0.17 P1-B1：MARKET 屏 `/` 搜索——`filtered` = `ui_state.market_filtered()` 的排序结果
+/// (fuzzy.rs 复用),空查询时与 `ui_state.market` 全量同序。
+fn render_list(frame: &mut Frame<'_>, ui_state: &UiState, filtered: &[&MarketEntry], area: Rect) {
+    let n = filtered.len();
+    let total = ui_state.market.len();
     // 短文案——44 列窄栏放不下设计稿原句(`[x] 对比 · [p] 发布员工 · N employees`),
-    // 会被 ratatui 的 Block 标题截断；对比([x])未实现,不占用有限的底栏宽度硬凑。
+    // 会被 ratatui 的 Block 标题截断，故压成 `cmp N/2`。
+    let count_label = if ui_state.market_filter.is_empty() {
+        format!(" {n} employees")
+    } else {
+        format!(" {n}/{total} employees")
+    };
+    // v0.17 P1-B2：对比候选真计数(此前 `[x] 对比` 完全未接,标题栏干脆不提)。
+    let cmp_label = if ui_state.compare_selection.is_empty() {
+        " · [x] 对比 ".to_string()
+    } else {
+        format!(" · 对比{}/2[c]查看 ", ui_state.compare_selection.len())
+    };
     let block = titled_block("MARKETPLACE", config::yellow()).title_bottom(Line::from(vec![
-        Span::styled(format!(" {n} employees"), Style::default().fg(config::dim())),
+        Span::styled(count_label, Style::default().fg(config::dim())),
+        Span::styled(cmp_label, Style::default().fg(config::dim())),
         Span::styled(" · [p] 发布 ", Style::default().fg(config::dim())),
     ]));
     let inner = block.inner(area);
@@ -57,18 +90,30 @@ fn render_list(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(3)])
         .split(inner);
-    // v0.16 W5.1：搜索框(设计稿装饰性入口——`/` 过滤功能单独排期,如实标注待接)。
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            " / 搜索数字员工…（待接）",
+    // v0.17 P1-B1：真搜索框——编辑态显示光标 `▏`,非编辑态且有查询显示已输文本,否则占位提示。
+    let search_line = if ui_state.market_filter_active {
+        Line::from(vec![
+            Span::styled(" / ", Style::default().fg(config::yellow())),
+            Span::styled(ui_state.market_filter.clone(), Style::default().fg(config::fg())),
+            Span::styled("▏", Style::default().fg(config::yellow())),
+        ])
+    } else if !ui_state.market_filter.is_empty() {
+        Line::from(vec![
+            Span::styled(" / ", Style::default().fg(config::dim())),
+            Span::styled(ui_state.market_filter.clone(), Style::default().fg(config::fg())),
+            Span::styled("  (Esc 清空)", Style::default().fg(config::dim())),
+        ])
+    } else {
+        Line::from(Span::styled(
+            " / 搜索数字员工…",
             Style::default().fg(config::dim()),
-        ))),
-        rows[0],
-    );
+        ))
+    };
+    frame.render_widget(Paragraph::new(search_line), rows[0]);
 
-    let sel = ui_state.market_cursor.min(ui_state.market.len().saturating_sub(1));
+    let sel = ui_state.market_cursor.min(n.saturating_sub(1));
     let mut lines: Vec<Line> = Vec::with_capacity(n);
-    for (i, e) in ui_state.market.iter().enumerate() {
+    for (i, e) in filtered.iter().enumerate() {
         let selected = i == sel;
         // v0.16 W2：统一选中行语言(设计稿)——▌ 选中 yellow/未选不着色;选中行整行 bg2。
         let marker_style = if selected {
@@ -90,8 +135,14 @@ fn render_list(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
         } else {
             Style::default().fg(config::fg())
         };
+        // v0.17 P1-B2：对比候选真勾选态(`x` 键的可见反馈——此前完全没有勾选标记)。
+        let in_compare = ui_state
+            .market_index_of(e)
+            .is_some_and(|idx| ui_state.compare_selection.contains(&idx));
+        let checkbox = if in_compare { "[x] " } else { "[ ] " };
         let mut line = Line::from(vec![
             Span::styled("▌ ", marker_style),
+            Span::styled(checkbox, Style::default().fg(if in_compare { config::aqua() } else { config::dim() })),
             Span::styled(format!("{dot} "), Style::default().fg(dot_color)),
             Span::styled(e.display_name.clone(), name_style),
             // v0.16 W5.1：分类真值挤右(registry 真字段；无 ★评分/tasks——无此真源,不造)。

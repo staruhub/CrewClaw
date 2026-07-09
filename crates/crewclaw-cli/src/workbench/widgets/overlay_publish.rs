@@ -90,7 +90,10 @@ pub(crate) fn render_publish(frame: &mut Frame<'_>, ui_state: &UiState) {
     let area = centered_rect(70, 68, frame.area());
     frame.render_widget(Clear, area);
 
-    let entry = ui_state.market.get(ui_state.market_cursor.min(ui_state.market.len().saturating_sub(1)));
+    // v0.17 P1-B1：market_cursor 是 filtered 列表下标，过滤生效时不等于 market 真实下标——
+    // 经 market_selected_index() 翻译，否则搜索后发布会拿错员工的 manifest/doctor 结论。
+    let selected_idx = ui_state.market_selected_index();
+    let entry = selected_idx.and_then(|i| ui_state.market.get(i));
     let name = entry.map(|e| e.display_name.as_str()).unwrap_or("未选中员工");
     let block = Block::default()
         .title(Span::styled(
@@ -142,9 +145,7 @@ pub(crate) fn render_publish(frame: &mut Frame<'_>, ui_state: &UiState) {
     let width = cols[1].width as usize;
     let mut rows: Vec<Line> = Vec::new();
     if step == 0 {
-        let health = ui_state
-            .hire_reports
-            .get(ui_state.market_cursor.min(ui_state.hire_reports.len().saturating_sub(1)));
+        let health = selected_idx.and_then(|i| ui_state.hire_reports.get(i));
         rows.push(section_line("真实校验 · registry + doctor", config::green()));
         for (k, v, ok) in manifest_rows(entry, health) {
             rows.push(check_row(&k, &v, ok, None, width));
