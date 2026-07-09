@@ -21,7 +21,7 @@ describe("expert registry", () => {
 
     expect(expert?.status).toBe("available");
     expect(expert?.install_command).toContain("pnpm dlx @chaogeek/hermes hire code-review-shrimp");
-    expect(expert?.local_install_command).toBe("pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw");
+    expect(expert?.local_install_command).toBe("pnpm --silent run crewclaw");
     expect(expert?.local_source).toBe("experts/code-review-shrimp");
   });
 

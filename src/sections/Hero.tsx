@@ -9,7 +9,7 @@ interface HeroProps {
 }
 
 export function Hero({ onGetStarted }: HeroProps) {
-  const installCommand = findInstallCommand("code-review-shrimp") ?? "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw";
+  const installCommand = findInstallCommand("code-review-shrimp") ?? "pnpm --silent run crewclaw";
 
   return (
     <section className="relative isolate flex min-h-[760px] flex-col items-center justify-center overflow-hidden bg-crew-bg px-4 pt-24 pb-14 sm:px-6 lg:min-h-[820px]">

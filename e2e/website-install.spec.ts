@@ -1,5 +1,12 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+
+// Read the registry via fs (not a JSON import) so this stays loader-agnostic under Playwright's
+// ESM runner, which requires an explicit import attribute for JSON modules.
+const registry = JSON.parse(
+  readFileSync(new URL("../registry/experts.json", import.meta.url), "utf8"),
+) as { experts: unknown[] };
 
 type CommandResult = {
   code: number;
@@ -114,7 +121,10 @@ test("homepage exposes CrewClaw CLI docs and clickable flows", async ({ context,
   await expect(page.getByText("Command-line hiring path")).toBeVisible();
 
   const cards = page.locator("#market article");
-  await expect(cards).toHaveCount(4);
+  // One card per registry expert (registry/experts.json). Kept in sync with the registry rather
+  // than a frozen literal — it grew from 4 to 7 and this assertion was never updated.
+  const expectedCardCount = registry.experts.length;
+  await expect(cards).toHaveCount(expectedCardCount);
 
   const shrimp = cards.filter({ hasText: "Code Review Shrimp" });
   await expect(shrimp.getByText("Available")).toBeVisible();

@@ -19,7 +19,7 @@
         "env": ["GITHUB_PERSONAL_ACCESS_TOKEN"]
       },
       "install_command": "pnpm dlx @chaogeek/hermes hire code-review-shrimp",
-      "local_install_command": "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw",
+      "local_install_command": "pnpm --silent run crewclaw",
       "first_task": "请你作为代码 Review 虾，检查当前分支相对 main 的改动，输出：阻塞问题、建议修改、可以合并的条件。"
     },
     {
@@ -39,7 +39,7 @@
         "env": []
       },
       "install_command": "pnpm dlx @chaogeek/hermes hire product-prd-crab",
-      "local_install_command": "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw",
+      "local_install_command": "pnpm --silent run crewclaw",
       "first_task": "请你作为产品 PRD 蟹，评审这份 PRD，指出：用户目标是否清楚、边界是否完整、验收标准是否可测试。"
     },
     {
@@ -59,7 +59,7 @@
         "env": []
       },
       "install_command": "pnpm dlx @chaogeek/hermes hire ai-adoption-whale",
-      "local_install_command": "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw",
+      "local_install_command": "pnpm --silent run crewclaw",
       "first_task": "我们要做一个客服 Agent，预算有限，帮我选型大模型并给一个 3 个月的落地路线图。"
     },
     {
@@ -79,7 +79,7 @@
         "env": []
       },
       "install_command": "pnpm dlx @chaogeek/hermes hire zeneth",
-      "local_install_command": "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw",
+      "local_install_command": "pnpm --silent run crewclaw",
       "first_task": "帮我做下周 AI 工具主题的社群 7 天内容排期，含每天主题、形式、发布时间和互动钩子。"
     },
     {
@@ -99,7 +99,7 @@
         "env": []
       },
       "install_command": "pnpm dlx @chaogeek/hermes hire macao-networking-agent",
-      "local_install_command": "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw",
+      "local_install_command": "pnpm --silent run crewclaw",
       "first_task": "帮我找澳门本月适合认识金融科技从业者的活动，给活动列表、推荐理由、参会建议。"
     },
     {

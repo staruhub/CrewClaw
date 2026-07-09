@@ -7,7 +7,7 @@ interface CTAProps {
 }
 
 export function CTA({ onGetStarted }: CTAProps) {
-  const installCommand = findInstallCommand("product-prd-crab") ?? "pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw";
+  const installCommand = findInstallCommand("product-prd-crab") ?? "pnpm --silent run crewclaw";
 
   return (
     <section className="relative overflow-hidden bg-crew-bg-dark py-[110px]">
