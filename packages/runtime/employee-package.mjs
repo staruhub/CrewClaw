@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import yaml from "./yaml.mjs";
 
-const REQUIRED_FIELDS = [
+// Exported so contracts/__tests__/employee-spec.test.ts can assert this list stays identical to
+// EmployeeSpecSchema's required keys (contracts/employee-spec.ts) — two sources, one drift guard.
+export const REQUIRED_FIELDS = [
   "identity",
   "role_contract",
   "soul",

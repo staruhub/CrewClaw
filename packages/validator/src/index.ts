@@ -3,7 +3,13 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { EmployeeManifestSchema, type EmployeeManifest } from "../../../contracts/manifest";
+import { EmployeeSpecSchema, type EmployeeSpec } from "../../../contracts/employee-spec";
 import { getAvailableExperts } from "../../registry/src/index";
+// The spec file uses dotted map keys (tool_needs: web.search / artifact.report), which this
+// module's hand-rolled parseYaml silently drops (its key regex is [A-Za-z0-9_]+). Parse the spec
+// with the runtime's YAML module instead — it already handles the whale prototype end to end.
+// @ts-expect-error — untyped runtime .mjs module.
+import runtimeYaml from "../../runtime/yaml.mjs";
 
 const requiredFiles = [
   "distribution.yaml",
@@ -59,6 +65,10 @@ function parseScalar(value: string) {
   const trimmed = value.trim();
   if (trimmed === "true") return true;
   if (trimmed === "false") return false;
+  // Inline empty collections are valid YAML (e.g. `env: []` for an expert needing no env vars);
+  // without this they parse as the literal string "[]" and fail array-typed schema fields.
+  if (trimmed === "[]") return [];
+  if (trimmed === "{}") return {};
   if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) return trimmed.slice(1, -1);
   if (trimmed.startsWith("'") && trimmed.endsWith("'")) return trimmed.slice(1, -1);
   return trimmed;
@@ -251,14 +261,20 @@ export async function validateExpert(
   }
 
   const distributionPath = join(root, "distribution.yaml");
+  let distributionVersion: string | null = null;
   if (existsSync(distributionPath)) {
     const raw = await readFile(distributionPath, "utf8");
     const parsed = distributionSchema.safeParse(parseTopLevelYaml(raw));
     if (!parsed.success) errors.push("Invalid distribution.yaml");
+    else distributionVersion = parsed.data.version;
   }
 
+  // v0.18 A4: the two-file employee standard is MANDATORY for available experts — a listed
+  // employee without its hiring contract or runtime spec used to pass silently (if-exists).
   const hirePath = join(root, "hire.yaml");
-  if (existsSync(hirePath)) {
+  if (!existsSync(hirePath)) {
+    errors.push("Missing required file: hire.yaml");
+  } else {
     const raw = await readFile(hirePath, "utf8");
     const parsed = EmployeeManifestSchema.safeParse(parseYaml(raw));
     if (!parsed.success) {
@@ -269,6 +285,41 @@ export async function validateExpert(
         warnings.push(`High-risk permissions declared in hire.yaml: ${highRiskPermissions.join(", ")}`);
       }
       if (registryExpert) validateRegistryConsistency(parsed.data, root, registryExpert, cwd, errors);
+      if (distributionVersion && distributionVersion !== parsed.data.metadata.version) {
+        errors.push(
+          `Version mismatch: distribution.yaml=${distributionVersion} hire.yaml=${parsed.data.metadata.version}`,
+        );
+      }
+    }
+  }
+
+  const specPath = join(root, "crewclaw.employee.yaml");
+  if (!existsSync(specPath)) {
+    errors.push("Missing required file: crewclaw.employee.yaml");
+  } else {
+    const raw = await readFile(specPath, "utf8");
+    let specDoc: unknown;
+    try {
+      specDoc = (runtimeYaml as { load(raw: string): unknown }).load(raw);
+    } catch (error) {
+      specDoc = null;
+      errors.push(`Unparseable crewclaw.employee.yaml: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (specDoc !== null) {
+      const parsed = EmployeeSpecSchema.safeParse(specDoc);
+      if (!parsed.success) {
+        errors.push(`Invalid crewclaw.employee.yaml: ${formatZodIssues(parsed.error)}`);
+      } else {
+        const spec: EmployeeSpec = parsed.data;
+        if (registryExpert && spec.identity.id !== registryExpert.name) {
+          errors.push(`Spec identity.id mismatch: registry=${registryExpert.name} spec=${spec.identity.id}`);
+        }
+        if (registryExpert && registryExpert.version && spec.identity.version !== registryExpert.version) {
+          errors.push(
+            `Version mismatch: registry=${registryExpert.version} crewclaw.employee.yaml=${spec.identity.version}`,
+          );
+        }
+      }
     }
   }
 

@@ -1,0 +1,321 @@
+{
+  "$id": "https://crewclaw.dev/schema/employee.hire.schema.json",
+  "title": "CrewClaw Employee Hiring Contract (hire.yaml)",
+  "description": "Marketplace/install layer of the two-file employee standard: who to hire and what it needs to run.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "crewclaw/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Employee"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mascot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "certification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "published_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "creator": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "mascot",
+        "version",
+        "certification",
+        "published_by",
+        "creator"
+      ],
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reports_to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "title",
+        "description",
+        "reports_to",
+        "location"
+      ],
+      "additionalProperties": false
+    },
+    "soul": {
+      "type": "string",
+      "minLength": 1
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "requires": {
+      "type": "object",
+      "properties": {
+        "hermes": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime": {
+          "type": "string",
+          "minLength": 1
+        },
+        "env": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "hermes",
+        "runtime",
+        "env"
+      ],
+      "additionalProperties": false
+    },
+    "examples": {
+      "type": "object",
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "inputs",
+        "outputs"
+      ],
+      "additionalProperties": false
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "sla": {
+      "type": "object",
+      "properties": {
+        "response_time": {
+          "type": "string",
+          "minLength": 1
+        },
+        "availability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "escalation": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "response_time",
+        "availability",
+        "escalation"
+      ],
+      "additionalProperties": false
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "hireable": {
+          "type": "boolean"
+        },
+        "fireable": {
+          "type": "boolean"
+        },
+        "trial_period": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "hireable",
+        "fireable",
+        "trial_period"
+      ],
+      "additionalProperties": false
+    },
+    "pricing": {
+      "type": "string",
+      "minLength": 1
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "demo_tasks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "changelog": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "support_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "safety_notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": {}
+          }
+        },
+        "demo_tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "title": {
+                "type": "string"
+              },
+              "input": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": {}
+              },
+              "output_schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": {}
+          }
+        }
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "identity",
+    "soul",
+    "skills",
+    "tools",
+    "permissions",
+    "requires",
+    "examples",
+    "limitations",
+    "sla",
+    "lifecycle"
+  ],
+  "additionalProperties": false
+}

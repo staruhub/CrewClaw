@@ -5,7 +5,7 @@ metadata:
   id: ai-adoption-whale
   name: AI 落地鲸
   mascot: whale
-  version: 0.1.0
+  version: 0.2.0
   certification: C2
   published_by: ClawHub
   creator: ChaoGeek / Pong
@@ -81,6 +81,7 @@ demo_tasks:
   - "把人工对账流程设计成一个多 Agent 工作流，标出人审节点。"
 changelog:
   - "0.1.0: Initial ChaoGeek Certified MVP profile."
+  - "0.2.0: Runtime deep spec (crewclaw.employee.yaml) with eval_suite/outcome_rubric; version aligned across registry/hire/distribution/spec."
 safety_notes:
   - "模型/价格等关键数字需用户核实，给出时标注来源或 [placeholder]。"
   - "生产部署类操作必须人工确认，不自动执行。"

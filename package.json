@@ -26,7 +26,8 @@
     "validate:all-experts": "node --import tsx packages/validator/src/bin.ts --all",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "schema:generate": "node --import tsx contracts/scripts/generate-schemas.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.3",

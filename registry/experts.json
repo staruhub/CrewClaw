@@ -51,7 +51,7 @@
       "description": "企业大模型落地顾问，帮你做模型选型、Agent 工作流设计、落地路线图与 ROI 评估。",
       "repo": null,
       "local_source": "experts/ai-adoption-whale",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "pricing": "free-preview",
       "tags": ["llm", "agent", "enterprise", "adoption"],
       "requires": {

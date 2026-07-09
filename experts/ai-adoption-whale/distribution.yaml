@@ -1,5 +1,5 @@
 name: macao-networking-agent
-version: 0.1.0
+version: 0.2.0
 description: "ChaoGeek-certified Hermes expert for Macao event discovery, lead research, networking plans, and outreach drafts."
 hermes_requires: ">=0.12.0"
 author: "ChaoGeek / Pong"

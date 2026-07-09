@@ -72,7 +72,78 @@ async function makeExpertRoot() {
       "- [ ] Blocking issues are separated.",
     ].join("\n"),
   );
+  // v0.18 A4: the two-file employee standard is mandatory for a complete distribution — write a
+  // valid default hire.yaml + crewclaw.employee.yaml. Tests that exercise hire.yaml overwrite it.
+  await writeFile(join(root, "hire.yaml"), makeHireYaml());
+  await writeFile(join(root, "crewclaw.employee.yaml"), makeSpecYaml());
   return root;
+}
+
+// A minimal EmployeeSpec (crewclaw.employee.yaml) that satisfies contracts/employee-spec.ts:
+// id/version match the fixture's registry entry, a single rubric entry weighing 1.0.
+function makeSpecYaml() {
+  return [
+    "identity:",
+    "  id: test-expert",
+    "  name: Test Expert",
+    "  avatar: shrimp",
+    "  author: ChaoGeek / Pong",
+    "  version: 0.1.0",
+    "  certification: C2",
+    "  title: Test Expert",
+    "  description: Test expert for validator coverage.",
+    "role_contract:",
+    "  title: Test Expert",
+    "  mission: Exercise the validator.",
+    "  responsibilities:",
+    "    - Review changes.",
+    "  not_responsible_for:",
+    "    - Deploying code.",
+    "  best_for:",
+    "    - Validator coverage.",
+    "soul:",
+    "  source: SOUL.md",
+    "  working_style:",
+    "    - Evidence first.",
+    "  communication_style: Crisp and structured.",
+    "  values:",
+    "    - No fabrication.",
+    "deliverables:",
+    "  - type: review_report",
+    "    name: Review report",
+    "tool_needs:",
+    "  files.read:",
+    "    necessity: required",
+    "    permission: readonly",
+    "    description: Read files.",
+    "permission_policy:",
+    "  default_level: P1",
+    "  levels:",
+    "    P0: Read only.",
+    "    P1: Write artifacts.",
+    "  grants:",
+    "    files.read: P0",
+    "  denied:",
+    "    notify: P4",
+    "  human_authorization_required:",
+    "    - shell.run",
+    "eval_suite:",
+    "  smoke_tests:",
+    "    - id: smoke-1",
+    "      task: Review a trivial change.",
+    "      acceptance:",
+    "        - Reports blocking issues.",
+    "  grading:",
+    "    pass_threshold: 0.8",
+    "outcome_rubric:",
+    "  - id: defect_detection",
+    "    weight: 1.0",
+    "    criterion: Finds the real defects.",
+    "compatibility_targets:",
+    "  Hermes:",
+    "    level: L3",
+    "    strategy: Map to SOUL and skills.",
+  ].join("\n");
 }
 
 function makeHireYaml(overrides: { version?: string; permissions?: string[]; omitIdentity?: boolean } = {}) {
