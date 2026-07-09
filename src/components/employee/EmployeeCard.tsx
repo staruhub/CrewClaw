@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { ArrowUpRight, BadgeCheck, Heart, Star, Users } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, Heart, ShieldCheck, Tag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,14 +22,6 @@ type EmployeeCardProps = {
   action?: ReactNode;
   className?: string;
 };
-
-function formatHireCount(count: number) {
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(count % 1000 === 0 ? 0 : 1)}k`;
-  }
-
-  return count.toLocaleString();
-}
 
 function formatPricing(pricing: string) {
   return pricing
@@ -115,14 +107,16 @@ export function EmployeeCard({ employee, action, className }: EmployeeCardProps)
       <CardContent className="flex flex-1 flex-col">
         <p className="line-clamp-3 text-sm leading-6 text-crew-body">{employee.description}</p>
 
+        {/* v0.18 Phase 2b: honest facts only. rating (4.8) / hire_count (1.2k) were fabricated —
+            a bundled site has no eval/kpi data source. Show real registry facts instead. */}
         <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/10 pt-4 font-mono text-xs text-crew-muted">
           <span className="flex min-w-0 items-center gap-1.5">
-            <Star className="size-3.5 text-crew-copper" />
-            {employee.rating.toFixed(1)}
+            <ShieldCheck className="size-3.5 text-crew-copper" />
+            {employee.certification}
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
-            <Users className="size-3.5 text-crew-copper" />
-            {formatHireCount(employee.hire_count)}
+            <Tag className="size-3.5 text-crew-copper" />
+            v{employee.version}
           </span>
           <span className="min-w-0 truncate text-right text-crew-heading">
             {formatPricing(employee.pricing)}
