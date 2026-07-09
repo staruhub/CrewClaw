@@ -20,6 +20,7 @@ import { routeTurn } from "./route.mjs";
 import { applyUserAction, parseUserActionLine } from "./task-jsonl.mjs";
 import { assembleProofPack } from "../proofpack.mjs";
 import { estimateCost } from "../budget-guard.mjs";
+import { readKpi, recordTaskOutcome } from "../kpi.mjs";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 
@@ -43,7 +44,10 @@ export async function startJsonlBridge({
   // caps.ansi=true tells the front-end this engine will also emit assistant.rendered (pre-typeset
   // ANSI); a front-end that lacks an ANSI parser simply ignores that event and keeps token.delta.
   // v0.13 M2：employee.skills = 真实技能名清单（SKILL.md 首标题，run.mjs 提取；无技能为空数组）。
-  emit("session.ready", { employee: { name: agentName, role: meta.role, mode: meta.mode, model: meta.model, skills: meta.skills || [], avatar: meta.avatar || [] }, caps: { ansi: true, parts: true, commands: commandCatalog() } });
+  // v0.17 P2 C1：kpi_cumulative = 跨会话真累计（本进程启动前，本 root 下这个员工历史 accept/
+  // tasks/cost 的落盘快照）——EMPLOYEE 面板的"本会话"区不变，新增的"累计"区读这个。
+  const kpiCumulative = readKpi(bridgeRoot, meta.agentId);
+  emit("session.ready", { employee: { name: agentName, role: meta.role, mode: meta.mode, model: meta.model, skills: meta.skills || [], avatar: meta.avatar || [], kpi_cumulative: kpiCumulative }, caps: { ansi: true, parts: true, commands: commandCatalog() } });
 
   // v0.8 M2: accumulate the assistant text streamed this turn (from EVERY source — model
   // deltas AND route.mjs's direct token.delta emits) so the completed turn can be typeset once.
@@ -187,10 +191,10 @@ export async function startJsonlBridge({
         // v0.13 M2：accept 轮的 usage≈0——任务成本归**产出轮**（pendingApproval.usage），不是本轮。
         const produced = pendingApproval.usage || { prompt: 0, completion: 0 };
         pendingApproval = null;
-        emit(EVENTS.TASK_COMPLETED, {
-          usage: produced,
-          est_cost: estimateCost({ promptTokens: produced.prompt, completionTokens: produced.completion }).cost,
-        });
+        const acceptedCost = estimateCost({ promptTokens: produced.prompt, completionTokens: produced.completion }).cost;
+        emit(EVENTS.TASK_COMPLETED, { usage: produced, est_cost: acceptedCost });
+        // v0.17 P2 C1：真实验收落盘累计（EMPLOYEE 面板"累计"区 + MARKET/EVAL 真 KPI 的数据源）。
+        recordTaskOutcome(root, meta.agentId, { accepted: true, cost: acceptedCost });
       } else if (art && !decision.blocked) {
         pendingApproval = { taskRunId, root, goal: text, artifact: art, usage: turnUsage() };
         emit(EVENTS.APPROVAL_REQUESTED, {
@@ -205,10 +209,11 @@ export async function startJsonlBridge({
         // 否则 reducer 会把 blocked 覆盖成 done/needs_artifact，UI 前脚说阻塞后脚说完成。
         // v0.13 M2：带上本轮真实 usage 与估算成本（前端 TASK QUEUE / KPI 的数据源）。
         const u = turnUsage();
-        emit(EVENTS.TASK_COMPLETED, {
-          usage: u,
-          est_cost: estimateCost({ promptTokens: u.prompt, completionTokens: u.completion }).cost,
-        });
+        const plainCost = estimateCost({ promptTokens: u.prompt, completionTokens: u.completion }).cost;
+        emit(EVENTS.TASK_COMPLETED, { usage: u, est_cost: plainCost });
+        // v0.17 P2 C1：非验收终态也计入累计"任务数"（与本会话 KPI 的 tasks 定义一致——
+        // task_meta 挂在每个 completed/blocked/rejected 任务头上，不只挂验收产出）。
+        recordTaskOutcome(root, meta.agentId, { accepted: false, cost: plainCost });
       }
     } catch (e) {
       emit(EVENTS.TASK_REJECTED, { reason: String((e && e.message) || e) });

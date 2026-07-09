@@ -170,6 +170,32 @@ pub(crate) fn render_employee(frame: &mut Frame<'_>, state: &AppState, area: Rec
     ));
     push_sep(&mut lines);
 
+    // v0.17 P2 C1：KPI —— 跨会话累计真数据（session.ready employee.kpi_cumulative，引擎从
+    // `.crewclaw/kpi/<agentId>.json` 读入；旧引擎/无 agentId 时全零——不冒充历史）。
+    lines.push(section("KPI · 累计"));
+    let cum = state
+        .employee
+        .as_ref()
+        .map(|e| e.kpi_cumulative)
+        .unwrap_or_default();
+    lines.push(kv_line("tasks", cum.tasks.to_string(), config::fg()));
+    lines.push(kv_line("accept", cum.accepted.to_string(), config::green()));
+    lines.push(kv_line(
+        "cost",
+        if cum.total_cost > 0.0 {
+            format!("${:.2}", cum.total_cost)
+        } else {
+            "—".to_string()
+        },
+        config::yellow(),
+    ));
+    lines.push(kv_line(
+        "首次上岗",
+        cum.first_hired_ts.map(crate::workbench::ui::fmt_date).unwrap_or_else(|| "—".to_string()),
+        config::dim(),
+    ));
+    push_sep(&mut lines);
+
     // MEMORY —— 三态真值 + 真条目数。
     lines.push(section("MEMORY"));
     let scope_line = |label: &str, status: &str| -> Line<'static> {

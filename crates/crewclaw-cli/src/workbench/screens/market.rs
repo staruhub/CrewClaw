@@ -186,6 +186,7 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
         constraints.push(Constraint::Length(3)); // SKILLS 标题+chips
     }
     constraints.push(Constraint::Length(3)); // 运行要求
+    constraints.push(Constraint::Length(2)); // v0.17 P2 C1：累计 KPI(真值,启动时读盘)
     constraints.push(Constraint::Min(1)); // 行动条(吃剩余)
     let rows = Layout::default().direction(Direction::Vertical).constraints(constraints).split(padded);
 
@@ -238,6 +239,30 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
         Line::from(vec![Span::styled("Env    ", dim), Span::styled(env, fg)]),
     ];
     frame.render_widget(Paragraph::new(Text::from(env_lines)), rows[next]);
+    next += 1;
+
+    // v0.17 P2 C1：累计 KPI——启动时从 `.crewclaw/kpi/<name>.json` 真读盘(不等 session.ready，
+    // MARKET 要列出所有员工，不只是当前上岗的那个)；从未跑过的员工如实说"尚无历史"。
+    let cum = &e.kpi_cumulative;
+    let kpi_line = if cum.tasks == 0 {
+        Line::from(vec![
+            Span::styled("累计 ", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD)),
+            Span::styled("尚无历史（新员工）", dim),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("累计 ", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{} 单", cum.tasks), fg),
+            Span::styled(" · ", dim),
+            Span::styled(format!("{} 验收", cum.accepted), Style::default().fg(config::green())),
+            Span::styled(" · ", dim),
+            Span::styled(
+                if cum.total_cost > 0.0 { format!("${:.2}", cum.total_cost) } else { "—".to_string() },
+                Style::default().fg(config::yellow()),
+            ),
+        ])
+    };
+    frame.render_widget(Paragraph::new(kpi_line), rows[next]);
     next += 1;
 
     // 行动条：可雇员工提示 h/Enter 进体检(设计稿 `[H] HIRE` 绿虚线征募条的对应)。

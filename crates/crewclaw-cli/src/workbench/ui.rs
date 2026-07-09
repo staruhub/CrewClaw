@@ -114,7 +114,7 @@ pub(crate) fn render_with_input_spans(
         Screen::Workbench => render_messages(frame, state, ui_state, root[1]),
         Screen::Market => screens::market::render(frame, state, ui_state, root[1]),
         Screen::Hire => screens::hire::render(frame, state, ui_state, root[1]),
-        Screen::Eval => screens::eval::render(frame, ui_state, root[1]),
+        Screen::Eval => screens::eval::render(frame, state, ui_state, root[1]),
         Screen::Dream => screens::dream::render(frame, ui_state, root[1]),
     }
     if ui_state.which_key {
@@ -2067,6 +2067,18 @@ pub(crate) fn fmt_hhmm(ts: u64) -> String {
     }
 }
 
+/// v0.17 P2 C1：事件时间戳 → 本地 YYYY-MM-DD（EMPLOYEE"累计"区的首次上岗日期）。
+pub(crate) fn fmt_date(ts: u64) -> String {
+    use chrono::TimeZone;
+    if ts == 0 {
+        return "—".to_string();
+    }
+    match chrono::Local.timestamp_millis_opt(ts as i64) {
+        chrono::LocalResult::Single(dt) => dt.format("%Y-%m-%d").to_string(),
+        _ => "—".to_string(),
+    }
+}
+
 /// v0.13 M3：事件类型 → 设计规范类别色（task=blue/plan=purple/tool=aqua/artifact·evidence=green/
 /// approval·waiting=orange/failed·rejected=red，其余 dim）。
 pub(crate) fn event_type_color(event_type: &str) -> Color {
@@ -2382,6 +2394,7 @@ mod tests {
             model: "claude".to_string(),
             skills: Vec::new(),
             avatar: Vec::new(),
+            kpi_cumulative: super::super::state::KpiCumulative::default(),
         });
         state
     }
@@ -2435,6 +2448,7 @@ mod tests {
                 hermes_req: ">=0.3".to_string(),
                 env_reqs: vec![],
                 first_task: "做一份模型选型建议".to_string(),
+                kpi_cumulative: Default::default(),
             },
             MarketEntry {
                 name: "docs-octopus".to_string(),
@@ -2447,8 +2461,46 @@ mod tests {
                 hermes_req: ">=0.3".to_string(),
                 env_reqs: vec![],
                 first_task: "".to_string(),
+                kpi_cumulative: Default::default(),
             },
         ]
+    }
+
+    /// v0.17 P2 C1：MARKET PROFILE 面板的"累计"行——有历史的员工显示真 tasks/accepted/cost
+    /// (启动时从 `.crewclaw/kpi/<name>.json` 读盘，不是引擎 session.ready 下发的，因为 MARKET
+    /// 要列出所有员工）；从未跑过的员工如实说"尚无历史"，不伪造非零数字。
+    #[test]
+    fn market_profile_shows_real_cumulative_kpi_and_honest_zero_state() {
+        use super::super::state::{KpiCumulative, MarketEntry};
+        let state = employee_state();
+        let mut ui = UiState::default();
+        ui.screen = Screen::Market;
+        ui.market = vec![
+            MarketEntry {
+                name: "whale".into(),
+                display_name: "AI落地鲸".into(),
+                status: "available".into(),
+                kpi_cumulative: KpiCumulative { tasks: 12, accepted: 9, total_cost: 4.2, first_hired_ts: Some(1_700_000_000_000) },
+                ..Default::default()
+            },
+            MarketEntry { name: "rookie".into(), display_name: "新秀".into(), status: "available".into(), ..Default::default() },
+        ];
+
+        // 选中第一个（有历史）：真数字。
+        ui.market_cursor = 0;
+        let mut t0 = Terminal::new(TestBackend::new(84, 34)).expect("term");
+        t0.draw(|f| render(f, &state, &ui, "")).expect("draw");
+        let out0 = screen(&t0).replace(' ', "");
+        assert!(out0.contains("12单"), "real cumulative task count");
+        assert!(out0.contains("9验收"), "real cumulative accepted count");
+        assert!(out0.contains("$4.20"), "real cumulative cost");
+
+        // 选中第二个（从未跑过）：如实说没有历史，不是 "0 单 · 0 验收 · —" 这种伪造格式。
+        ui.market_cursor = 1;
+        let mut t1 = Terminal::new(TestBackend::new(84, 34)).expect("term");
+        t1.draw(|f| render(f, &state, &ui, "")).expect("draw");
+        let out1 = screen(&t1).replace(' ', "");
+        assert!(out1.contains("尚无历史"), "a never-run employee gets an honest zero-state, not fabricated zeros");
     }
 
     #[test]
@@ -2655,6 +2707,8 @@ mod tests {
         // 断言依赖全局 DARK 主题色——上共享锁,避免和别的改主题测试(如 settings 的 l 循环)互踩。
         let _guard = THEME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         config::set_theme(config::Theme::DARK);
+        // v0.17 P2 C1：6 格 KPI 瓦片改真值（employee_state() 的员工 kpi_cumulative 是honest零——
+        // 从未跑过任务，瓦片必须显示"—"而不是伪造的非零数字）；月度条形/上岗考试仍是 MOCK。
         let state = employee_state();
         let mut ui = UiState::default();
         ui.screen = Screen::Eval;
@@ -2662,11 +2716,38 @@ mod tests {
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out = screen(&t);
         let compact = out.replace(' ', "");
-        assert!(compact.contains("示例数据"), "MOCK badge shown (honest — no real KPI source)");
-        assert!(out.contains("92%"), "kpi tile value shown");
-        assert!(compact.contains("MoM"), "trend row shown under kpi tile");
+        assert!(compact.contains("示例数据"), "MOCK badge still marks the monthly/exam section");
+        assert!(compact.contains("累计KPI"), "kpi tiles carry their own 真实 label, not the MOCK one");
         assert!(out.contains("REPUTATION"), "reputation sidebar present");
+        assert!(compact.contains("MOCK"), "reputation sidebar marks itself MOCK too (no real reputation source)");
         assert!(buffer_has_bg(&t, config::Theme::DARK.bg1), "kpi tiles use bg1 fill");
+    }
+
+    /// v0.17 P2 C1：EVAL 的 KPI 瓦片必须真的算出真实累计值(不是摆设标签)——验收率/平均成本/
+    /// 在岗天数都是从 kpi_cumulative 派生的真计算，不是引擎直接下发的现成字符串。
+    #[test]
+    fn eval_kpi_tiles_compute_real_derived_values() {
+        use super::super::protocol::TaskEvent;
+        let ev = |t: &str, ts: u64, d: serde_json::Value| TaskEvent::from_parts(t, ts, d);
+        let mut state = AppState::default();
+        state.reduce(&ev(
+            "session.ready",
+            1_783_400_000_000,
+            serde_json::json!({"employee":{"name":"AI 落地鲸","role":"顾问","model":"m",
+                "kpi_cumulative":{"tasks":10,"accepted":8,"total_cost":8.0,"first_hired_ts":1_700_000_000_000_u64}}}),
+        ));
+        let mut ui = UiState::default();
+        ui.screen = Screen::Eval;
+        let mut t = Terminal::new(TestBackend::new(140, 40)).expect("term");
+        t.draw(|f| render(f, &state, &ui, "")).expect("draw");
+        let out = screen(&t);
+        let compact = out.replace(' ', "");
+        assert!(compact.contains("10") && compact.contains("累计任务"), "real cumulative task count");
+        assert!(compact.contains("8") && compact.contains("累计验收"), "real cumulative accepted count");
+        assert!(compact.contains("80%"), "accept rate = accepted/tasks computed correctly (8/10)");
+        assert!(compact.contains("$8.00"), "real cumulative cost");
+        assert!(compact.contains("$0.80"), "average cost per task computed correctly (8.0/10)");
+        assert!(compact.contains("2023-11"), "tenure tile annotates the real first-hired date");
     }
 
     /// v0.16 W6.1：EVAL 的 KPI 网格 Layout 在窄终端下不panic(退化单栏路径已有,这里补宽栏路径)。
@@ -2793,6 +2874,34 @@ mod tests {
         assert!(out.contains("[official]"), "evidence source_type tag (no fabricated confidence)");
         // 三栏 SESSION 不重复员工卡（左栏已有身份）。
         assert!(!out.contains('╔'), "no duplicate pixel card in SESSION");
+    }
+
+    /// v0.17 P2 C1：EMPLOYEE 面板"累计"区——跨会话真值(session.ready employee.kpi_cumulative)
+    /// 与既有"本会话"区并存,不覆盖/不冒充。first_hired_ts 显示为本地日期(非时分)。
+    #[test]
+    fn employee_panel_shows_cumulative_kpi_alongside_session_kpi() {
+        use super::super::protocol::TaskEvent;
+        let ev = |t: &str, ts: u64, d: serde_json::Value| TaskEvent::from_parts(t, ts, d);
+        let mut state = AppState::default();
+        state.reduce(&ev(
+            "session.ready",
+            1_783_400_000_000,
+            serde_json::json!({"employee":{"name":"AI 落地鲸","role":"顾问","model":"m",
+                "kpi_cumulative":{"tasks":9,"accepted":6,"total_cost":3.5,"first_hired_ts":1_700_000_000_000_u64}}}),
+        ));
+        let ui = UiState::default();
+        let mut t = Terminal::new(TestBackend::new(160, 40)).expect("term");
+        t.draw(|f| render(f, &state, &ui, "")).expect("draw");
+        let out = screen(&t);
+        let compact = out.replace(' ', "");
+        assert!(out.contains("KPI"), "kpi sections present");
+        assert!(compact.contains("累计"), "a distinct cumulative section exists (not just this-session)");
+        assert!(compact.contains("$3.50"), "real cumulative cost shown");
+        // 首次上岗日期是 YYYY-MM-DD（不是 HH:MM——这是跨会话的入职日,不是某次事件的时刻）。
+        assert!(
+            out.contains("2023-11-") || out.contains("2023-11"),
+            "first_hired_ts renders as a local calendar date; got: {out}"
+        );
     }
 
     /// v0.15 P1-3：TASK DETAIL 全屏浮层——o 键打开后覆盖整帧,四区全真数据
@@ -3043,6 +3152,7 @@ mod tests {
             model: "claude-opus-4.8".to_string(),
             skills: vec![],
             avatar: vec!["  .".to_string(), " (o)".to_string()],
+            kpi_cumulative: crate::workbench::state::KpiCumulative::default(),
         });
         let mut ui = UiState::default();
         ui.onboarding = Some(OnboardingState { step: 1 });
@@ -3461,7 +3571,8 @@ mod tests {
 
     #[test]
     fn eval_and_dream_screens_are_labeled_mock() {
-        // 无真实数据源的两屏必须明示 MOCK（诚实标注）。
+        // 两屏仍有无真实数据源的部分（EVAL 的月度条形/考试/信誉；DREAM 的复盘）必须明示 MOCK
+        // （v0.17 P2 C1 后 EVAL 的 KPI 瓦片已真值化，但月度/考试/信誉仍是演示数据）。
         assert!(render_screen_to_string(Screen::Eval, InputMode::Normal).contains("MOCK"));
         assert!(render_screen_to_string(Screen::Dream, InputMode::Normal).contains("MOCK"));
         // EVAL 有 KPI 网格，DREAM 有复盘小节。
@@ -4222,6 +4333,7 @@ mod tests {
             model: "claude".to_string(),
             skills: Vec::new(),
             avatar: Vec::new(),
+            kpi_cumulative: super::super::state::KpiCumulative::default(),
         });
 
         // dark：header 员工名用 Cyan（DARK.accent）。

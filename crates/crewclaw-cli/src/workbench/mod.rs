@@ -254,6 +254,7 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
             model: "demo".to_string(),
             skills: Vec::new(),
             avatar: Vec::new(),
+            kpi_cumulative: state::KpiCumulative::default(),
         });
         state.mode = "Trial".to_string();
     }
@@ -537,6 +538,24 @@ fn handle_mouse_scroll(ui_state: &mut UiState, kind: MouseEventKind) {
     }
 }
 
+/// v0.17 P2 C1：读取某员工的跨会话真累计 KPI(引擎 kpi.mjs 写的 `.crewclaw/kpi/<agentId>.json`)。
+/// 缺文件/解析失败 → 全零默认值(新员工/从未跑过的诚实起点)，不 panic。
+fn read_kpi_cumulative(root: &Path, agent_id: &str) -> state::KpiCumulative {
+    let path = root.join(".crewclaw").join("kpi").join(format!("{agent_id}.json"));
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return state::KpiCumulative::default();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return state::KpiCumulative::default();
+    };
+    state::KpiCumulative {
+        tasks: value.get("tasks").and_then(serde_json::Value::as_u64).unwrap_or(0),
+        accepted: value.get("accepted").and_then(serde_json::Value::as_u64).unwrap_or(0),
+        total_cost: value.get("total_cost").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
+        first_hired_ts: value.get("first_hired_ts").and_then(serde_json::Value::as_u64),
+    }
+}
+
 /// v0.12 M2+M3：从 registry/experts.json 读**真实**员工，并为每个员工跑 doctor 体检。
 /// 返回平行的 (market, hire_reports)。任何读取/解析失败 → 空列表（屏显占位），不 panic、不碰 live 流。
 fn load_marketplace(root: &Path) -> (Vec<state::MarketEntry>, Vec<state::HireHealth>) {
@@ -571,6 +590,7 @@ fn load_marketplace(root: &Path) -> (Vec<state::MarketEntry>, Vec<state::HireHea
             hermes_req: e.requires.hermes.clone(),
             env_reqs: e.requires.env.clone(),
             first_task: e.first_task.clone(),
+            kpi_cumulative: read_kpi_cumulative(root, &e.name),
         });
     }
     (market, reports)
@@ -1702,6 +1722,36 @@ mod tests {
                 r.status
             );
         }
+        // v0.17 P2 C1：真实仓库里从未跑过任务的员工 → 全零默认值，不是 panic，也不伪造历史。
+        for e in &market {
+            assert_eq!(e.kpi_cumulative, state::KpiCumulative::default(), "no .crewclaw/kpi file yet in the repo checkout");
+        }
+    }
+
+    /// v0.17 P2 C1：`read_kpi_cumulative` 是引擎 kpi.mjs 写盘格式的 Rust 侧读者——同一份
+    /// `.crewclaw/kpi/<name>.json` 文件必须被两边一致地理解（跨语言契约,不是各写各的）。
+    #[test]
+    fn read_kpi_cumulative_parses_engine_written_file_and_defaults_when_missing() {
+        let tmp = std::env::temp_dir().join(format!("crewclaw-kpi-read-test-{}", std::process::id()));
+        let kpi_dir = tmp.join(".crewclaw").join("kpi");
+        std::fs::create_dir_all(&kpi_dir).expect("mkdir");
+        std::fs::write(
+            kpi_dir.join("whale.json"),
+            r#"{"tasks":9,"accepted":6,"total_cost":3.5,"first_hired_ts":1700000000000}"#,
+        )
+        .expect("write kpi file");
+
+        let cum = read_kpi_cumulative(&tmp, "whale");
+        assert_eq!(cum.tasks, 9);
+        assert_eq!(cum.accepted, 6);
+        assert_eq!(cum.total_cost, 3.5);
+        assert_eq!(cum.first_hired_ts, Some(1_700_000_000_000));
+
+        // 没这个员工的文件 → 全零默认值，不 panic。
+        let missing = read_kpi_cumulative(&tmp, "nobody");
+        assert_eq!(missing, state::KpiCumulative::default());
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -2626,6 +2676,7 @@ mod tests {
             model: "demo".to_string(),
             skills: Vec::new(),
             avatar: Vec::new(),
+            kpi_cumulative: state::KpiCumulative::default(),
         });
         state.task = Some(state::Task {
             id: Some("task1".to_string()),
