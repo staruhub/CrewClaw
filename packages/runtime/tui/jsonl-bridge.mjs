@@ -22,6 +22,7 @@ import { assembleProofPack } from "../proofpack.mjs";
 import { estimateCost } from "../budget-guard.mjs";
 import { readKpi, recordTaskOutcome } from "../kpi.mjs";
 import { readEvalResult } from "../eval-runner.mjs";
+import { readApprovalPolicy, APPROVAL_TRUST_AUTO, TRUST_AUTO_THRESHOLD } from "./prefs.mjs";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 
@@ -200,14 +201,32 @@ export async function startJsonlBridge({
         // v0.17 P2 C1：真实验收落盘累计（EMPLOYEE 面板"累计"区 + MARKET/EVAL 真 KPI 的数据源）。
         recordTaskOutcome(root, meta.agentId, { accepted: true, cost: acceptedCost });
       } else if (art && !decision.blocked) {
-        pendingApproval = { taskRunId, root, goal: text, artifact: art, usage: turnUsage() };
-        emit(EVENTS.APPROVAL_REQUESTED, {
-          id: "task-appr-" + turnSeq,
-          taskRunId,
-          artifacts: [{ id: art.artifact_id, name: art.name, path: art.path, kind: art.kind, status: art.status }],
-          reason: "任务已产出交付物，等待验收（1=接受 2=修订 3=打开位置）。",
-        });
-        // do NOT emit task.completed — the accept action closes the task.
+        // v0.18 C4: honor the SETTINGS approval policy (was stored-but-ignored). "信任后自动"
+        // auto-accepts once the employee has earned ≥N cumulative accepts — but still emits the
+        // full approval.accepted → task.completed stream (+ ProofPack) so the record is complete,
+        // just without a human keystroke. Default policy = manual gate (conformance unchanged).
+        const held = { taskRunId, root, goal: text, artifact: art, usage: turnUsage() };
+        const policy = readApprovalPolicy(root);
+        const trusted =
+          policy === APPROVAL_TRUST_AUTO &&
+          readKpi(root, meta.agentId).accepted >= TRUST_AUTO_THRESHOLD;
+        if (trusted) {
+          const pack = writeProofPack(held);
+          emit(EVENTS.TOKEN_DELTA, { text: "\n✓ 信任后自动验收（该员工累计验收已达阈值，交付流水完整保留）。" });
+          emit(EVENTS.APPROVAL_ACCEPTED, { taskRunId, proofpack: pack?.path, auto: true });
+          const cost = estimateCost({ promptTokens: held.usage.prompt, completionTokens: held.usage.completion }).cost;
+          emit(EVENTS.TASK_COMPLETED, { usage: held.usage, est_cost: cost });
+          recordTaskOutcome(root, meta.agentId, { accepted: true, cost });
+        } else {
+          pendingApproval = held;
+          emit(EVENTS.APPROVAL_REQUESTED, {
+            id: "task-appr-" + turnSeq,
+            taskRunId,
+            artifacts: [{ id: art.artifact_id, name: art.name, path: art.path, kind: art.kind, status: art.status }],
+            reason: "任务已产出交付物，等待验收（1=接受 2=修订 3=打开位置）。",
+          });
+          // do NOT emit task.completed — the accept action closes the task.
+        }
       } else if (!decision.blocked) {
         // preflight-blocked 轮已经发过 task.blocked（终态，已清 busy）——不能再发 task.completed，
         // 否则 reducer 会把 blocked 覆盖成 done/needs_artifact，UI 前脚说阻塞后脚说完成。

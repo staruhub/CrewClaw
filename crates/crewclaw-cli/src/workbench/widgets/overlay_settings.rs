@@ -101,10 +101,12 @@ fn rows(ui_state: &UiState) -> Vec<RowView> {
             group: None,
         },
         RowView {
+            // v0.18 C4：审批策略已接线（route/bridge 读 prefs.approval）——"信任后自动"在员工累计
+            // 验收达阈值后自动验收（仍走完整 approval.accepted 流水）。不再是"存而不用"。
             label: "审批策略",
             desc: "什么交付需要人工批准",
             value: APPROVAL_OPTS[p.approval % APPROVAL_OPTS.len()].to_string(),
-            unsupported: true,
+            unsupported: false,
             group: Some("BEHAVIOR · 员工管理"),
         },
         RowView {
