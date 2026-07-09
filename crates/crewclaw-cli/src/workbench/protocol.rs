@@ -176,8 +176,30 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "assistant.rendered")]
+    AssistantRendered {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "command.output")]
+    CommandOutput {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "token.delta")]
     TokenDelta {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    /// v0.11 M4：模型推理增量（真·思考）。前端收进可折叠「思考」块，与交付正文分离。
+    #[serde(rename = "thinking.delta")]
+    ThinkingDelta {
         #[serde(default)]
         ts: u64,
         #[serde(default)]
@@ -322,6 +344,23 @@ impl UserAction {
         }
     }
 
+    /// v0.8 M6：带结构化 parts 的 user.message（文件/图片附件）。parts 为空时等价于 user_message
+    /// （不写 parts 字段，保持线上形状与老前端一致）。
+    pub fn user_message_with_parts(
+        text: String,
+        refs: Vec<ResolvedReference>,
+        parts: Vec<Value>,
+    ) -> Self {
+        let mut data = serde_json::json!({ "text": text, "refs": refs });
+        if !parts.is_empty() {
+            data["parts"] = Value::Array(parts);
+        }
+        Self {
+            action_type: "user.message".to_string(),
+            data,
+        }
+    }
+
     pub fn pending_run(key: String, command: Option<String>) -> Self {
         let mut data = serde_json::json!({ "key": key });
         if let Some(command) = command {
@@ -375,7 +414,10 @@ impl TaskEvent {
             "approval.accepted" => Self::ApprovalAccepted { ts, data },
             "approval.rejected" => Self::ApprovalRejected { ts, data },
             "assistant.message" => Self::AssistantMessage { ts, data },
+            "assistant.rendered" => Self::AssistantRendered { ts, data },
+            "command.output" => Self::CommandOutput { ts, data },
             "token.delta" => Self::TokenDelta { ts, data },
+            "thinking.delta" => Self::ThinkingDelta { ts, data },
             "token.usage" => Self::TokenUsage { ts, data },
             "task.completed" => Self::TaskCompleted { ts, data },
             "task.rejected" => Self::TaskRejected { ts, data },
@@ -422,7 +464,10 @@ impl TaskEvent {
             Self::ApprovalAccepted { .. } => "approval.accepted",
             Self::ApprovalRejected { .. } => "approval.rejected",
             Self::AssistantMessage { .. } => "assistant.message",
+            Self::AssistantRendered { .. } => "assistant.rendered",
+            Self::CommandOutput { .. } => "command.output",
             Self::TokenDelta { .. } => "token.delta",
+            Self::ThinkingDelta { .. } => "thinking.delta",
             Self::TokenUsage { .. } => "token.usage",
             Self::TaskCompleted { .. } => "task.completed",
             Self::TaskRejected { .. } => "task.rejected",
@@ -469,7 +514,10 @@ impl TaskEvent {
             | Self::ApprovalAccepted { data, .. }
             | Self::ApprovalRejected { data, .. }
             | Self::AssistantMessage { data, .. }
+            | Self::AssistantRendered { data, .. }
+            | Self::CommandOutput { data, .. }
             | Self::TokenDelta { data, .. }
+            | Self::ThinkingDelta { data, .. }
             | Self::TokenUsage { data, .. }
             | Self::TaskCompleted { data, .. }
             | Self::TaskRejected { data, .. }
@@ -487,6 +535,58 @@ impl TaskEvent {
             | Self::OutcomeChecked { data, .. }
             | Self::DebugLine { data, .. } => data,
             Self::Unknown => UNKNOWN_DATA.get_or_init(|| Value::Null),
+        }
+    }
+
+    /// v0.13 M1：事件时间戳（epoch ms，引擎 makeEvent 恒盖 Date.now()）。Unknown → 0。
+    /// SESSION 事件行的 HH:MM 与 EVENT DETAIL 由此取时。
+    pub fn ts(&self) -> u64 {
+        match self {
+            Self::SessionReady { ts, .. }
+            | Self::TaskStarted { ts, .. }
+            | Self::TaskModeChanged { ts, .. }
+            | Self::PlanCreated { ts, .. }
+            | Self::PlanApproved { ts, .. }
+            | Self::StepStarted { ts, .. }
+            | Self::StepCompleted { ts, .. }
+            | Self::ToolRequested { ts, .. }
+            | Self::ToolCalled { ts, .. }
+            | Self::ToolSucceeded { ts, .. }
+            | Self::ToolFailed { ts, .. }
+            | Self::ToolBlocked { ts, .. }
+            | Self::ArtifactCreated { ts, .. }
+            | Self::ArtifactUpdated { ts, .. }
+            | Self::ArtifactSelected { ts, .. }
+            | Self::ArtifactDeleted { ts, .. }
+            | Self::ArtifactRevealed { ts, .. }
+            | Self::EvidenceCreated { ts, .. }
+            | Self::ApprovalRequired { ts, .. }
+            | Self::ApprovalRequested { ts, .. }
+            | Self::ApprovalResolved { ts, .. }
+            | Self::ApprovalAccepted { ts, .. }
+            | Self::ApprovalRejected { ts, .. }
+            | Self::AssistantMessage { ts, .. }
+            | Self::AssistantRendered { ts, .. }
+            | Self::CommandOutput { ts, .. }
+            | Self::TokenDelta { ts, .. }
+            | Self::ThinkingDelta { ts, .. }
+            | Self::TokenUsage { ts, .. }
+            | Self::TaskCompleted { ts, .. }
+            | Self::TaskRejected { ts, .. }
+            | Self::TaskBlocked { ts, .. }
+            | Self::TaskUpgradedFromChat { ts, .. }
+            | Self::SkillLaunched { ts, .. }
+            | Self::ToolPreflightChecked { ts, .. }
+            | Self::SourceChecked { ts, .. }
+            | Self::PendingActions { ts, .. }
+            | Self::QuickUtility { ts, .. }
+            | Self::MemoryState { ts, .. }
+            | Self::MemoryRequested { ts, .. }
+            | Self::MemorySaved { ts, .. }
+            | Self::WorkspaceRevealed { ts, .. }
+            | Self::OutcomeChecked { ts, .. }
+            | Self::DebugLine { ts, .. } => *ts,
+            Self::Unknown => 0,
         }
     }
 }

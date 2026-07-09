@@ -13,3 +13,11 @@ console = "0.15"
 ratatui = "0.30.2"
 crossterm = "0.29.0"
 unicode-width = "0.2.2"
+ansi-to-tui = "8"
+nucleo-matcher = "0.3.1"
+# v0.8 M6：剪贴板文本读取（Ctrl+V）。Windows 无 bracketed paste，Ctrl+V 是可靠的多行粘贴入口。
+# 关默认 feature（image 依赖较重），只用文本路径。
+arboard = { version = "3", default-features = false }
+# v0.13：SESSION 事件行的 HH:MM 本地时间。std 拿不到时区偏移；time crate 的 local-offset
+# 有多线程 soundness caveat，chrono 是稳妥选项。关默认 feature 只留 clock。
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
