@@ -29,6 +29,21 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const RUNTIME = join(HERE, "run.mjs");
 
+// Same .env.local loading as run.mjs (which can't be imported — its main() is unguarded; known
+// debt, engine库化 Phase 2). Without this, real evals fail even though the key is on disk.
+function loadDotEnv() {
+  const path = join(REPO_ROOT, ".env.local");
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+    if (!m) continue;
+    let value = m[2].replace(/\s+#.*$/, "").trim();
+    value = value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+    if (process.env[m[1]] === undefined) process.env[m[1]] = value;
+  }
+}
+loadDotEnv();
+
 const MIN_ARTIFACT_CHARS = 80; // below this a "deliverable" is too thin to count as produced
 
 // ── spec loading ────────────────────────────────────────────────────────────────────────────
