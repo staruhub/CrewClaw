@@ -53,11 +53,11 @@ export function applyUserAction(action, { emit }) {
       });
       return { handled: true };
     case "approval.resolve": {
+      // v0.18 P0-b：工具授权 ≠ 交付验收。这里**不再发 approval.accepted/rejected**——那两个事件的
+      // 语义是"交付物验收"（Rust 端计入 accepted_count KPI + "已验收"通知），此前一次 L2 工具授权
+      // 就会把验收 KPI 涨一次。授权的唯一事件是桥侧 pendingConfirm 分支发的 approval.resolved；
+      // 没有 pendingConfirm 时收到本 action（过期/重放）→ 静默丢弃，不产生任何事件。
       const accepted = data.decision === "accept" || data.decision === "allow" || data.decision === "yes";
-      emit(accepted ? EVENTS.APPROVAL_ACCEPTED : EVENTS.APPROVAL_REJECTED, {
-        id: data.id,
-        decision: accepted ? "accept" : "reject",
-      });
       return { handled: true, approval: accepted };
     }
     case "pending.run":

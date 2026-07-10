@@ -1431,12 +1431,16 @@ impl AppState {
                 );
             }
             TaskEvent::OutcomeChecked { .. } => {
-                let valid = bool_field(data, "valid") != Some(false);
+                // v0.18 P0-a：缺 valid 字段**不默认成功**——此前 `!= Some(false)` 让批处理路径发的
+                // `{passed:false}`（无 valid 键）显示成"验收：可交付"，是假绿链。三态：
+                // Some(true)=可交付 / Some(false)=未达标 / None=结果未知（旧协议或字段漂移,按存疑处理）。
+                let valid_field = bool_field(data, "valid");
+                let valid = valid_field == Some(true);
                 let status = if valid { SYM_OK } else { SYM_WARN };
-                let label = if valid {
-                    "验收：可交付"
-                } else {
-                    "验收：未达标"
+                let label = match valid_field {
+                    Some(true) => "验收：可交付",
+                    Some(false) => "验收：未达标",
+                    None => "验收：结果未知（事件缺 valid 字段）",
                 };
                 let reason = string_field(data, "reason").unwrap_or_default();
                 let deliverable = string_field(data, "deliverable");
@@ -2205,6 +2209,38 @@ mod tests {
         assert_eq!(state.notices[1].kind, NoticeKind::Accepted);
         assert_eq!(state.notices[2].kind, NoticeKind::Delivered);
         assert_eq!(state.notices[3].kind, NoticeKind::Rejected);
+    }
+
+    /// v0.18 P0-a：outcome.checked 缺 valid 字段**不得默认成功**——批处理路径旧协议发
+    /// `{passed:false}`（无 valid 键）时，旧逻辑显示"验收：可交付"（假绿）。缺字段=结果未知(WARN)，
+    /// 也不产生"已交付"通知。
+    #[test]
+    fn outcome_checked_without_valid_is_unknown_not_success() {
+        // 无 valid 键（模拟旧批处理协议 {passed:false}）→ 未知态,非可交付,无 Delivered 通知。
+        let missing = reduce_all(vec![ev(
+            "outcome.checked",
+            serde_json::json!({"passed": false, "deliverable": "report.md"}),
+        )]);
+        let line = missing.timeline.last().expect("timeline line");
+        assert!(line.label.contains("结果未知"), "missing valid → unknown, got {:?}", line.label);
+        assert!(
+            !missing.notices.iter().any(|n| n.kind == NoticeKind::Delivered),
+            "missing valid must NOT produce a 已交付 notice"
+        );
+
+        // 显式 false → 未达标。
+        let invalid = reduce_all(vec![ev(
+            "outcome.checked",
+            serde_json::json!({"valid": false, "reason": "缺来源"}),
+        )]);
+        assert!(invalid.timeline.last().unwrap().label.contains("未达标"));
+
+        // 显式 true → 可交付（原行为不变）。
+        let valid = reduce_all(vec![ev(
+            "outcome.checked",
+            serde_json::json!({"valid": true, "deliverable": "report.md"}),
+        )]);
+        assert!(valid.timeline.last().unwrap().label.contains("可交付"));
     }
 
     /// v0.18 C3：budget.warning（引擎月度预算 80%/100%）→ 通知中心真条目（第一个预算真源）。

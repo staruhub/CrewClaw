@@ -78,14 +78,17 @@ test("applies artifact UserAction commands as TaskEvents", () => {
       parseUserActionLine('{"type":"artifact.reveal","data":{"artifact_id":"art1"}}'),
       { emit },
     );
-    applyUserAction(
+    // v0.18 P0-b：approval.resolve（工具授权）不再产生任何事件——approval.accepted 的语义是
+    // "交付物验收"（前端计入 KPI），工具授权只该由桥侧发 approval.resolved。此处断言零事件，
+    // 只返回判定结果给调用方。
+    const resolved = applyUserAction(
       parseUserActionLine('{"type":"approval.resolve","data":{"id":"ap1","decision":"accept"}}'),
       { emit },
     );
+    assert.deepEqual(resolved, { handled: true, approval: true });
 
     assert.deepEqual(lines.map((line) => JSON.parse(line)), [
       { type: "artifact.deleted", ts: 42, data: { artifact_id: "art1" } },
       { type: "artifact.revealed", ts: 42, data: { artifact_id: "art1", ok: true } },
-      { type: "approval.accepted", ts: 42, data: { id: "ap1", decision: "accept" } },
     ]);
   });

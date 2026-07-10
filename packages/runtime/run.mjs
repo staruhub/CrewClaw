@@ -1257,20 +1257,33 @@ async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
   const artifact = newArtifact({ taskId: run.id, type: "research_report", title: demo.title || taskId, content: output });
   const savedArtifact = saveArtifact(ROOT, artifact);
   run.artifact = artifact.id;
-  taskSink?.artifactCreated({
-    id: artifact.id,
-    name: `${artifact.id}.md`,
-    kind: artifact.type,
-    path: savedArtifact.ok ? savedArtifact.mdPath : undefined,
-    status: "ready",
-  });
+  // v0.18 P0-a：落盘失败不得宣称 artifact.created（No-Artifact-No-Done 是 Runtime 不变量，
+  // 不是 UI 补救）——created 只在文件真实写入后发；失败在 outcome.checked 里如实 valid:false。
+  if (savedArtifact.ok) {
+    taskSink?.artifactCreated({
+      id: artifact.id,
+      name: `${artifact.id}.md`,
+      kind: artifact.type,
+      path: savedArtifact.mdPath,
+      status: "ready",
+    });
+  }
 
   transition(run, "grading");
   const graded = await grade({ task: taskText, artifact: output });
   const missing = required.filter((s) => !output.includes(s));
-  const outputValid = graded.passed && missing.length === 0;
+  // 磁盘上没有交付物的任务不能算有效交付，无论内容评了多少分。
+  const outputValid = graded.passed && missing.length === 0 && savedArtifact.ok;
   run.output_valid = outputValid;
-  taskSink?.outcomeChecked({ passed: outputValid, feedback: graded.feedback, missing, artifactId: artifact.id });
+  // v0.18 P0-a：主字段统一为 `valid`（Rust reducer 的契约字段）；保留 `passed` 兼容旧消费方
+  // （web TaskRun viewer 读 run 文件）。此前只发 passed → Rust 缺 valid 默认成功 = 假绿链。
+  taskSink?.outcomeChecked({
+    valid: outputValid,
+    passed: outputValid,
+    feedback: savedArtifact.ok ? graded.feedback : `交付物落盘失败: ${savedArtifact.error}`,
+    missing,
+    artifactId: artifact.id,
+  });
 
   // Dream/reflect: derive memory + playbook candidates from this run and keep the
   // good ones — reliable sources, a project fact, the tool playbook. (PRD §14.4.)

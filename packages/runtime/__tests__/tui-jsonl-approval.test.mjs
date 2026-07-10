@@ -43,4 +43,38 @@ input.push("/exit\n");
 await sleep(20);
 await done;
 
+// ── v0.18 P0-b regression: a STRUCTURED approval.resolve (tool authorization) must resolve the
+// confirm but emit ONLY approval.resolved — never approval.accepted/rejected, whose semantics are
+// deliverable acceptance (the front-end counts them into the 已验收 KPI + notification).
+{
+  const input2 = new Readable({ read() {} });
+  const lines2 = [];
+  const output2 = new Writable({
+    write(chunk, _enc, cb) { for (const l of String(chunk).split("\n")) { const t = l.trim(); if (t) lines2.push(JSON.parse(t)); } cb(); },
+  });
+  const types2 = () => lines2.map((e) => e.type);
+  const done2 = startJsonlBridge({ agentLoop, agentLoopDeps: { confirm: async () => true }, meta: { mode: "Chat" }, input: input2, output: output2 });
+  await sleep(20);
+  input2.push("给我一份服务器清理报告\n");
+  await sleep(80);
+  assert.ok(types2().includes("approval.required"), "scenario2: approval.required emitted");
+
+  input2.push('{"type":"approval.resolve","data":{"id":"appr1","decision":"allow"}}\n');
+  await sleep(80);
+  const resolved2 = lines2.find((e) => e.type === "approval.resolved");
+  assert.ok(resolved2 && resolved2.data.decision === "allow", "structured approval.resolve resolves to allow");
+  assert.ok(!types2().includes("approval.accepted"), "tool authorization must NOT emit approval.accepted (KPI pollution)");
+  assert.ok(!types2().includes("approval.rejected"), "tool authorization must NOT emit approval.rejected");
+  assert.ok(lines2.some((e) => e.type === "token.delta" && /已执行/.test(e.data.text)), "agent proceeded after structured allow");
+
+  // Stale approval.resolve (no pending confirm) → silently dropped, still no acceptance events.
+  input2.push('{"type":"approval.resolve","data":{"id":"stale","decision":"allow"}}\n');
+  await sleep(50);
+  assert.ok(!types2().includes("approval.accepted"), "stale approval.resolve emits nothing");
+
+  input2.push("/exit\n");
+  await sleep(20);
+  await done2;
+}
+
 console.log("tui-jsonl-approval tests passed");
