@@ -846,7 +846,7 @@ async function interactiveChat({ agentId, profile, apiKey, baseUrl, resume }) {
     } catch { /* ignore */ }
     await startJsonlBridge({
       agentLoop,
-      agentLoopDeps: { baseUrl, apiKey, model, temperature, system, name, isTTY: false, gateway: makeGateway(), confirm: async () => true },
+      agentLoopDeps: { baseUrl, apiKey, model, temperature, system, name, isTTY: false, gateway: makeGateway({ root: ROOT }), confirm: async () => true },
       agentName: name,
       meta: { role: title, mode: "Chat", model, skills: skillNames, agentId: currentAgentId, avatar: avatarLines },
       history: rHistory,
@@ -891,7 +891,7 @@ async function interactiveChat({ agentId, profile, apiKey, baseUrl, resume }) {
       agentLoop,
       agentLoopDeps: {
         baseUrl, apiKey, model, temperature, system, name, isTTY: true,
-        gateway: makeGateway(),
+        gateway: makeGateway({ root: ROOT }),
         confirm: async () => true, // v1: auto-approve L2 confirms (gateway still denies L3/L4); Ink confirm modal = follow-up
       },
       history: inkHistory,
@@ -1026,7 +1026,7 @@ async function interactiveChat({ agentId, profile, apiKey, baseUrl, resume }) {
         messages: history, name, isTTY,
         renderMd: isTTY || process.env.CREW_MD === "1",
         confirm,
-        gateway: makeGateway(),
+        gateway: makeGateway({ root: ROOT }),
         onUsage: (u) => {
           if (!u) return;
           promptTok += u.prompt_tokens || 0;
@@ -1160,7 +1160,7 @@ async function runTaskMode({ agentId, profile, apiKey, baseUrl, taskId }) {
   const sys = memText ? system + "\n\n# 你的记忆（过往任务沉淀，可直接复用）\n" + memText : system;
 
   const run = newTaskRun({ employeeId: agentId, goal: taskText, taskId: `task_${Date.now()}` });
-  const gateway = makeGateway();
+  const gateway = makeGateway({ root: ROOT });
 
   taskSink?.taskStarted({ id: taskId, title: demo.title || taskText });
   if (!taskSink) {
@@ -1451,7 +1451,7 @@ async function main() {
       messages: [{ role: "user", content: task }], name,
       isTTY: !!process.stdout.isTTY,
       renderMd: !!process.stdout.isTTY || process.env.CREW_MD === "1",
-      gateway: makeGateway(),
+      gateway: makeGateway({ root: ROOT }),
     });
   } catch (error) {
     console.error(`\nError: ${error.message}`);

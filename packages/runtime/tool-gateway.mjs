@@ -1,3 +1,6 @@
+import { homedir } from "node:os";
+import { isAbsolute, relative, resolve } from "node:path";
+
 export const PERMISSION_LEVELS = {
   L0: "public_read",
   L1: "workspace_read",
@@ -65,7 +68,27 @@ function cloneClassification(value) {
 
 function isReadOnlyBash(command) {
   const text = String(command ?? "").trim();
+  // v0.18 P0-c：只读前缀不等于只读命令——重定向（写文件）、命令链（; && || 后面可以跟任何写操作）、
+  // 命令替换（` $( ）都能把 "cat/ls" 变成写路径。带这些构造的一律按 L2 处理，不给只读白名单。
+  if (/[><;`]|&&|\|\||\$\(/.test(text)) return false;
   return READ_ONLY_BASH_PREFIXES.some((prefix) => text === prefix || text.startsWith(prefix + " "));
+}
+
+// v0.18 P0-c：workspace 权限是**边界**不是标签——此前 read_file 标 L1 自动放行，但实际接受
+// `~` 展开和任意存在的绝对路径（可读 ~/.ssh 等）。这里判断 args 里的路径是否真的落在工作区
+// root 内：相对路径按 root 解析（在内），`..` 穿越 / 绝对路径 / `~` 展开到 root 外 → 视为出界。
+export function isPathInsideRoot(rawPath, root) {
+  let p = String(rawPath ?? "").trim().replace(/^["']|["']$/g, "");
+  if (!p) return true; // 无路径参数的调用不由本检查裁决
+  if (p === "~" || p.startsWith("~/") || p.startsWith("~\\")) p = homedir() + p.slice(1);
+  const resolved = resolve(root, p); // 相对路径归 root；绝对路径保持自身
+  const rel = relative(resolve(root), resolved);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function pathArgOf(args) {
+  if (!args || typeof args !== "object") return undefined;
+  return args.path ?? args.file ?? args.dir ?? args.target;
 }
 
 export function classify(toolName, args = {}) {
@@ -107,15 +130,26 @@ function reasonFor(decision, classification) {
 
 export function makeGateway(opts = {}) {
   const policy = Object.assign({}, DEFAULT_POLICY, opts.policy || {});
+  const root = opts.root || process.cwd();
   return {
     check(toolName, args = {}) {
       const classification = classify(toolName, args);
-      const decision = policy[classification.level] || "deny";
+      let decision = policy[classification.level] || "deny";
+      let reason = reasonFor(decision, classification);
+      // v0.18 P0-c：workspace 范围的自动放行只对 root 内路径成立；出界路径升级为人工确认
+      // （只升不降：原本就是 confirm/deny 的保持不变）。
+      if (classification.scope === "workspace" && decision === "allow") {
+        const p = pathArgOf(args);
+        if (p !== undefined && !isPathInsideRoot(p, root)) {
+          decision = "confirm";
+          reason = "路径在工作区外，需要人工确认";
+        }
+      }
       return {
         decision,
         level: classification.level,
         scope: classification.scope,
-        reason: reasonFor(decision, classification)
+        reason
       };
     }
   };
