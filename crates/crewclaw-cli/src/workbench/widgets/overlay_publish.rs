@@ -24,23 +24,50 @@ pub(crate) const STEP_COUNT: usize = 4;
 const STEP_NAMES: [&str; STEP_COUNT] = ["Manifest 校验", "上岗考试", "认证签名", "发布上架"];
 
 /// 步骤 1 的**真实**校验行（registry + doctor 派生）。
-fn manifest_rows(entry: Option<&MarketEntry>, health: Option<&HireHealth>) -> Vec<(String, String, bool)> {
+fn manifest_rows(
+    entry: Option<&MarketEntry>,
+    health: Option<&HireHealth>,
+) -> Vec<(String, String, bool)> {
     let mut rows = Vec::new();
     if let Some(e) = entry {
-        rows.push(("identity".into(), format!("{} · {}", e.name, if e.certification.is_empty() { "未认证" } else { &e.certification }), true));
+        rows.push((
+            "identity".into(),
+            format!(
+                "{} · {}",
+                e.name,
+                if e.certification.is_empty() {
+                    "未认证"
+                } else {
+                    &e.certification
+                }
+            ),
+            true,
+        ));
         if !e.category.is_empty() {
             rows.push(("category".into(), e.category.clone(), true));
         }
-        let perms = if e.env_reqs.is_empty() { "无额外环境声明".to_string() } else { e.env_reqs.join(" · ") };
+        let perms = if e.env_reqs.is_empty() {
+            "无额外环境声明".to_string()
+        } else {
+            e.env_reqs.join(" · ")
+        };
         rows.push(("environment".into(), perms, true));
         if !e.first_task.is_empty() {
-            rows.push(("deliverables".into(), truncate_display_width(&e.first_task, 48), true));
+            rows.push((
+                "deliverables".into(),
+                truncate_display_width(&e.first_task, 48),
+                true,
+            ));
         }
         if !e.tags.is_empty() {
             rows.push(("tags".into(), e.tags.join(" / "), true));
         }
     } else {
-        rows.push(("manifest".into(), "未选中员工——回 MARKET 选一个再发布".into(), false));
+        rows.push((
+            "manifest".into(),
+            "未选中员工——回 MARKET 选一个再发布".into(),
+            false,
+        ));
     }
     if let Some(h) = health {
         let ok = h.status == "healthy";
@@ -94,7 +121,9 @@ pub(crate) fn render_publish(frame: &mut Frame<'_>, ui_state: &UiState) {
     // 经 market_selected_index() 翻译，否则搜索后发布会拿错员工的 manifest/doctor 结论。
     let selected_idx = ui_state.market_selected_index();
     let entry = selected_idx.and_then(|i| ui_state.market.get(i));
-    let name = entry.map(|e| e.display_name.as_str()).unwrap_or("未选中员工");
+    let name = entry
+        .map(|e| e.display_name.as_str())
+        .unwrap_or("未选中员工");
     let block = Block::default()
         .title(Span::styled(
             format!(" ⬆ PUBLISH · 发布员工 · {name} "),
@@ -132,9 +161,17 @@ pub(crate) fn render_publish(frame: &mut Frame<'_>, ui_state: &UiState) {
             Span::styled(format!("{sym} "), Style::default().fg(color)),
             Span::styled(
                 (*sn).to_string(),
-                Style::default().fg(if i == step { config::fg() } else { config::dim() }).add_modifier(
-                    if i == step { Modifier::BOLD } else { Modifier::empty() },
-                ),
+                Style::default()
+                    .fg(if i == step {
+                        config::fg()
+                    } else {
+                        config::dim()
+                    })
+                    .add_modifier(if i == step {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
             ),
         ]));
         steps.push(Line::from(""));
@@ -146,7 +183,10 @@ pub(crate) fn render_publish(frame: &mut Frame<'_>, ui_state: &UiState) {
     let mut rows: Vec<Line> = Vec::new();
     if step == 0 {
         let health = selected_idx.and_then(|i| ui_state.hire_reports.get(i));
-        rows.push(section_line("真实校验 · registry + doctor", config::green()));
+        rows.push(section_line(
+            "真实校验 · registry + doctor",
+            config::green(),
+        ));
         for (k, v, ok) in manifest_rows(entry, health) {
             rows.push(check_row(&k, &v, ok, None, width));
         }
@@ -161,7 +201,9 @@ pub(crate) fn render_publish(frame: &mut Frame<'_>, ui_state: &UiState) {
         rows.push(Line::from(""));
         rows.push(Line::from(Span::styled(
             "✓ 已上架 Marketplace（演示）",
-            Style::default().fg(config::green()).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(config::green())
+                .add_modifier(Modifier::BOLD),
         )));
         rows.push(Line::from(Span::styled(
             "认证/签名/上架为演示流程,非真实注册。",
@@ -180,7 +222,11 @@ fn section_line(text: &str, color: ratatui::style::Color) -> Line<'static> {
 
 fn check_row(k: &str, v: &str, ok: bool, tag: Option<&str>, width: usize) -> Line<'static> {
     let sym = if ok { "✓" } else { "!" };
-    let sym_c = if ok { config::green() } else { config::orange() };
+    let sym_c = if ok {
+        config::green()
+    } else {
+        config::orange()
+    };
     let head = format!("{sym} {k:<12} ");
     let tag_s = tag.map(|t| format!("  [{t}]")).unwrap_or_default();
     let val_w = width.saturating_sub(head.width() + tag_s.width()).max(4);

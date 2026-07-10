@@ -263,7 +263,14 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
     loop {
         terminal
             .draw(|frame| {
-                ui::render_with_input_spans(frame, &state, &ui_state, input.as_str(), input.cursor(), &input.span_ranges())
+                ui::render_with_input_spans(
+                    frame,
+                    &state,
+                    &ui_state,
+                    input.as_str(),
+                    input.cursor(),
+                    &input.span_ranges(),
+                )
             })
             .map_err(|error| format!("Failed to draw workbench: {error}"))?;
 
@@ -350,7 +357,14 @@ fn run_live_loop(
     loop {
         terminal
             .draw(|frame| {
-                ui::render_with_input_spans(frame, &state, &ui_state, input.as_str(), input.cursor(), &input.span_ranges())
+                ui::render_with_input_spans(
+                    frame,
+                    &state,
+                    &ui_state,
+                    input.as_str(),
+                    input.cursor(),
+                    &input.span_ranges(),
+                )
             })
             .map_err(|error| format!("Failed to draw live workbench: {error}"))?;
 
@@ -474,7 +488,14 @@ fn run_live_loop(
         if saw_eof {
             terminal
                 .draw(|frame| {
-                    ui::render_with_input_spans(frame, &state, &ui_state, input.as_str(), input.cursor(), &input.span_ranges())
+                    ui::render_with_input_spans(
+                        frame,
+                        &state,
+                        &ui_state,
+                        input.as_str(),
+                        input.cursor(),
+                        &input.span_ranges(),
+                    )
                 })
                 .map_err(|error| format!("Failed to draw final live workbench frame: {error}"))?;
             return Ok(LiveLoopExit::ChildEof);
@@ -542,7 +563,10 @@ fn handle_mouse_scroll(ui_state: &mut UiState, kind: MouseEventKind) {
 /// v0.17 P2 C1：读取某员工的跨会话真累计 KPI(引擎 kpi.mjs 写的 `.crewclaw/kpi/<agentId>.json`)。
 /// 缺文件/解析失败 → 全零默认值(新员工/从未跑过的诚实起点)，不 panic。
 fn read_kpi_cumulative(root: &Path, agent_id: &str) -> state::KpiCumulative {
-    let path = root.join(".crewclaw").join("kpi").join(format!("{agent_id}.json"));
+    let path = root
+        .join(".crewclaw")
+        .join("kpi")
+        .join(format!("{agent_id}.json"));
     let Ok(raw) = std::fs::read_to_string(&path) else {
         return state::KpiCumulative::default();
     };
@@ -550,10 +574,21 @@ fn read_kpi_cumulative(root: &Path, agent_id: &str) -> state::KpiCumulative {
         return state::KpiCumulative::default();
     };
     state::KpiCumulative {
-        tasks: value.get("tasks").and_then(serde_json::Value::as_u64).unwrap_or(0),
-        accepted: value.get("accepted").and_then(serde_json::Value::as_u64).unwrap_or(0),
-        total_cost: value.get("total_cost").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
-        first_hired_ts: value.get("first_hired_ts").and_then(serde_json::Value::as_u64),
+        tasks: value
+            .get("tasks")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        accepted: value
+            .get("accepted")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        total_cost: value
+            .get("total_cost")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(0.0),
+        first_hired_ts: value
+            .get("first_hired_ts")
+            .and_then(serde_json::Value::as_u64),
     }
 }
 
@@ -721,10 +756,12 @@ fn handle_key_event(
     }
     // v0.15 P1-1：SETTINGS 浮层——j/k 选、h/l/Enter 改值、Esc/q/, 关。改值即持久化。
     if ui_state.settings_open {
-        use crate::workbench::widgets::overlay_settings::{cycle, ROW_COUNT};
+        use crate::workbench::widgets::overlay_settings::{ROW_COUNT, cycle};
         let mut changed = false;
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => ui_state.settings_open = false,
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => {
+                ui_state.settings_open = false
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 ui_state.settings_cursor = (ui_state.settings_cursor + 1).min(ROW_COUNT - 1);
             }
@@ -780,7 +817,10 @@ fn handle_key_event(
     }
     // v0.17 P1-B2：COMPARE 对比浮层打开时——Esc/q/c 关，其它键吞掉。
     if ui_state.compare_open {
-        if matches!(key.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('c')) {
+        if matches!(
+            key.code,
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('c')
+        ) {
             ui_state.compare_open = false;
         }
         return Ok(TerminalAction::Continue);
@@ -801,7 +841,9 @@ fn handle_key_event(
                 ui_state.market_filter.pop();
                 ui_state.market_cursor = 0;
             }
-            KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
+            KeyCode::Char(c)
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+            {
                 ui_state.market_filter.push(c);
                 ui_state.market_cursor = 0;
             }
@@ -811,7 +853,10 @@ fn handle_key_event(
     }
     // v0.15 P1-3：TASK DETAIL 全屏浮层打开时，Esc/q/o 关闭；其它键吞掉（不穿透到工作台）。
     if ui_state.task_detail_open {
-        if matches!(key.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('o')) {
+        if matches!(
+            key.code,
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('o')
+        ) {
             ui_state.task_detail_open = false;
         }
         return Ok(TerminalAction::Continue);
@@ -1652,7 +1697,11 @@ mod tests {
         )
         .expect("burst enter handled");
         assert!(matches!(action, TerminalAction::Continue));
-        assert_eq!(input.as_str(), "第一行\n", "burst Enter must insert newline");
+        assert_eq!(
+            input.as_str(),
+            "第一行\n",
+            "burst Enter must insert newline"
+        );
 
         // 人手敲击：上一键在 50ms 前 → 正常提交。
         input.insert_str("第二行");
@@ -1695,8 +1744,14 @@ mod tests {
     fn press(state: &mut AppState, ui: &mut UiState, input: &mut InputBuffer, code: KeyCode) {
         // 每次按键把 last_key_at 拨到过去，避免 Enter 突发启发式误判。
         ui.last_key_at = Some(std::time::Instant::now() - std::time::Duration::from_millis(200));
-        handle_key_event(state, ui, input, false, KeyEvent::new(code, KeyModifiers::NONE))
-            .expect("key handled");
+        handle_key_event(
+            state,
+            ui,
+            input,
+            false,
+            KeyEvent::new(code, KeyModifiers::NONE),
+        )
+        .expect("key handled");
     }
 
     #[test]
@@ -1713,7 +1768,9 @@ mod tests {
         assert_eq!(market.len(), reports.len(), "one doctor report per expert");
         // 至少有一个已知在岗员工，且每份体检结论是三态之一。
         assert!(
-            market.iter().any(|e| e.status.eq_ignore_ascii_case("available")),
+            market
+                .iter()
+                .any(|e| e.status.eq_ignore_ascii_case("available")),
             "at least one available expert"
         );
         for r in &reports {
@@ -1725,7 +1782,11 @@ mod tests {
         }
         // v0.17 P2 C1：真实仓库里从未跑过任务的员工 → 全零默认值，不是 panic，也不伪造历史。
         for e in &market {
-            assert_eq!(e.kpi_cumulative, state::KpiCumulative::default(), "no .crewclaw/kpi file yet in the repo checkout");
+            assert_eq!(
+                e.kpi_cumulative,
+                state::KpiCumulative::default(),
+                "no .crewclaw/kpi file yet in the repo checkout"
+            );
         }
     }
 
@@ -1733,7 +1794,8 @@ mod tests {
     /// `.crewclaw/kpi/<name>.json` 文件必须被两边一致地理解（跨语言契约,不是各写各的）。
     #[test]
     fn read_kpi_cumulative_parses_engine_written_file_and_defaults_when_missing() {
-        let tmp = std::env::temp_dir().join(format!("crewclaw-kpi-read-test-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("crewclaw-kpi-read-test-{}", std::process::id()));
         let kpi_dir = tmp.join(".crewclaw").join("kpi");
         std::fs::create_dir_all(&kpi_dir).expect("mkdir");
         std::fs::write(
@@ -1765,7 +1827,11 @@ mod tests {
         let mut input = InputBuffer::default();
         press(&mut state, &mut ui, &mut input, KeyCode::Char('2'));
         assert_eq!(input.as_str(), "2", "INSERT digit types");
-        assert_eq!(ui.screen, Screen::Workbench, "INSERT digit does not switch screen");
+        assert_eq!(
+            ui.screen,
+            Screen::Workbench,
+            "INSERT digit does not switch screen"
+        );
     }
 
     #[test]
@@ -1814,7 +1880,10 @@ mod tests {
 
         // 无产物：Enter 不开。
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
-        assert!(!ui.preview_open, "no artifact → Enter does not open preview");
+        assert!(
+            !ui.preview_open,
+            "no artifact → Enter does not open preview"
+        );
 
         // 有产物：Enter 开，Esc 关。
         state.artifacts.push(Artifact {
@@ -1878,10 +1947,16 @@ mod tests {
         assert_eq!(ui.preview_scroll, 1, "PageUp jumps back by 10");
 
         press(&mut state, &mut ui, &mut input, KeyCode::Char(']'));
-        assert_eq!(ui.preview_scroll, 0, "] switches artifact and resets scroll");
+        assert_eq!(
+            ui.preview_scroll, 0,
+            "] switches artifact and resets scroll"
+        );
         press(&mut state, &mut ui, &mut input, KeyCode::Char('j'));
         press(&mut state, &mut ui, &mut input, KeyCode::Char('['));
-        assert_eq!(ui.preview_scroll, 0, "[ switches artifact and resets scroll");
+        assert_eq!(
+            ui.preview_scroll, 0,
+            "[ switches artifact and resets scroll"
+        );
     }
 
     /// v0.17 P1-B3：NORMAL 下 `:` 别名到既有 `/` 命令面板(设计稿 `:settings` 等命令行前缀,
@@ -1890,7 +1965,10 @@ mod tests {
     fn colon_key_aliases_to_slash_command_palette() {
         use crate::workbench::state::CommandInfo;
         let mut state = AppState::default();
-        state.commands = vec![CommandInfo { name: "/help".to_string(), desc: "帮助".to_string() }];
+        state.commands = vec![CommandInfo {
+            name: "/help".to_string(),
+            desc: "帮助".to_string(),
+        }];
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
         let mut input = InputBuffer::default();
@@ -1898,7 +1976,10 @@ mod tests {
         press(&mut state, &mut ui, &mut input, KeyCode::Char(':'));
         assert_eq!(ui.mode, InputMode::Insert, ": switches to INSERT");
         assert_eq!(input.as_str(), "/", ": inserts / not literal :");
-        assert!(state.command_picker.is_some(), ": opens the command palette");
+        assert!(
+            state.command_picker.is_some(),
+            ": opens the command palette"
+        );
     }
 
     /// v0.16 W6.2：DREAM 上 f 键循环 MEMORY tab(全部→K→P→E→全部),换 tab 重置游标。
@@ -1925,8 +2006,20 @@ mod tests {
         use crate::workbench::state::{Notice, NoticeKind};
         let mut state = AppState::default();
         state.notices = vec![
-            Notice { ts: 0, kind: NoticeKind::Approval, title: "等待批准".into(), body: "x".into(), read: false },
-            Notice { ts: 0, kind: NoticeKind::Delivered, title: "已交付".into(), body: "y".into(), read: false },
+            Notice {
+                ts: 0,
+                kind: NoticeKind::Approval,
+                title: "等待批准".into(),
+                body: "x".into(),
+                read: false,
+            },
+            Notice {
+                ts: 0,
+                kind: NoticeKind::Delivered,
+                title: "已交付".into(),
+                body: "y".into(),
+                read: false,
+            },
         ];
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
@@ -1969,7 +2062,11 @@ mod tests {
 
         press(&mut state, &mut ui, &mut input, KeyCode::Char('n'));
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
-        assert_eq!(ui.screen, Screen::Eval, "Accepted notice routes to EVAL (看 KPI)");
+        assert_eq!(
+            ui.screen,
+            Screen::Eval,
+            "Accepted notice routes to EVAL (看 KPI)"
+        );
         assert!(state.notices[0].read, "selected notice marked read");
     }
 
@@ -2009,7 +2106,10 @@ mod tests {
 
         // 持久化真发生：prefs.json 可读回，值一致。
         let reloaded = crate::workbench::config::Prefs::load(&root);
-        assert_eq!(reloaded.density, ui.prefs.density, "density persisted to prefs.json");
+        assert_eq!(
+            reloaded.density, ui.prefs.density,
+            "density persisted to prefs.json"
+        );
         assert_eq!(reloaded.theme_index, ui.theme_index, "theme persisted");
 
         press(&mut state, &mut ui, &mut input, KeyCode::Esc);
@@ -2027,7 +2127,11 @@ mod tests {
         let mut state = AppState::default();
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
-        ui.market = vec![MarketEntry { name: "whale".into(), display_name: "AI落地鲸".into(), ..Default::default() }];
+        ui.market = vec![MarketEntry {
+            name: "whale".into(),
+            display_name: "AI落地鲸".into(),
+            ..Default::default()
+        }];
         ui.set_screen(Screen::Market);
         let mut input = InputBuffer::default();
 
@@ -2061,9 +2165,21 @@ mod tests {
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
         ui.market = vec![
-            MarketEntry { name: "whale".into(), display_name: "AI落地鲸".into(), ..Default::default() },
-            MarketEntry { name: "octopus".into(), display_name: "Docs Octopus".into(), ..Default::default() },
-            MarketEntry { name: "third".into(), display_name: "第三位".into(), ..Default::default() },
+            MarketEntry {
+                name: "whale".into(),
+                display_name: "AI落地鲸".into(),
+                ..Default::default()
+            },
+            MarketEntry {
+                name: "octopus".into(),
+                display_name: "Docs Octopus".into(),
+                ..Default::default()
+            },
+            MarketEntry {
+                name: "third".into(),
+                display_name: "第三位".into(),
+                ..Default::default()
+            },
         ];
         ui.set_screen(Screen::Market);
         let mut input = InputBuffer::default();
@@ -2084,7 +2200,11 @@ mod tests {
         // 已选满：对第三个按 x 无效。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('j'));
         press(&mut state, &mut ui, &mut input, KeyCode::Char('x'));
-        assert_eq!(ui.compare_selection, vec![0, 1], "x is a no-op once 2 are already selected");
+        assert_eq!(
+            ui.compare_selection,
+            vec![0, 1],
+            "x is a no-op once 2 are already selected"
+        );
 
         // c 打开对比浮层。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('c'));
@@ -2093,13 +2213,21 @@ mod tests {
         // Esc 关闭浮层（不清空选择——只是关窗）。
         press(&mut state, &mut ui, &mut input, KeyCode::Esc);
         assert!(!ui.compare_open, "Esc closes the overlay");
-        assert_eq!(ui.compare_selection, vec![0, 1], "closing the overlay keeps the selection");
+        assert_eq!(
+            ui.compare_selection,
+            vec![0, 1],
+            "closing the overlay keeps the selection"
+        );
 
         // 回到 market[0]（第三个员工在 cursor 位置向上两次）再取消勾选。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('k'));
         press(&mut state, &mut ui, &mut input, KeyCode::Char('k'));
         press(&mut state, &mut ui, &mut input, KeyCode::Char('x'));
-        assert_eq!(ui.compare_selection, vec![1], "x on an already-selected entry deselects it");
+        assert_eq!(
+            ui.compare_selection,
+            vec![1],
+            "x on an already-selected entry deselects it"
+        );
     }
 
     /// v0.17 P1-B1：MARKET `/` 进入真过滤(不是全局命令面板)——键入缩小 filtered 列表，
@@ -2112,38 +2240,68 @@ mod tests {
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
         ui.market = vec![
-            MarketEntry { name: "whale".into(), display_name: "AI落地鲸".into(), status: "available".into(), ..Default::default() },
-            MarketEntry { name: "octopus".into(), display_name: "Docs Octopus".into(), status: "available".into(), ..Default::default() },
+            MarketEntry {
+                name: "whale".into(),
+                display_name: "AI落地鲸".into(),
+                status: "available".into(),
+                ..Default::default()
+            },
+            MarketEntry {
+                name: "octopus".into(),
+                display_name: "Docs Octopus".into(),
+                status: "available".into(),
+                ..Default::default()
+            },
         ];
         ui.set_screen(Screen::Market);
         let mut input = InputBuffer::default();
 
         press(&mut state, &mut ui, &mut input, KeyCode::Char('/'));
-        assert!(ui.market_filter_active, "/ opens MARKET-local filter, not the command palette");
-        assert!(state.command_picker.is_none(), "/ on MARKET must not open the global command palette");
+        assert!(
+            ui.market_filter_active,
+            "/ opens MARKET-local filter, not the command palette"
+        );
+        assert!(
+            state.command_picker.is_none(),
+            "/ on MARKET must not open the global command palette"
+        );
 
         for c in "octo".chars() {
             press(&mut state, &mut ui, &mut input, KeyCode::Char(c));
         }
         assert_eq!(ui.market_filter, "octo");
-        assert_eq!(ui.market_filtered().len(), 1, "filter narrows to the matching expert only");
+        assert_eq!(
+            ui.market_filtered().len(),
+            1,
+            "filter narrows to the matching expert only"
+        );
         assert_eq!(ui.market_filtered()[0].name, "octopus");
 
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
-        assert!(!ui.market_filter_active, "Enter closes the filter editor, keeps the filter applied");
+        assert!(
+            !ui.market_filter_active,
+            "Enter closes the filter editor, keeps the filter applied"
+        );
         assert_eq!(ui.market_cursor, 0, "cursor reset into the filtered list");
 
         // h/Enter 必须带对真实员工（filtered[0] == octopus，而非 market[0] == whale）。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('h'));
         assert_eq!(ui.screen, Screen::Hire);
-        assert_eq!(ui.hire_cursor, 1, "hire_cursor resolves to octopus's real market index (1), not filtered index (0)");
+        assert_eq!(
+            ui.hire_cursor, 1,
+            "hire_cursor resolves to octopus's real market index (1), not filtered index (0)"
+        );
 
         // Esc 清空过滤，恢复全量列表。
         ui.set_screen(Screen::Market);
         press(&mut state, &mut ui, &mut input, KeyCode::Char('/'));
         press(&mut state, &mut ui, &mut input, KeyCode::Esc);
         assert!(ui.market_filter.is_empty(), "Esc clears the filter text");
-        assert_eq!(ui.market_filtered().len(), 2, "empty filter shows all experts again");
+        assert_eq!(
+            ui.market_filtered().len(),
+            2,
+            "empty filter shows all experts again"
+        );
     }
 
     #[test]
@@ -2180,12 +2338,19 @@ mod tests {
         ui.set_screen(Screen::Market);
         let mut input = InputBuffer::default();
         press(&mut state, &mut ui, &mut input, KeyCode::Char('o'));
-        assert_eq!(ui.onboarding.map(|o| o.step), Some(0), "o opens onboarding at step 0");
+        assert_eq!(
+            ui.onboarding.map(|o| o.step),
+            Some(0),
+            "o opens onboarding at step 0"
+        );
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
         assert_eq!(ui.onboarding.map(|o| o.step), Some(1), "Enter advances");
         press(&mut state, &mut ui, &mut input, KeyCode::Enter); // step 2
         press(&mut state, &mut ui, &mut input, KeyCode::Enter); // past last → close
-        assert_eq!(ui.onboarding, None, "Enter past last step closes onboarding");
+        assert_eq!(
+            ui.onboarding, None,
+            "Enter past last step closes onboarding"
+        );
     }
 
     #[test]
@@ -2219,10 +2384,18 @@ mod tests {
 
         // 首按 j 落在最新事件；k 上移；follow 脱离。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('j'));
-        assert_eq!(ui.session_cursor, Some(state.timeline.len() - 1), "first j → newest");
+        assert_eq!(
+            ui.session_cursor,
+            Some(state.timeline.len() - 1),
+            "first j → newest"
+        );
         assert!(!ui.follow, "selection detaches follow");
         press(&mut state, &mut ui, &mut input, KeyCode::Char('k'));
-        assert_eq!(ui.session_cursor, Some(state.timeline.len() - 2), "k moves up");
+        assert_eq!(
+            ui.session_cursor,
+            Some(state.timeline.len() - 2),
+            "k moves up"
+        );
         // g → 顶。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('g'));
         assert_eq!(ui.session_cursor, Some(0), "g jumps to top");

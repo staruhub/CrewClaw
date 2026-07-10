@@ -158,7 +158,11 @@ pub(crate) fn render_employee(frame: &mut Frame<'_>, state: &AppState, area: Rec
         .sum();
     // v0.16 W3.1：设计稿 KPI 值分层——tasks=fg、accept=green、cost=yellow(原 green/green/orange)。
     lines.push(kv_line("tasks", tasks_done.to_string(), config::fg()));
-    lines.push(kv_line("accept", state.accepted_count.to_string(), config::green()));
+    lines.push(kv_line(
+        "accept",
+        state.accepted_count.to_string(),
+        config::green(),
+    ));
     lines.push(kv_line(
         "cost",
         if cost_sum > 0.0 {
@@ -191,7 +195,9 @@ pub(crate) fn render_employee(frame: &mut Frame<'_>, state: &AppState, area: Rec
     ));
     lines.push(kv_line(
         "首次上岗",
-        cum.first_hired_ts.map(crate::workbench::ui::fmt_date).unwrap_or_else(|| "—".to_string()),
+        cum.first_hired_ts
+            .map(crate::workbench::ui::fmt_date)
+            .unwrap_or_else(|| "—".to_string()),
         config::dim(),
     ));
     push_sep(&mut lines);
@@ -206,7 +212,10 @@ pub(crate) fn render_employee(frame: &mut Frame<'_>, state: &AppState, area: Rec
         };
         Line::from(vec![
             Span::styled(format!("  {sym} "), Style::default().fg(color)),
-            Span::styled(format!("{label} {status}"), Style::default().fg(config::dim())),
+            Span::styled(
+                format!("{label} {status}"),
+                Style::default().fg(config::dim()),
+            ),
         ])
     };
     lines.push(scope_line("session   ", &state.memory.session));
@@ -226,7 +235,12 @@ pub(crate) fn render_employee(frame: &mut Frame<'_>, state: &AppState, area: Rec
 /// TOOLS 双列格；EVIDENCE 保持真值展示。
 pub(crate) fn render_side(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     // 高度分配：ARTIFACTS 按产物数（每个 2 行）+2 框，TOOLS 按行数+2，EVIDENCE 吃剩余。
-    let art_n = state.artifacts.iter().filter(|a| a.status != "deleted").count().min(4);
+    let art_n = state
+        .artifacts
+        .iter()
+        .filter(|a| a.status != "deleted")
+        .count()
+        .min(4);
     let art_h = (art_n.max(1) * 2 + 2) as u16;
     let tool_rows = (state.tools.len().min(8).div_ceil(2)).max(1) as u16;
     let tools_h = tool_rows + 2;
@@ -288,7 +302,10 @@ fn render_artifacts_box(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                     sub.push(kind.clone());
                 }
                 if a.created_ts > 0 {
-                    sub.push(format!("生成于 {}", crate::workbench::ui::fmt_hhmm(a.created_ts)));
+                    sub.push(format!(
+                        "生成于 {}",
+                        crate::workbench::ui::fmt_hhmm(a.created_ts)
+                    ));
                 }
                 if !sub.is_empty() {
                     lines.push(Line::from(Span::styled(
@@ -370,10 +387,7 @@ fn render_evidence_box(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             lines.push(Line::from(vec![
                 // v0.16 W3.6：设计稿 EVIDENCE 图标 ◈(与 EMPLOYEE 的 ◆ ChaoGeek 区分)。
                 Span::styled("◈ ", Style::default().fg(config::aqua())),
-                Span::styled(
-                    truncate_display_width(&source, width.saturating_sub(2)),
-                    fg,
-                ),
+                Span::styled(truncate_display_width(&source, width.saturating_sub(2)), fg),
             ]));
             match ev.confidence {
                 // dormant：引擎当前只发分类 source_type；数字置信度到达才画条。
@@ -437,7 +451,9 @@ pub(crate) fn render_task_queue(frame: &mut Frame<'_>, state: &AppState, area: R
             Span::styled(head, Style::default().fg(config::accent())),
             Span::styled(
                 title,
-                Style::default().fg(config::fg()).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(config::fg())
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" ".repeat(pad)),
             Span::styled(tail, Style::default().fg(config::accent())),

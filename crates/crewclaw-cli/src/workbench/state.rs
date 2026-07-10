@@ -349,9 +349,11 @@ impl UiState {
 
     /// v0.17 P1-B1：`market_filter` 按 fuzzy.rs 排序后的员工引用列表（空查询=原序全量）。
     pub fn market_filtered(&self) -> Vec<&MarketEntry> {
-        crate::workbench::fuzzy::rank(self.market.iter().collect(), &self.market_filter, |e: &&MarketEntry| {
-            format!("{} {} {}", e.display_name, e.category, e.tags.join(" "))
-        })
+        crate::workbench::fuzzy::rank(
+            self.market.iter().collect(),
+            &self.market_filter,
+            |e: &&MarketEntry| format!("{} {} {}", e.display_name, e.category, e.tags.join(" ")),
+        )
     }
 
     /// v0.17 P1-B1：`self.market` 里某个条目引用对应的真实下标（按指针身份匹配,不靠 name
@@ -685,7 +687,13 @@ pub struct ActivityCounts {
 
 impl ActivityCounts {
     pub fn total(&self) -> u32 {
-        self.read + self.edited + self.created + self.web_search + self.web_fetch + self.command + self.other
+        self.read
+            + self.edited
+            + self.created
+            + self.web_search
+            + self.web_fetch
+            + self.command
+            + self.other
     }
     /// 按引擎工具名累加一次调用。
     pub fn record(&mut self, tool: &str) {
@@ -1294,7 +1302,11 @@ impl AppState {
                 self.push_notice(
                     NoticeKind::Rejected,
                     "任务被打回".to_string(),
-                    if reason.is_empty() { "已生成修订任务".to_string() } else { reason },
+                    if reason.is_empty() {
+                        "已生成修订任务".to_string()
+                    } else {
+                        reason
+                    },
                 );
             }
             TaskEvent::TaskBlocked { .. } => {
@@ -1642,7 +1654,9 @@ impl AppState {
     /// 否则预览浮层在"未按 [ ] 前"会显示 `0/N`（明明看的是第一个文件）。
     pub(crate) fn selected_artifact_index(&self) -> Option<usize> {
         let id = self.selected_artifact_id()?;
-        self.artifacts.iter().position(|artifact| artifact.id.as_deref() == Some(id.as_str()))
+        self.artifacts
+            .iter()
+            .position(|artifact| artifact.id.as_deref() == Some(id.as_str()))
     }
 
     fn select_artifact_at(&mut self, index: usize) {
@@ -1703,7 +1717,10 @@ impl AppState {
             // 裸文本会与这块富文本重复——把 [本轮起点, index) 内的助手分片标记 superseded，
             // 渲染层只显示这一块整轮排版。单段轮（无中途工具事件）此循环为空，行为不变。
             for i in self.turn_conversation_start..index {
-                if matches!(self.conversation.get(i), Some(ConversationItem::Assistant(_))) {
+                if matches!(
+                    self.conversation.get(i),
+                    Some(ConversationItem::Assistant(_))
+                ) {
                     self.superseded_assistant.insert(i);
                 }
             }
@@ -1893,8 +1910,12 @@ impl AppState {
             )
         });
         let delta = (
-            self.usage.prompt_tok.saturating_sub(self.usage_at_task_start.prompt_tok),
-            self.usage.completion_tok.saturating_sub(self.usage_at_task_start.completion_tok),
+            self.usage
+                .prompt_tok
+                .saturating_sub(self.usage_at_task_start.prompt_tok),
+            self.usage
+                .completion_tok
+                .saturating_sub(self.usage_at_task_start.completion_tok),
         );
         let tokens = engine_usage.or(if delta == (0, 0) { None } else { Some(delta) });
         // 成本只信引擎 estimateCost（费率在引擎侧）；不在 Rust 里复制费率表。
@@ -2082,7 +2103,10 @@ fn eval_report_field(employee: &Value) -> Option<EvalReport> {
         verdict: string_field(eval, "verdict").unwrap_or_else(|| "FAIL".to_string()),
         model: string_field(eval, "model").unwrap_or_else(|| "unknown".to_string()),
         mock: eval.get("mock").and_then(Value::as_bool).unwrap_or(true),
-        evaluated_at: eval.get("evaluated_at").and_then(Value::as_u64).unwrap_or(0),
+        evaluated_at: eval
+            .get("evaluated_at")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
         exams,
     })
 }
@@ -2150,22 +2174,37 @@ mod tests {
     #[test]
     fn approval_accepted_sets_verdict_then_task_started_clears_it() {
         let state = reduce_all(vec![
-            ev("approval.required", serde_json::json!({"id":"ap1","tool":"web.fetch"})),
+            ev(
+                "approval.required",
+                serde_json::json!({"id":"ap1","tool":"web.fetch"}),
+            ),
             ev("approval.accepted", serde_json::json!({"id":"ap1"})),
         ]);
-        let (accepted, text) = state.last_verdict.clone().expect("verdict set after accept");
+        let (accepted, text) = state
+            .last_verdict
+            .clone()
+            .expect("verdict set after accept");
         assert!(accepted, "accepted verdict");
         assert!(text.contains("已验收"), "verdict text: {text}");
 
         let mut state = state;
-        state.reduce(&ev("task.started", serde_json::json!({"id":"t2","title":"新任务"})));
-        assert!(state.last_verdict.is_none(), "new task clears the stale verdict");
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"t2","title":"新任务"}),
+        ));
+        assert!(
+            state.last_verdict.is_none(),
+            "new task clears the stale verdict"
+        );
     }
 
     #[test]
     fn approval_rejected_sets_red_verdict() {
         let state = reduce_all(vec![
-            ev("approval.required", serde_json::json!({"id":"ap1","tool":"web.fetch"})),
+            ev(
+                "approval.required",
+                serde_json::json!({"id":"ap1","tool":"web.fetch"}),
+            ),
             ev("approval.rejected", serde_json::json!({"id":"ap1"})),
         ]);
         let (accepted, text) = state.last_verdict.expect("verdict set after reject");
@@ -2183,7 +2222,10 @@ mod tests {
             label: "要求修订".to_string(),
             command: None,
         }];
-        state.reduce(&ev("task.started", serde_json::json!({"id":"t2","title":"新任务"})));
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"t2","title":"新任务"}),
+        ));
         assert!(
             state.pending_actions.is_empty(),
             "a new task voids the previous deliverable's digit bindings"
@@ -2195,7 +2237,10 @@ mod tests {
     #[test]
     fn notices_are_derived_from_real_events() {
         let state = reduce_all(vec![
-            ev("approval.required", serde_json::json!({"id":"ap1","tool":"web.fetch"})),
+            ev(
+                "approval.required",
+                serde_json::json!({"id":"ap1","tool":"web.fetch"}),
+            ),
             ev("approval.accepted", serde_json::json!({"id":"ap1"})),
             ev(
                 "outcome.checked",
@@ -2222,9 +2267,16 @@ mod tests {
             serde_json::json!({"passed": false, "deliverable": "report.md"}),
         )]);
         let line = missing.timeline.last().expect("timeline line");
-        assert!(line.label.contains("结果未知"), "missing valid → unknown, got {:?}", line.label);
         assert!(
-            !missing.notices.iter().any(|n| n.kind == NoticeKind::Delivered),
+            line.label.contains("结果未知"),
+            "missing valid → unknown, got {:?}",
+            line.label
+        );
+        assert!(
+            !missing
+                .notices
+                .iter()
+                .any(|n| n.kind == NoticeKind::Delivered),
             "missing valid must NOT produce a 已交付 notice"
         );
 
@@ -2252,14 +2304,20 @@ mod tests {
         )]);
         assert_eq!(warn.notices.len(), 1);
         assert_eq!(warn.notices[0].kind, NoticeKind::Budget);
-        assert!(warn.notices[0].body.contains("16.5"), "warn body carries the real spend");
+        assert!(
+            warn.notices[0].body.contains("16.5"),
+            "warn body carries the real spend"
+        );
 
         let block = reduce_all(vec![ev(
             "budget.warning",
             serde_json::json!({"level":"block","month":"2026-07","spent":25.0,"cap":20}),
         )]);
         assert_eq!(block.notices[0].kind, NoticeKind::Budget);
-        assert!(block.notices[0].title.contains("上限"), "block title signals the hard stop");
+        assert!(
+            block.notices[0].title.contains("上限"),
+            "block title signals the hard stop"
+        );
     }
 
     /// accept 回声的 outcome.checked(reason=用户已验收) 不重复产出「已交付」通知。
@@ -2270,7 +2328,10 @@ mod tests {
             serde_json::json!({"valid":true,"deliverable":"report.md","reason":"用户已验收"}),
         )]);
         assert!(
-            !state.notices.iter().any(|n| n.kind == NoticeKind::Delivered),
+            !state
+                .notices
+                .iter()
+                .any(|n| n.kind == NoticeKind::Delivered),
             "accept echo must not create a Delivered notice"
         );
     }
@@ -2421,7 +2482,10 @@ mod tests {
             "task.started",
             serde_json::json!({"id":"turn1","title":"报告"}),
         ));
-        state.reduce(&ev("token.delta", serde_json::json!({"text":"我先搜索一下"})));
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"text":"我先搜索一下"}),
+        ));
         state.reduce(&ev(
             "tool.requested",
             serde_json::json!({"id":"tool1","tool":"web.search","label":"搜索"}),
@@ -2818,15 +2882,27 @@ mod tests {
     #[test]
     fn chat_turns_are_exempt_from_artifact_gate() {
         let state = reduce_all(vec![
-            ev("task.started", serde_json::json!({"id":"t1","title":"hi","mode":"Chat"})),
+            ev(
+                "task.started",
+                serde_json::json!({"id":"t1","title":"hi","mode":"Chat"}),
+            ),
             ev("task.completed", serde_json::json!({"id":"t1"})),
-            ev("task.started", serde_json::json!({"id":"t2","title":"在吗","mode":"Chat"})),
+            ev(
+                "task.started",
+                serde_json::json!({"id":"t2","title":"在吗","mode":"Chat"}),
+            ),
             ev("task.completed", serde_json::json!({"id":"t2"})),
-            ev("task.started", serde_json::json!({"id":"t3","title":"谢谢","mode":"Chat"})),
+            ev(
+                "task.started",
+                serde_json::json!({"id":"t3","title":"谢谢","mode":"Chat"}),
+            ),
             ev("task.completed", serde_json::json!({"id":"t3"})),
         ]);
 
-        assert_eq!(state.status, "idle", "chat turn should settle to idle, not needs_artifact");
+        assert_eq!(
+            state.status, "idle",
+            "chat turn should settle to idle, not needs_artifact"
+        );
         assert!(
             !state
                 .timeline
@@ -2864,7 +2940,9 @@ mod tests {
             .expect("tool entry carries event_type");
         assert_eq!(tool.ts, 1_783_400_005_456);
         assert!(
-            tool.detail_kv.iter().any(|(k, v)| k == "tool" && v == "web_search"),
+            tool.detail_kv
+                .iter()
+                .any(|(k, v)| k == "tool" && v == "web_search"),
             "flattened kv holds tool name: {:?}",
             tool.detail_kv
         );
@@ -2886,8 +2964,14 @@ mod tests {
     fn task_meta_tokens_prefer_engine_usage_and_snapshot_delta_scopes_per_task() {
         // 任务 1：无引擎 usage → 快照差值 (100, 50)。
         let mut state = reduce_all(vec![
-            ev("task.started", serde_json::json!({"id":"t1","title":"一","mode":"Task"})),
-            ev("token.usage", serde_json::json!({"prompt":100,"completion":50})),
+            ev(
+                "task.started",
+                serde_json::json!({"id":"t1","title":"一","mode":"Task"}),
+            ),
+            ev(
+                "token.usage",
+                serde_json::json!({"prompt":100,"completion":50}),
+            ),
             ev("task.completed", serde_json::json!({"id":"t1"})),
         ]);
         let meta1 = state
@@ -2896,11 +2980,20 @@ mod tests {
             .find_map(|e| e.task_meta)
             .expect("task1 meta");
         assert_eq!(meta1.tokens, Some((100, 50)), "snapshot delta fallback");
-        assert_eq!(meta1.est_cost, None, "no engine cost → None (never fabricated)");
+        assert_eq!(
+            meta1.est_cost, None,
+            "no engine cost → None (never fabricated)"
+        );
 
         // 任务 2：引擎在 task.completed 里带 usage+est_cost → 覆盖差值（且不含任务 1 的量）。
-        state.reduce(&ev("task.started", serde_json::json!({"id":"t2","title":"二","mode":"Task"})));
-        state.reduce(&ev("token.usage", serde_json::json!({"prompt":7,"completion":3})));
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"t2","title":"二","mode":"Task"}),
+        ));
+        state.reduce(&ev(
+            "token.usage",
+            serde_json::json!({"prompt":7,"completion":3}),
+        ));
         state.reduce(&ev(
             "task.completed",
             serde_json::json!({"id":"t2","usage":{"prompt":7,"completion":3},"est_cost":0.042}),
@@ -2911,7 +3004,11 @@ mod tests {
             .filter_map(|e| e.task_meta)
             .nth(1)
             .expect("task2 meta");
-        assert_eq!(meta2.tokens, Some((7, 3)), "engine usage wins and is task-scoped");
+        assert_eq!(
+            meta2.tokens,
+            Some((7, 3)),
+            "engine usage wins and is task-scoped"
+        );
         assert_eq!(meta2.est_cost, Some(0.042), "engine est_cost stored");
     }
 
@@ -2923,7 +3020,10 @@ mod tests {
             serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m","skills":["模型选型","ROI 评估"]}}),
         )]);
         let emp = state.employee.expect("employee");
-        assert_eq!(emp.skills, vec!["模型选型".to_string(), "ROI 评估".to_string()]);
+        assert_eq!(
+            emp.skills,
+            vec!["模型选型".to_string(), "ROI 评估".to_string()]
+        );
     }
 
     /// v0.17 P2 C1：session.ready 的 `employee.kpi_cumulative`（引擎 kpi.mjs 下发的跨会话真累计）
@@ -2975,13 +3075,19 @@ mod tests {
             "session.ready",
             serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m"}}),
         )]);
-        assert!(without.employee.expect("employee").eval.is_none(), "no eval key → None, not fabricated");
+        assert!(
+            without.employee.expect("employee").eval.is_none(),
+            "no eval key → None, not fabricated"
+        );
 
         let nulled = reduce_all(vec![ev(
             "session.ready",
             serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m","eval":null}}),
         )]);
-        assert!(nulled.employee.expect("employee").eval.is_none(), "explicit null → None");
+        assert!(
+            nulled.employee.expect("employee").eval.is_none(),
+            "explicit null → None"
+        );
     }
 
     /// v0.11 M3：一次带工具的任务完结 → 任务头 timeline 条挂上 TaskMeta（按引擎真实工具名归类），
@@ -2989,14 +3095,38 @@ mod tests {
     #[test]
     fn task_meta_records_activity_counts_by_real_tool_names() {
         let state = reduce_all(vec![
-            ev("task.started", serde_json::json!({"id":"t","title":"研究","mode":"Task"})),
-            ev("tool.requested", serde_json::json!({"id":"a","tool":"read_file","label":"读取"})),
-            ev("tool.requested", serde_json::json!({"id":"b","tool":"read_file","label":"读取"})),
-            ev("tool.requested", serde_json::json!({"id":"c","tool":"web_search","label":"搜索"})),
-            ev("tool.requested", serde_json::json!({"id":"d","tool":"web_fetch","label":"抓取"})),
-            ev("tool.requested", serde_json::json!({"id":"e","tool":"bash","label":"命令"})),
-            ev("tool.requested", serde_json::json!({"id":"f","tool":"write_file","label":"写"})),
-            ev("tool.requested", serde_json::json!({"id":"g","tool":"artifact.write","label":"交付"})),
+            ev(
+                "task.started",
+                serde_json::json!({"id":"t","title":"研究","mode":"Task"}),
+            ),
+            ev(
+                "tool.requested",
+                serde_json::json!({"id":"a","tool":"read_file","label":"读取"}),
+            ),
+            ev(
+                "tool.requested",
+                serde_json::json!({"id":"b","tool":"read_file","label":"读取"}),
+            ),
+            ev(
+                "tool.requested",
+                serde_json::json!({"id":"c","tool":"web_search","label":"搜索"}),
+            ),
+            ev(
+                "tool.requested",
+                serde_json::json!({"id":"d","tool":"web_fetch","label":"抓取"}),
+            ),
+            ev(
+                "tool.requested",
+                serde_json::json!({"id":"e","tool":"bash","label":"命令"}),
+            ),
+            ev(
+                "tool.requested",
+                serde_json::json!({"id":"f","tool":"write_file","label":"写"}),
+            ),
+            ev(
+                "tool.requested",
+                serde_json::json!({"id":"g","tool":"artifact.write","label":"交付"}),
+            ),
             ev("task.completed", serde_json::json!({"id":"t"})),
         ]);
 
@@ -3009,7 +3139,10 @@ mod tests {
         assert_eq!(meta.counts.web_search, 1);
         assert_eq!(meta.counts.web_fetch, 1);
         assert_eq!(meta.counts.command, 1, "bash → command");
-        assert_eq!(meta.counts.created, 2, "write_file + artifact.write → created");
+        assert_eq!(
+            meta.counts.created, 2,
+            "write_file + artifact.write → created"
+        );
         assert_eq!(meta.counts.total(), 7);
     }
 
@@ -3017,7 +3150,10 @@ mod tests {
     #[test]
     fn thinking_deltas_accumulate_into_one_collapsible_block() {
         let state = reduce_all(vec![
-            ev("task.started", serde_json::json!({"id":"t","title":"分析","mode":"Chat"})),
+            ev(
+                "task.started",
+                serde_json::json!({"id":"t","title":"分析","mode":"Chat"}),
+            ),
             ev("thinking.delta", serde_json::json!({"text":"先拆解需求，"})),
             ev("thinking.delta", serde_json::json!({"text":"再决定检索。"})),
             ev("token.delta", serde_json::json!({"text":"这是回答。"})),
@@ -3031,16 +3167,25 @@ mod tests {
         assert_eq!(think.len(), 1, "one thinking block per turn");
         assert!(think[0].collapsible, "thinking block is foldable");
         assert!(!think[0].expanded, "folded by default");
-        assert_eq!(think[0].detail, "先拆解需求，再决定检索。", "deltas accumulate");
+        assert_eq!(
+            think[0].detail, "先拆解需求，再决定检索。",
+            "deltas accumulate"
+        );
         // 思考不进交付正文（answer 只含 token.delta）。
-        assert_eq!(state.answer, "这是回答。", "thinking is separate from deliverable prose");
+        assert_eq!(
+            state.answer, "这是回答。",
+            "thinking is separate from deliverable prose"
+        );
     }
 
     #[test]
     fn chat_turn_produces_no_activity_counts() {
         // 纯 chat（无工具）→ task_meta 计数为 0，渲染层据此不画计数条。
         let state = reduce_all(vec![
-            ev("task.started", serde_json::json!({"id":"c","title":"你好","mode":"Chat"})),
+            ev(
+                "task.started",
+                serde_json::json!({"id":"c","title":"你好","mode":"Chat"}),
+            ),
             ev("token.delta", serde_json::json!({"text":"你好呀"})),
             ev("task.completed", serde_json::json!({"id":"c"})),
         ]);

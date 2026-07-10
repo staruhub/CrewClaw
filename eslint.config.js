@@ -19,6 +19,15 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // The `const { omitted: _x, ...rest } = obj` idiom is the standard way to drop a key; an
+      // underscore prefix marks intentional discards. Without these options the recommended rule
+      // flags correct code (contracts tests' omit-a-field fixtures, use-roles' key removal).
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { ignoreRestSiblings: true, varsIgnorePattern: '^_', argsIgnorePattern: '^_' },
+      ],
+    },
   },
   {
     files: ['src/components/ui/**/*.{ts,tsx}', 'src/providers/trpc.tsx'],

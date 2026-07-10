@@ -44,7 +44,13 @@ pub fn render(frame: &mut Frame<'_>, _state: &AppState, ui_state: &UiState, area
         .constraints([Constraint::Length(30), Constraint::Min(30)])
         .split(area);
 
-    render_flow(frame, emp.display_name.as_str(), emp.category.as_str(), report, cols[0]);
+    render_flow(
+        frame,
+        emp.display_name.as_str(),
+        emp.category.as_str(),
+        report,
+        cols[0],
+    );
     render_doctor(frame, emp.name.as_str(), report, cols[1]);
 }
 
@@ -84,15 +90,26 @@ fn render_flow(
         ]));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("candidate", Style::default().fg(config::dim()))));
+    lines.push(Line::from(Span::styled(
+        "candidate",
+        Style::default().fg(config::dim()),
+    )));
     lines.push(Line::from(Span::styled(
         display_name.to_string(),
-        Style::default().fg(config::yellow()).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(config::yellow())
+            .add_modifier(Modifier::BOLD),
     )));
     if !category.is_empty() {
-        lines.push(Line::from(Span::styled(category.to_string(), Style::default().fg(config::dim()))));
+        lines.push(Line::from(Span::styled(
+            category.to_string(),
+            Style::default().fg(config::dim()),
+        )));
     }
-    frame.render_widget(Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }), inner);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }),
+        inner,
+    );
 }
 
 /// v0.16 W5.2：DOCTOR 检查报告——命令行样式首行 + 检查行(HireHealth 真值)+ 底部徽章。
@@ -104,7 +121,10 @@ fn render_doctor(frame: &mut Frame<'_>, slug: &str, report: Option<&HireHealth>,
     let fg = Style::default().fg(config::fg());
 
     let mut lines: Vec<Line> = vec![
-        Line::from(Span::styled(format!("$ crewclaw doctor --employee {slug}"), dim)),
+        Line::from(Span::styled(
+            format!("$ crewclaw doctor --employee {slug}"),
+            dim,
+        )),
         Line::from(""),
     ];
     match report {
@@ -137,20 +157,38 @@ fn render_doctor(frame: &mut Frame<'_>, slug: &str, report: Option<&HireHealth>,
     lines.push(Line::from(""));
 
     let (badge, badge_color, hint) = match report.map(|r| r.status.as_str()) {
-        Some("healthy") => ("[✓ READY]".to_string(), config::green(), "可以雇佣，进入试岗".to_string()),
+        Some("healthy") => (
+            "[✓ READY]".to_string(),
+            config::green(),
+            "可以雇佣，进入试岗".to_string(),
+        ),
         Some(status) => {
             let n = report.map(|r| r.issues.len()).unwrap_or(0);
-            (format!("[¡ {n} ISSUES]"), config::orange(), format!("{status} · 建议先处理问题项"))
+            (
+                format!("[¡ {n} ISSUES]"),
+                config::orange(),
+                format!("{status} · 建议先处理问题项"),
+            )
         }
-        None => ("[— 无数据]".to_string(), config::dim(), "先到 MARKET 选择员工".to_string()),
+        None => (
+            "[— 无数据]".to_string(),
+            config::dim(),
+            "先到 MARKET 选择员工".to_string(),
+        ),
     };
     lines.push(Line::from(vec![
         Span::styled(
             badge,
-            Style::default().fg(config::bg()).bg(badge_color).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(config::bg())
+                .bg(badge_color)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!("  {hint}"), dim),
     ]));
 
-    frame.render_widget(Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }), inner);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }),
+        inner,
+    );
 }

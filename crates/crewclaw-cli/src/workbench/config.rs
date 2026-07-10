@@ -413,7 +413,10 @@ mod tests {
             employee_accent("ai-adoption-whale")
         );
         // 大小写/空白无关（同一员工）。
-        assert_eq!(employee_accent("Code-Review-Shrimp"), employee_accent(" code-review-shrimp "));
+        assert_eq!(
+            employee_accent("Code-Review-Shrimp"),
+            employee_accent(" code-review-shrimp ")
+        );
         // 调色板内取值。
         assert!(EMPLOYEE_PALETTE.contains(&employee_accent("macao-networking-agent")));
         // 一组真实 slug 至少落到 2 种以上颜色（不是全撞一个）。
@@ -424,9 +427,14 @@ mod tests {
             "community-mermaid-zeneth",
             "macao-networking-agent",
         ];
-        let distinct: std::collections::BTreeSet<_> =
-            slugs.iter().map(|s| format!("{:?}", employee_accent(s))).collect();
-        assert!(distinct.len() >= 2, "palette should spread employees across colors");
+        let distinct: std::collections::BTreeSet<_> = slugs
+            .iter()
+            .map(|s| format!("{:?}", employee_accent(s)))
+            .collect();
+        assert!(
+            distinct.len() >= 2,
+            "palette should spread employees across colors"
+        );
     }
 
     #[test]
@@ -472,10 +480,8 @@ mod tests {
     #[test]
     fn thirteen_color_palette_is_populated_and_distinct_per_theme() {
         // 每套主题的 13 个色位在结构上都存在（编译期保证），运行期验证 4 套底色互不相同。
-        let bgs: std::collections::BTreeSet<_> = THEME_CYCLE
-            .iter()
-            .map(|t| format!("{:?}", t.bg))
-            .collect();
+        let bgs: std::collections::BTreeSet<_> =
+            THEME_CYCLE.iter().map(|t| format!("{:?}", t.bg)).collect();
         assert_eq!(bgs.len(), 4, "四套主题应有四种不同底色");
         // gruvbox-dark 命名色与设计稿一致（抽查三个语义色）。
         assert_eq!(Theme::GRUVBOX_DARK.orange, super::rgb(0xfe8019));

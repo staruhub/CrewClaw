@@ -15,7 +15,8 @@ import {
   Tag,
 } from "lucide-react";
 import { PermissionLevelList } from "@/components/employee/PermissionLevel";
-import { formatPricingLabel, PricingBadge, pricingTone } from "@/components/PricingInfo";
+import { PricingBadge } from "@/components/PricingInfo";
+import { formatPricingLabel, pricingTone } from "@/lib/pricing";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

@@ -200,7 +200,10 @@ fn render_event_log(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                 .collect::<Vec<_>>()
                 .join(" · ");
             lines.push(Line::from(Span::styled(
-                format!("  {}", truncate_display_width(&kv, width.saturating_sub(2).max(4))),
+                format!(
+                    "  {}",
+                    truncate_display_width(&kv, width.saturating_sub(2).max(4))
+                ),
                 Style::default().fg(config::dim()),
             )));
         }
@@ -214,19 +217,16 @@ fn render_event_log(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     // 溢出时贴底显示尾部（最新事件）。
     let vis = inner.height as usize;
     let scroll = lines.len().saturating_sub(vis) as u16;
-    frame.render_widget(
-        Paragraph::new(Text::from(lines)).scroll((scroll, 0)),
-        inner,
-    );
+    frame.render_widget(Paragraph::new(Text::from(lines)).scroll((scroll, 0)), inner);
 }
 
 fn render_right(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(7),                                  // OUTCOME
+            Constraint::Length(7),                                         // OUTCOME
             Constraint::Length((state.artifacts.len() as u16).min(6) + 2), // ARTIFACTS
-            Constraint::Min(3),                                     // EVIDENCE
+            Constraint::Min(3),                                            // EVIDENCE
         ])
         .split(area);
 
@@ -262,7 +262,13 @@ fn render_outcome(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         ("pending".to_string(), config::dim())
     };
     let lines = vec![
-        outcome_row("status", word.trim_start_matches(['⚙', '⏸', '★', '·', ' ']).to_string(), wcolor, w),
+        outcome_row(
+            "status",
+            word.trim_start_matches(['⚙', '⏸', '★', '·', ' '])
+                .to_string(),
+            wcolor,
+            w,
+        ),
         outcome_row("events", state.timeline.len().to_string(), config::fg(), w),
         outcome_row("cost", cost_str(state), config::yellow(), w),
         outcome_row("kpi impact", kpi, kpi_c, w),
@@ -330,7 +336,10 @@ fn render_evidence(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             .or_else(|| e.fact.clone())
             .unwrap_or_else(|| "来源".to_string());
         lines.push(Line::from(Span::styled(
-            format!("◈ {}", truncate_display_width(&src, w.saturating_sub(2).max(4))),
+            format!(
+                "◈ {}",
+                truncate_display_width(&src, w.saturating_sub(2).max(4))
+            ),
             Style::default().fg(config::fg()),
         )));
         let tag = e

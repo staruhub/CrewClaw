@@ -67,7 +67,11 @@ pub(crate) fn render_preview(frame: &mut Frame<'_>, state: &AppState, scroll: u1
     render_footer(frame, state, rows[3]);
 }
 
-fn render_header_meta(frame: &mut Frame<'_>, artifact: Option<&crate::workbench::state::Artifact>, area: Rect) {
+fn render_header_meta(
+    frame: &mut Frame<'_>,
+    artifact: Option<&crate::workbench::state::Artifact>,
+    area: Rect,
+) {
     let mut left = String::new();
     if let Some(a) = artifact {
         if let Some(k) = a.kind.as_deref() {
@@ -139,7 +143,10 @@ fn render_body(
                 )));
                 if let Some(sum) = artifact.and_then(|a| a.summary.clone()) {
                     lines.push(Line::from(""));
-                    lines.push(Line::from(Span::styled(sum, Style::default().fg(config::dim()))));
+                    lines.push(Line::from(Span::styled(
+                        sum,
+                        Style::default().fg(config::dim()),
+                    )));
                 }
             }
         },

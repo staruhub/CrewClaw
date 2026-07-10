@@ -73,13 +73,8 @@ export default function CrewMode() {
     });
   }, [employees.length]);
 
-  useEffect(() => {
-    setSelectedIds((current) => {
-      const filtered = current.filter((id) => employees.some((item) => item.employee_id === id));
-      return filtered.length === current.length ? current : filtered;
-    });
-  }, [employees]);
-
+  // 不再用 effect 修剪 selectedIds（setState-in-effect 触发级联渲染）：selectedEmployees 本身
+  // 就按现存员工过滤，凡是消费"有效选择"的地方都用它派生——失效 id 留在原始 state 里无副作用。
   const selectedEmployees = useMemo(
     () => employees.filter((employee) => selectedIds.includes(employee.employee_id)),
     [employees, selectedIds],
@@ -124,7 +119,8 @@ export default function CrewMode() {
     setCopied(true);
     track("demo_task_copied", {
       source: "crew_mode",
-      selected_employee_ids: selectedIds,
+      // 派生的有效选择（不含已下架员工的失效 id）。
+      selected_employee_ids: selectedEmployees.map((e) => e.employee_id),
     });
   }
 

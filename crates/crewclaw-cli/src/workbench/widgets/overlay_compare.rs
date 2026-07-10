@@ -82,23 +82,43 @@ fn compare_column(e: &MarketEntry) -> Vec<Line<'static>> {
         row("status", e.status.clone()),
         row(
             "category",
-            if e.category.is_empty() { "—".into() } else { e.category.clone() },
+            if e.category.is_empty() {
+                "—".into()
+            } else {
+                e.category.clone()
+            },
         ),
         row(
             "tags",
-            if e.tags.is_empty() { "—".into() } else { e.tags.join(" / ") },
+            if e.tags.is_empty() {
+                "—".into()
+            } else {
+                e.tags.join(" / ")
+            },
         ),
         row(
             "hermes",
-            if e.hermes_req.is_empty() { "—".into() } else { e.hermes_req.clone() },
+            if e.hermes_req.is_empty() {
+                "—".into()
+            } else {
+                e.hermes_req.clone()
+            },
         ),
         row(
             "env",
-            if e.env_reqs.is_empty() { "无额外声明".into() } else { e.env_reqs.join(" · ") },
+            if e.env_reqs.is_empty() {
+                "无额外声明".into()
+            } else {
+                e.env_reqs.join(" · ")
+            },
         ),
         row(
             "first task",
-            if e.first_task.is_empty() { "—".into() } else { e.first_task.clone() },
+            if e.first_task.is_empty() {
+                "—".into()
+            } else {
+                e.first_task.clone()
+            },
         ),
     ]
 }

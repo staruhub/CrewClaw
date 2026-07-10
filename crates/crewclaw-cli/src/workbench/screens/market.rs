@@ -88,19 +88,29 @@ fn render_list(frame: &mut Frame<'_>, ui_state: &UiState, filtered: &[&MarketEnt
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(3)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(3),
+        ])
         .split(inner);
     // v0.17 P1-B1：真搜索框——编辑态显示光标 `▏`,非编辑态且有查询显示已输文本,否则占位提示。
     let search_line = if ui_state.market_filter_active {
         Line::from(vec![
             Span::styled(" / ", Style::default().fg(config::yellow())),
-            Span::styled(ui_state.market_filter.clone(), Style::default().fg(config::fg())),
+            Span::styled(
+                ui_state.market_filter.clone(),
+                Style::default().fg(config::fg()),
+            ),
             Span::styled("▏", Style::default().fg(config::yellow())),
         ])
     } else if !ui_state.market_filter.is_empty() {
         Line::from(vec![
             Span::styled(" / ", Style::default().fg(config::dim())),
-            Span::styled(ui_state.market_filter.clone(), Style::default().fg(config::fg())),
+            Span::styled(
+                ui_state.market_filter.clone(),
+                Style::default().fg(config::fg()),
+            ),
             Span::styled("  (Esc 清空)", Style::default().fg(config::dim())),
         ])
     } else {
@@ -117,7 +127,9 @@ fn render_list(frame: &mut Frame<'_>, ui_state: &UiState, filtered: &[&MarketEnt
         let selected = i == sel;
         // v0.16 W2：统一选中行语言(设计稿)——▌ 选中 yellow/未选不着色;选中行整行 bg2。
         let marker_style = if selected {
-            Style::default().fg(config::yellow()).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(config::yellow())
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(config::bg())
         };
@@ -142,12 +154,23 @@ fn render_list(frame: &mut Frame<'_>, ui_state: &UiState, filtered: &[&MarketEnt
         let checkbox = if in_compare { "[x] " } else { "[ ] " };
         let mut line = Line::from(vec![
             Span::styled("▌ ", marker_style),
-            Span::styled(checkbox, Style::default().fg(if in_compare { config::aqua() } else { config::dim() })),
+            Span::styled(
+                checkbox,
+                Style::default().fg(if in_compare {
+                    config::aqua()
+                } else {
+                    config::dim()
+                }),
+            ),
             Span::styled(format!("{dot} "), Style::default().fg(dot_color)),
             Span::styled(e.display_name.clone(), name_style),
             // v0.16 W5.1：分类真值挤右(registry 真字段；无 ★评分/tasks——无此真源,不造)。
             Span::styled(
-                if e.category.is_empty() { String::new() } else { format!("   {}", e.category) },
+                if e.category.is_empty() {
+                    String::new()
+                } else {
+                    format!("   {}", e.category)
+                },
                 Style::default().fg(config::dim()),
             ),
         ]);
@@ -188,12 +211,17 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
     constraints.push(Constraint::Length(3)); // 运行要求
     constraints.push(Constraint::Length(2)); // v0.17 P2 C1：累计 KPI(真值,启动时读盘)
     constraints.push(Constraint::Min(1)); // 行动条(吃剩余)
-    let rows = Layout::default().direction(Direction::Vertical).constraints(constraints).split(padded);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(padded);
 
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(Span::styled(
         e.display_name.clone(),
-        Style::default().fg(config::yellow()).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(config::yellow())
+            .add_modifier(Modifier::BOLD),
     )));
     if !e.certification.is_empty() {
         lines.push(Line::from(Span::styled(
@@ -202,16 +230,30 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
         )));
     }
     lines.push(Line::from(Span::styled(
-        format!(" {} ", if available { "在岗可雇" } else { "即将上线" }),
+        format!(
+            " {} ",
+            if available {
+                "在岗可雇"
+            } else {
+                "即将上线"
+            }
+        ),
         Style::default()
             .fg(config::bg())
-            .bg(if available { config::green() } else { config::yellow() })
+            .bg(if available {
+                config::green()
+            } else {
+                config::yellow()
+            })
             .add_modifier(Modifier::BOLD),
     )));
     for row in e.description.split('\n') {
         lines.push(Line::from(Span::styled(row.to_string(), fg)));
     }
-    frame.render_widget(Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }), rows[0]);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }),
+        rows[0],
+    );
 
     render_stat_tiles(frame, e, rows[1]);
 
@@ -224,7 +266,9 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 "SKILLS",
-                Style::default().fg(config::dim()).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(config::dim())
+                    .add_modifier(Modifier::BOLD),
             ))),
             chip_rows[0],
         );
@@ -232,10 +276,22 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
         next += 1;
     }
 
-    let env = if e.env_reqs.is_empty() { "无需额外环境变量".to_string() } else { e.env_reqs.join(" · ") };
+    let env = if e.env_reqs.is_empty() {
+        "无需额外环境变量".to_string()
+    } else {
+        e.env_reqs.join(" · ")
+    };
     let env_lines = vec![
-        Line::from(Span::styled("运行要求", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD))),
-        Line::from(vec![Span::styled("Hermes ", dim), Span::styled(e.hermes_req.clone(), fg)]),
+        Line::from(Span::styled(
+            "运行要求",
+            Style::default()
+                .fg(config::dim())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("Hermes ", dim),
+            Span::styled(e.hermes_req.clone(), fg),
+        ]),
         Line::from(vec![Span::styled("Env    ", dim), Span::styled(env, fg)]),
     ];
     frame.render_widget(Paragraph::new(Text::from(env_lines)), rows[next]);
@@ -246,18 +302,35 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
     let cum = &e.kpi_cumulative;
     let kpi_line = if cum.tasks == 0 {
         Line::from(vec![
-            Span::styled("累计 ", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "累计 ",
+                Style::default()
+                    .fg(config::dim())
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("尚无历史（新员工）", dim),
         ])
     } else {
         Line::from(vec![
-            Span::styled("累计 ", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "累计 ",
+                Style::default()
+                    .fg(config::dim())
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(format!("{} 单", cum.tasks), fg),
             Span::styled(" · ", dim),
-            Span::styled(format!("{} 验收", cum.accepted), Style::default().fg(config::green())),
+            Span::styled(
+                format!("{} 验收", cum.accepted),
+                Style::default().fg(config::green()),
+            ),
             Span::styled(" · ", dim),
             Span::styled(
-                if cum.total_cost > 0.0 { format!("${:.2}", cum.total_cost) } else { "—".to_string() },
+                if cum.total_cost > 0.0 {
+                    format!("${:.2}", cum.total_cost)
+                } else {
+                    "—".to_string()
+                },
                 Style::default().fg(config::yellow()),
             ),
         ])
@@ -269,7 +342,9 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
     let action_line = if available {
         Line::from(Span::styled(
             "[h/Enter] 体检并雇佣 →",
-            Style::default().fg(config::green()).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(config::green())
+                .add_modifier(Modifier::BOLD),
         ))
     } else {
         Line::from(Span::styled("即将上线，敬请期待", dim))
@@ -280,10 +355,38 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
 fn render_stat_tiles(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
     let available = e.status.eq_ignore_ascii_case("available");
     let tiles: [(&str, String, ratatui::style::Color); 4] = [
-        ("STATUS", if available { "available".to_string() } else { e.status.clone() }, if available { config::green() } else { config::dim() }),
-        ("CATEGORY", if e.category.is_empty() { "—".to_string() } else { e.category.clone() }, config::fg()),
+        (
+            "STATUS",
+            if available {
+                "available".to_string()
+            } else {
+                e.status.clone()
+            },
+            if available {
+                config::green()
+            } else {
+                config::dim()
+            },
+        ),
+        (
+            "CATEGORY",
+            if e.category.is_empty() {
+                "—".to_string()
+            } else {
+                e.category.clone()
+            },
+            config::fg(),
+        ),
         ("TAGS", e.tags.len().to_string(), config::yellow()),
-        ("HERMES", if e.hermes_req.is_empty() { "—".to_string() } else { e.hermes_req.clone() }, config::aqua()),
+        (
+            "HERMES",
+            if e.hermes_req.is_empty() {
+                "—".to_string()
+            } else {
+                e.hermes_req.clone()
+            },
+            config::aqua(),
+        ),
     ];
     let cols = Layout::default()
         .direction(Direction::Horizontal)
@@ -298,17 +401,31 @@ fn render_stat_tiles(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
                 .style(Style::default().bg(config::bg1())),
             *col,
         );
-        let tinner = Rect { x: col.x + 1, y: col.y + 1, width: col.width.saturating_sub(2), height: 1.min(col.height) };
+        let tinner = Rect {
+            x: col.x + 1,
+            y: col.y + 1,
+            width: col.width.saturating_sub(2),
+            height: 1.min(col.height),
+        };
         frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(value.clone(), Style::default().fg(*color).add_modifier(Modifier::BOLD)),
-            ])),
+            Paragraph::new(Line::from(vec![Span::styled(
+                value.clone(),
+                Style::default().fg(*color).add_modifier(Modifier::BOLD),
+            )])),
             tinner,
         );
         if col.height > 2 {
-            let label_area = Rect { x: col.x + 1, y: col.y + 2, width: col.width.saturating_sub(2), height: 1 };
+            let label_area = Rect {
+                x: col.x + 1,
+                y: col.y + 2,
+                width: col.width.saturating_sub(2),
+                height: 1,
+            };
             frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(*label, Style::default().fg(config::dim())))),
+                Paragraph::new(Line::from(Span::styled(
+                    *label,
+                    Style::default().fg(config::dim()),
+                ))),
                 label_area,
             );
         }
@@ -324,5 +441,8 @@ fn render_skill_chips(frame: &mut Frame<'_>, tags: &[String], area: Rect) {
         ));
         spans.push(Span::raw(" "));
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)).wrap(Wrap { trim: true }), area);
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)).wrap(Wrap { trim: true }),
+        area,
+    );
 }

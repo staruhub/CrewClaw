@@ -158,8 +158,14 @@ pub(crate) fn render_settings(frame: &mut Frame<'_>, ui_state: &UiState) {
                 .add_modifier(Modifier::BOLD),
         ))
         .title_bottom(Line::from(vec![
-            Span::styled(" j/k 选择 · h/l 或 Enter 切换值", Style::default().fg(config::dim())),
-            Span::styled("  更改即时生效 · Esc 关闭 ", Style::default().fg(config::dim())),
+            Span::styled(
+                " j/k 选择 · h/l 或 Enter 切换值",
+                Style::default().fg(config::dim()),
+            ),
+            Span::styled(
+                "  更改即时生效 · Esc 关闭 ",
+                Style::default().fg(config::dim()),
+            ),
         ]))
         .borders(Borders::ALL)
         // v0.16 W4.3：aqua 边框(原 purple,设计稿 SETTINGS 用 --aqua)。
@@ -193,14 +199,23 @@ pub(crate) fn render_settings(frame: &mut Frame<'_>, ui_state: &UiState) {
             Style::default().fg(config::fg())
         };
         let value_str = format!("‹ {} ›", row.value);
-        let note = if row.unsupported { "  引擎暂不支持" } else { "" };
-        let label_col = format!("{:<width$}", truncate_display_width(row.label, LABEL_W), width = LABEL_W);
+        let note = if row.unsupported {
+            "  引擎暂不支持"
+        } else {
+            ""
+        };
+        let label_col = format!(
+            "{:<width$}",
+            truncate_display_width(row.label, LABEL_W),
+            width = LABEL_W
+        );
         let left = format!("{marker}{label_col}");
         // v0.16 W4.3：desc 列(设计稿弹性截断说明文字),挤在 label 和右侧 value/note 之间。
         let fixed_w = left.width() + value_str.width() + note.width() + 2;
         let desc_w = width.saturating_sub(fixed_w).max(0);
         let desc_shown = truncate_display_width(row.desc, desc_w);
-        let pad = width.saturating_sub(left.width() + desc_shown.width() + value_str.width() + note.width());
+        let pad = width
+            .saturating_sub(left.width() + desc_shown.width() + value_str.width() + note.width());
         let row_bg = if selected {
             Style::default().bg(config::bg2())
         } else {

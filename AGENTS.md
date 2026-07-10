@@ -2,31 +2,55 @@
 
 ## Project
 
-This repo builds CrewClaw by ChaoGeek: a Vite website, static expert registry, Hermes expert profile distributions, a local CLI wrapper, and a validator.
+This repo builds **CrewClaw by ChaoGeek: an AI Employee Platform** — discover, hire, deploy, use,
+and evaluate digital employees. One line: *OpenCode makes AI able to work; OpenWork gives AI a
+computer; CrewClaw proves which AI employee deserves to be hired.*
 
-## Boundaries
+Components: the two-file employee standard (`hire.yaml` hiring contract + `crewclaw.employee.yaml`
+runtime spec, JSON Schemas in `contracts/schema/`), the employee registry + validator, the Node
+reference runtime (`packages/runtime`, TaskEvent JSONL), the Ratatui supervision workbench
+(`crates/crewclaw-cli`), the evaluation runner (real benchmark scores), and the local-first
+marketplace website (Vite + hono, real package downloads). Authoritative product doc:
+`../prd_v0.18.md` (boundary charter included).
 
-- Hermes Agent is the runtime. Do not fork or modify Hermes internals.
-- Do not build Cursor integration for MVP.
-- Do not write directly to `~/.hermes`; use official `hermes profile` commands.
-- Do not commit `.env`, `auth.json`, memories, sessions, logs, state DBs, workspaces, or user data.
-- P0 installable experts are only `code-review-shrimp` and `product-prd-crab`.
-- `hermes-onboarding-conch` and `docs-octopus` are Coming Soon unless explicitly requested.
+## Boundaries (charter, 2026-07-10)
+
+- **CrewClaw TUI = supervision cockpit** (observe / control / accept). Built features stay; new
+  features may only be simple preview/viewing. Editors, file managers, browsers, long-running
+  execution belong to **OpenWork** — never rebuild them here.
+- **Website = local-first storefront**: a projection of the registry + real package downloads.
+  Hosted marketplace (accounts/backend) is an explicit far-future milestone.
+- **TaskEvent is additive-only**: never change existing event semantics; add variants.
+- **Honesty rules**: use real data where it exists, label MOCK explicitly where it doesn't, never
+  fabricate; a mock eval score never overwrites a real (mock:false) certification score.
+- Hermes Agent is the external runtime target. Do not fork or modify Hermes internals; do not
+  write directly to `~/.hermes`; use official `hermes profile` commands.
+- Do not commit `.env`, `auth.json`, memories, sessions, logs, state DBs, workspaces, or user data
+  (single source: `contracts/forbidden-paths.ts`).
 
 ## Commands
 
-- `pnpm run check`
-- `pnpm run lint`
-- `pnpm test`
-- `pnpm run build`
+- `pnpm run check` / `pnpm run lint` / `pnpm test`
+- `pnpm run test:runtime` / `pnpm run test:conformance`
+- `cargo test --manifest-path crates/crewclaw-cli/Cargo.toml`
 - `pnpm run validate:all-experts`
+- `pnpm run schema:generate`
+- `pnpm eval:expert <slug> [--mock]`
 - `pnpm run test:e2e`
 - `pnpm run crewclaw list`
 
-## Expert Package Rules
+## Employee Package Rules
 
-Each available expert must include `distribution.yaml`, `README.md`, `SOUL.md`, `config.yaml`, `mcp.json`, `.env.EXAMPLE`, `CERTIFICATION.md`, `EXAMPLES.md`, `EVALS.md`, `CHANGELOG.md`, and at least one `skills/**/SKILL.md`.
+Every available expert must include BOTH standard files — `hire.yaml` (validated by
+`contracts/manifest.ts`) and `crewclaw.employee.yaml` (validated by `contracts/employee-spec.ts`,
+eval_suite + outcome_rubric required) — plus `distribution.yaml`, `README.md`, `SOUL.md`,
+`config.yaml`, `mcp.json`, `.env.EXAMPLE`, `CERTIFICATION.md`, `EXAMPLES.md`, `EVALS.md`,
+`CHANGELOG.md`, and at least one `skills/**/SKILL.md`. Versions must agree across registry /
+hire.yaml / distribution.yaml / spec.
 
 ## Done Means
 
-All checks pass, validator catches unsafe packages, CLI tests use mocked process execution, website builds, and local Hermes smoke testing is recorded when available.
+Real behavior wired into the live path and exercised end to end — not scaffolding, not orphaned
+modules, not just green unit tests. All checks pass, the validator rejects unsafe packages, the
+website builds, and Rust-side changes are release-built and deployed (rename trick over the
+running `crewclaw.exe`).

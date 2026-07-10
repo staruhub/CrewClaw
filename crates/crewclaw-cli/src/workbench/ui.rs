@@ -149,11 +149,17 @@ pub(crate) fn render_with_input_spans(
     }
     // v0.15 P1-2：通知中心浮层（居中）。
     if ui_state.notif_open {
-        crate::workbench::widgets::overlay_notifications::render_notifications(frame, state, ui_state);
+        crate::workbench::widgets::overlay_notifications::render_notifications(
+            frame, state, ui_state,
+        );
     }
     // v0.15 P1-5：产物预览浮层（居中,在 TASK DETAIL 之上——预览是最内层）。
     if ui_state.preview_open {
-        crate::workbench::widgets::overlay_preview::render_preview(frame, state, ui_state.preview_scroll);
+        crate::workbench::widgets::overlay_preview::render_preview(
+            frame,
+            state,
+            ui_state.preview_scroll,
+        );
     }
     render_onboarding(frame, state, ui_state);
     // v0.13 M5：宽屏三栏用中栏底部的 WAITING APPROVAL 条（render_workbench_3col 内），
@@ -333,7 +339,11 @@ fn render_hint_row(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState, 
     // 忙态/待办仍是整行单色（动态文案,无键帽结构）。
     if let Some(since) = state.busy_since {
         let secs = since.elapsed().as_millis() / 1000;
-        let text = format!("{} 生成中… {}s", spinner_frame(since.elapsed().as_millis()), secs);
+        let text = format!(
+            "{} 生成中… {}s",
+            spinner_frame(since.elapsed().as_millis()),
+            secs
+        );
         return render_hint_plain(frame, &text, area);
     }
     if let Some(t) = pending_actions_line(&state.pending_actions, width) {
@@ -361,7 +371,9 @@ fn render_hint_row(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState, 
             ("Esc", "离开输入框"),
         ]
     };
-    let key_style = Style::default().fg(config::fg()).add_modifier(Modifier::BOLD);
+    let key_style = Style::default()
+        .fg(config::fg())
+        .add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(config::dim());
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut used = 0usize;
@@ -644,7 +656,9 @@ fn render_onboarding(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState
     let block = Block::default()
         .title(Span::styled(
             " WELCOME ABOARD · 新员工入职 ",
-            Style::default().fg(config::green()).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(config::green())
+                .add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(config::green()))
@@ -660,14 +674,21 @@ fn render_onboarding(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState
             .spacing(2)
             .split(inner)
     } else {
-        Layout::default().constraints([Constraint::Min(10)]).split(inner)
+        Layout::default()
+            .constraints([Constraint::Min(10)])
+            .split(inner)
     };
     let body_col = if has_avatar {
         if let Some(e) = emp {
             let avatar_lines: Vec<Line> = e
                 .avatar
                 .iter()
-                .map(|row| Line::from(Span::styled(row.clone(), Style::default().fg(config::blue()))))
+                .map(|row| {
+                    Line::from(Span::styled(
+                        row.clone(),
+                        Style::default().fg(config::blue()),
+                    ))
+                })
                 .collect();
             frame.render_widget(Paragraph::new(Text::from(avatar_lines)), cols[0]);
         }
@@ -700,7 +721,10 @@ fn render_onboarding(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState
             Style::default().fg(config::fg()),
         )));
     }
-    frame.render_widget(Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }), rows[0]);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }),
+        rows[0],
+    );
 
     // 底行：● ● ○ 步点(green,当前步实心) + 右 hint。
     let dots: String = (0..steps.len())
@@ -773,7 +797,9 @@ fn render_command_picker(frame: &mut Frame<'_>, state: &AppState, input_area: Re
     for (index, command) in picker.matches.iter().enumerate().take(8) {
         let selected = index == picker.selected;
         let marker_style = if selected {
-            Style::default().fg(config::yellow()).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(config::yellow())
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(config::bg1())
         };
@@ -782,14 +808,24 @@ fn render_command_picker(frame: &mut Frame<'_>, state: &AppState, input_area: Re
         } else {
             Style::default()
         };
-        let name = format!("{:<width$}", truncate_display_width(&command.name, NAME_W), width = NAME_W);
+        let name = format!(
+            "{:<width$}",
+            truncate_display_width(&command.name, NAME_W),
+            width = NAME_W
+        );
         lines.push(Line::from(vec![
             Span::styled("▌ ", marker_style.patch(row_bg)),
             Span::styled(
                 name,
-                Style::default().fg(config::yellow()).add_modifier(Modifier::BOLD).patch(row_bg),
+                Style::default()
+                    .fg(config::yellow())
+                    .add_modifier(Modifier::BOLD)
+                    .patch(row_bg),
             ),
-            Span::styled(command.desc.clone(), Style::default().fg(config::dim()).patch(row_bg)),
+            Span::styled(
+                command.desc.clone(),
+                Style::default().fg(config::dim()).patch(row_bg),
+            ),
         ]));
     }
     // v0.16 W4.5：同 ref picker 的修法——按输入框上方可用空间(input_area.y)封顶,不按输入框
@@ -807,13 +843,17 @@ fn render_command_picker(frame: &mut Frame<'_>, state: &AppState, input_area: Re
     let block = Block::default()
         .title(Span::styled(
             " COMMANDS · ↑↓/Tab 选择 · Enter 确认 · Esc 清空 ",
-            Style::default().fg(config::yellow()).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(config::yellow())
+                .add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(config::yellow()))
         .style(Style::default().bg(config::bg1()));
     frame.render_widget(
-        Paragraph::new(Text::from(lines)).block(block).wrap(Wrap { trim: true }),
+        Paragraph::new(Text::from(lines))
+            .block(block)
+            .wrap(Wrap { trim: true }),
         area,
     );
 }
@@ -848,7 +888,12 @@ fn render_workbench_3col(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiS
         .split(area);
 
     // v0.17 P0-1：density=compact(prefs.density==1) 真消费点——去掉小节间虚线分隔。
-    super::widgets::workbench_panels::render_employee(frame, state, cols[0], ui_state.prefs.density == 1);
+    super::widgets::workbench_panels::render_employee(
+        frame,
+        state,
+        cols[0],
+        ui_state.prefs.density == 1,
+    );
 
     // 中栏：TASK QUEUE（真实任务历史，高度按内容 2..=5）+ SESSION + EVENT DETAIL（选中时）。
     let queue_rows = state
@@ -867,7 +912,11 @@ fn render_workbench_3col(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiS
     // v0.13 M5：审批期在中栏底部插 WAITING APPROVAL 条（3 行；替代窄屏的居中模态）。
     // v0.16 W3.5：审批已解决但有 verdict 待展示时，同一槽位渲染结论条。
     let show_verdict = state.approval.is_none() && state.last_verdict.is_some();
-    let approval_h: u16 = if state.approval.is_some() || show_verdict { 3 } else { 0 };
+    let approval_h: u16 = if state.approval.is_some() || show_verdict {
+        3
+    } else {
+        0
+    };
     let center = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -879,9 +928,17 @@ fn render_workbench_3col(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiS
         .split(cols[1]);
     super::widgets::workbench_panels::render_task_queue(frame, state, center[0]);
     // SESSION 右侧动态标题：#N 当前/最近任务 + 真成本（有则显示）。
-    let finished_n = state.timeline.iter().filter(|e| e.task_meta.is_some()).count();
+    let finished_n = state
+        .timeline
+        .iter()
+        .filter(|e| e.task_meta.is_some())
+        .count();
     let session_right = if let Some(task) = state.task.as_ref() {
-        let seq = if task.status == "running" { finished_n + 1 } else { finished_n.max(1) };
+        let seq = if task.status == "running" {
+            finished_n + 1
+        } else {
+            finished_n.max(1)
+        };
         let cost: f64 = state
             .timeline
             .iter()
@@ -895,7 +952,15 @@ fn render_workbench_3col(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiS
     } else {
         None
     };
-    render_message_stream(frame, state, ui_state, center[1], "SESSION", session_right, true);
+    render_message_stream(
+        frame,
+        state,
+        ui_state,
+        center[1],
+        "SESSION",
+        session_right,
+        true,
+    );
     if let Some(entry) = detail_selected {
         render_event_detail(frame, entry, center[2]);
     }
@@ -911,7 +976,11 @@ fn render_workbench_3col(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiS
 /// v0.16 W3.5：审批终态结论条——绿(已验收)/红(已驳回)边框 + 粗体文本,
 /// 占用与 WAITING APPROVAL 条相同的槽位(设计稿 showVerdict 分支)。
 fn render_verdict_bar(frame: &mut Frame<'_>, accepted: bool, text: &str, area: Rect) {
-    let color = if accepted { config::green() } else { config::red() };
+    let color = if accepted {
+        config::green()
+    } else {
+        config::red()
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(color));
@@ -938,7 +1007,10 @@ fn render_approval_bar(frame: &mut Frame<'_>, approval: &super::state::Approval,
     let width = inner.width as usize;
     // v0.14 N1：键位分色（设计稿：[a] 绿 / [r] 红）。
     let keys_w = "[a] 批准 · [r] 驳回".width();
-    let reason = approval.reason.clone().unwrap_or_else(|| "需要确认授权".to_string());
+    let reason = approval
+        .reason
+        .clone()
+        .unwrap_or_else(|| "需要确认授权".to_string());
     let head = "⏸ WAITING APPROVAL  ";
     let reason_w = width.saturating_sub(head.width() + keys_w + 2);
     let reason = truncate_display_width(&reason, reason_w.max(4));
@@ -953,9 +1025,19 @@ fn render_approval_bar(frame: &mut Frame<'_>, approval: &super::state::Approval,
             ),
             Span::styled(reason, Style::default().fg(config::fg())),
             Span::raw(" ".repeat(pad)),
-            Span::styled("[a]", Style::default().fg(config::green()).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[a]",
+                Style::default()
+                    .fg(config::green())
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" 批准 · ", Style::default().fg(config::dim())),
-            Span::styled("[r]", Style::default().fg(config::red()).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[r]",
+                Style::default()
+                    .fg(config::red())
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" 驳回", Style::default().fg(config::dim())),
         ])),
         inner,
@@ -976,8 +1058,7 @@ fn render_event_detail(frame: &mut Frame<'_>, entry: &TimelineEntry, area: Rect)
                 .add_modifier(Modifier::BOLD),
         ))
         .title(
-            Line::from(Span::styled(det_meta, Style::default().fg(config::dim())))
-                .right_aligned(),
+            Line::from(Span::styled(det_meta, Style::default().fg(config::dim()))).right_aligned(),
         )
         .borders(Borders::ALL)
         .border_style(Style::default().fg(config::yellow()))
@@ -1061,7 +1142,10 @@ fn render_message_stream(
     // v0.16 W3.3：SESSION 标题后缀 dim `[o] 详情`(设计稿 sessTitle 行的可发现性提示)。
     // 追加的 title 是独立的左对齐段,紧随 panel_block 已画的 "SESSION" 之后,不重复文字。
     if title == "SESSION" {
-        block = block.title(Span::styled(" [o] 详情", Style::default().fg(config::dim())));
+        block = block.title(Span::styled(
+            " [o] 详情",
+            Style::default().fg(config::dim()),
+        ));
     }
     if let Some(right) = title_right {
         block = block.title(
@@ -1544,7 +1628,10 @@ fn render_input(
     let label = input_identity_label(state, area.width);
     // v0.14 N4：占位文案带员工名（设计稿语义;`:` 未实现不写——诚实原则）。
     let placeholder = match state.employee.as_ref() {
-        Some(emp) => format!("和 {} 直接对话，Enter 发送 · 输入 / 呼出命令 · @ 引用文件", emp.name),
+        Some(emp) => format!(
+            "和 {} 直接对话，Enter 发送 · 输入 / 呼出命令 · @ 引用文件",
+            emp.name
+        ),
         None => "输入消息 · 输入 / 呼出命令 · @ 引用文件 · Ctrl+O 面板".to_string(),
     };
     input_area::render(
@@ -1719,7 +1806,10 @@ fn render_artifacts(
 ) {
     let mut lines = Vec::new();
     if state.artifacts.is_empty() {
-        lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM()))));
+        lines.push(Line::from(Span::styled(
+            "(none)",
+            Style::default().fg(DIM()),
+        )));
     }
     for artifact in artifact_panel_rows(state) {
         lines.push(Line::from(vec![
@@ -1810,7 +1900,10 @@ fn render_tools(
 ) {
     let mut lines = Vec::new();
     if state.tools.is_empty() {
-        lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM()))));
+        lines.push(Line::from(Span::styled(
+            "(none)",
+            Style::default().fg(DIM()),
+        )));
     }
     for tool in state.tools.values() {
         lines.push(Line::from(vec![
@@ -1856,7 +1949,10 @@ fn render_inspect(
             task.title
         )));
     } else {
-        lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM()))));
+        lines.push(Line::from(Span::styled(
+            "(none)",
+            Style::default().fg(DIM()),
+        )));
     }
 
     lines.push(Line::from(""));
@@ -1885,7 +1981,10 @@ fn render_inspect(
             approval.reason.as_deref().unwrap_or("")
         )));
     } else {
-        lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM()))));
+        lines.push(Line::from(Span::styled(
+            "(none)",
+            Style::default().fg(DIM()),
+        )));
     }
 
     lines.push(Line::from(""));
@@ -1894,7 +1993,10 @@ fn render_inspect(
         Style::default().fg(ACCENT()).add_modifier(Modifier::BOLD),
     )));
     if state.debug.is_empty() {
-        lines.push(Line::from(Span::styled("(none)", Style::default().fg(DIM()))));
+        lines.push(Line::from(Span::styled(
+            "(none)",
+            Style::default().fg(DIM()),
+        )));
     } else {
         let debug_start = state.debug.len().saturating_sub(6);
         for item in &state.debug[debug_start..] {
@@ -2106,7 +2208,9 @@ fn timeline_line_wide(entry: &TimelineEntry, width: usize, selected: bool) -> Li
     let label = truncate_display_width(&entry.label, width.saturating_sub(head_w).max(4));
     // v0.16 W2：设计稿选中行语言——▌ 选中=yellow,未选=不着色(mk:transparent)。
     let marker_style = if selected {
-        Style::default().fg(config::yellow()).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(config::yellow())
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(config::bg())
     };
@@ -2481,10 +2585,20 @@ mod tests {
                 name: "whale".into(),
                 display_name: "AI落地鲸".into(),
                 status: "available".into(),
-                kpi_cumulative: KpiCumulative { tasks: 12, accepted: 9, total_cost: 4.2, first_hired_ts: Some(1_700_000_000_000) },
+                kpi_cumulative: KpiCumulative {
+                    tasks: 12,
+                    accepted: 9,
+                    total_cost: 4.2,
+                    first_hired_ts: Some(1_700_000_000_000),
+                },
                 ..Default::default()
             },
-            MarketEntry { name: "rookie".into(), display_name: "新秀".into(), status: "available".into(), ..Default::default() },
+            MarketEntry {
+                name: "rookie".into(),
+                display_name: "新秀".into(),
+                status: "available".into(),
+                ..Default::default()
+            },
         ];
 
         // 选中第一个（有历史）：真数字。
@@ -2501,7 +2615,10 @@ mod tests {
         let mut t1 = Terminal::new(TestBackend::new(84, 34)).expect("term");
         t1.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out1 = screen(&t1).replace(' ', "");
-        assert!(out1.contains("尚无历史"), "a never-run employee gets an honest zero-state, not fabricated zeros");
+        assert!(
+            out1.contains("尚无历史"),
+            "a never-run employee gets an honest zero-state, not fabricated zeros"
+        );
     }
 
     #[test]
@@ -2517,8 +2634,14 @@ mod tests {
         assert!(out.contains("Docs Octopus"), "second expert listed");
         // v0.16 W2：选中行 marker 统一成 ▌(与 SESSION/QUEUE 同源语言),旧 ▸ 已废弃。
         assert!(out.contains('▌'), "selection marker on current row");
-        assert!(out.contains("Hermes >=0.3"), "profile shows runtime requirement");
-        assert!(out.contains("[h/Enter]"), "hire action shown for available expert");
+        assert!(
+            out.contains("Hermes >=0.3"),
+            "profile shows runtime requirement"
+        );
+        assert!(
+            out.contains("[h/Enter]"),
+            "hire action shown for available expert"
+        );
         // v0.16 W5.1：双栏改 titled_block(MARKETPLACE/PROFILE)+ stat 瓦片(真 registry 字段,
         // 不造 rating/tasks)+ 底栏 employees 计数。
         assert!(out.contains("MARKETPLACE"), "left panel titled MARKETPLACE");
@@ -2541,8 +2664,14 @@ mod tests {
         let mut t0 = Terminal::new(TestBackend::new(84, 34)).expect("term");
         t0.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out0 = screen(&t0).replace(' ', "");
-        assert!(out0.contains("AI落地鲸") && out0.contains("DocsOctopus"), "no filter shows all experts");
-        assert!(out0.contains("2employees"), "unfiltered count has no denominator");
+        assert!(
+            out0.contains("AI落地鲸") && out0.contains("DocsOctopus"),
+            "no filter shows all experts"
+        );
+        assert!(
+            out0.contains("2employees"),
+            "unfiltered count has no denominator"
+        );
 
         // 过滤生效：查询文本收窄列表，计数带分母，另一个专家从列表消失。
         ui.market_filter = "octopus".to_string();
@@ -2550,15 +2679,24 @@ mod tests {
         t1.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out1 = screen(&t1).replace(' ', "");
         assert!(out1.contains("DocsOctopus"), "matching expert stays listed");
-        assert!(!out1.contains("AI落地鲸"), "non-matching expert filtered out of the list");
-        assert!(out1.contains("1/2employees"), "filtered count shows matched/total");
+        assert!(
+            !out1.contains("AI落地鲸"),
+            "non-matching expert filtered out of the list"
+        );
+        assert!(
+            out1.contains("1/2employees"),
+            "filtered count shows matched/total"
+        );
 
         // 无匹配：PROFILE 面板明确提示，不留空白/不崩溃。
         ui.market_filter = "zzz-no-such-expert".to_string();
         let mut t2 = Terminal::new(TestBackend::new(84, 34)).expect("term");
         t2.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out2 = screen(&t2).replace(' ', "");
-        assert!(out2.contains("无匹配员工"), "no-match state is explicit, not a blank panel");
+        assert!(
+            out2.contains("无匹配员工"),
+            "no-match state is explicit, not a blank panel"
+        );
     }
 
     /// v0.17 P1-B2：COMPARE 浮层——两列真 registry 字段(status/category/tags/hermes/env/
@@ -2576,7 +2714,10 @@ mod tests {
         t0.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out0 = screen(&t0).replace(' ', "");
         assert!(out0.contains("对比2/2"), "footer shows real compare count");
-        assert!(out0.matches("[x]").count() >= 2, "both selected rows show the checked marker");
+        assert!(
+            out0.matches("[x]").count() >= 2,
+            "both selected rows show the checked marker"
+        );
 
         // 打开对比浮层：两员工的真实字段并排显示。
         ui.compare_open = true;
@@ -2584,8 +2725,14 @@ mod tests {
         t1.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out1 = screen(&t1).replace(' ', "");
         assert!(out1.contains("COMPARE"), "overlay titled COMPARE");
-        assert!(out1.contains("AI落地鲸") && out1.contains("DocsOctopus"), "both selected experts shown");
-        assert!(out1.contains("ai-advisory") && out1.contains("documentation"), "real category fields shown");
+        assert!(
+            out1.contains("AI落地鲸") && out1.contains("DocsOctopus"),
+            "both selected experts shown"
+        );
+        assert!(
+            out1.contains("ai-advisory") && out1.contains("documentation"),
+            "real category fields shown"
+        );
         assert!(!out1.contains("★"), "no fabricated rating metric");
     }
 
@@ -2598,7 +2745,8 @@ mod tests {
         ui.screen = Screen::Market;
         ui.market = market_fixture();
         let mut t = Terminal::new(TestBackend::new(30, 20)).expect("term");
-        t.draw(|f| render(f, &state, &ui, "")).expect("draw must not panic at width=30");
+        t.draw(|f| render(f, &state, &ui, ""))
+            .expect("draw must not panic at width=30");
     }
 
     #[test]
@@ -2626,17 +2774,26 @@ mod tests {
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let healthy = screen(&t);
         // v0.16 W5.2：双栏改 titled_block(HIRING FLOW/DOCTOR · 入职体检)+ [✓ READY] 徽标。
-        assert!(healthy.contains("HIRING FLOW"), "left panel titled HIRING FLOW");
+        assert!(
+            healthy.contains("HIRING FLOW"),
+            "left panel titled HIRING FLOW"
+        );
         assert!(healthy.contains("DOCTOR"), "right panel titled DOCTOR");
         assert!(healthy.contains("READY"), "ready marker when healthy");
-        assert!(healthy.contains("no issues") || healthy.contains("全部检查通过"), "healthy doctor row");
+        assert!(
+            healthy.contains("no issues") || healthy.contains("全部检查通过"),
+            "healthy doctor row"
+        );
 
         // 切到 broken 员工 → 显示问题项与建议 + ISSUES 徽标。
         ui.hire_cursor = 1;
         let mut t2 = Terminal::new(TestBackend::new(84, 30)).expect("term");
         t2.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let broken = screen(&t2);
-        assert!(broken.contains("ISSUES"), "issues badge for broken employee");
+        assert!(
+            broken.contains("ISSUES"),
+            "issues badge for broken employee"
+        );
         assert!(broken.contains("Manifest missing"), "issue text shown");
         assert!(broken.contains("Complete hire.yaml"), "suggestion shown");
     }
@@ -2649,9 +2806,14 @@ mod tests {
         let mut ui = UiState::default();
         ui.screen = Screen::Hire;
         ui.market = market_fixture();
-        ui.hire_reports = vec![HireHealth { status: "healthy".to_string(), issues: vec![], suggestions: vec![] }];
+        ui.hire_reports = vec![HireHealth {
+            status: "healthy".to_string(),
+            issues: vec![],
+            suggestions: vec![],
+        }];
         let mut t = Terminal::new(TestBackend::new(30, 20)).expect("term");
-        t.draw(|f| render(f, &state, &ui, "")).expect("draw must not panic at width=30");
+        t.draw(|f| render(f, &state, &ui, ""))
+            .expect("draw must not panic at width=30");
     }
 
     /// v0.16 修复：扫描线开关**不能吞掉内容**——旧实现用 Paragraph 画满行 "─" 字符,直接
@@ -2698,7 +2860,10 @@ mod tests {
                 }
             }
         }
-        assert!(saw_tinted, "scanlines should tint some plain-bg cells to bg2");
+        assert!(
+            saw_tinted,
+            "scanlines should tint some plain-bg cells to bg2"
+        );
     }
 
     /// v0.16 W6.1：EVAL 屏 KPI 瓦片改真实 bg1 边框网格(2 行×3 列)+ trend 行;
@@ -2717,11 +2882,23 @@ mod tests {
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out = screen(&t);
         let compact = out.replace(' ', "");
-        assert!(compact.contains("示例数据"), "MOCK badge still marks the monthly/exam section");
-        assert!(compact.contains("累计KPI"), "kpi tiles carry their own 真实 label, not the MOCK one");
+        assert!(
+            compact.contains("示例数据"),
+            "MOCK badge still marks the monthly/exam section"
+        );
+        assert!(
+            compact.contains("累计KPI"),
+            "kpi tiles carry their own 真实 label, not the MOCK one"
+        );
         assert!(out.contains("REPUTATION"), "reputation sidebar present");
-        assert!(compact.contains("MOCK"), "reputation sidebar marks itself MOCK too (no real reputation source)");
-        assert!(buffer_has_bg(&t, config::Theme::DARK.bg1), "kpi tiles use bg1 fill");
+        assert!(
+            compact.contains("MOCK"),
+            "reputation sidebar marks itself MOCK too (no real reputation source)"
+        );
+        assert!(
+            buffer_has_bg(&t, config::Theme::DARK.bg1),
+            "kpi tiles use bg1 fill"
+        );
     }
 
     /// v0.17 P2 C1：EVAL 的 KPI 瓦片必须真的算出真实累计值(不是摆设标签)——验收率/平均成本/
@@ -2743,12 +2920,27 @@ mod tests {
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out = screen(&t);
         let compact = out.replace(' ', "");
-        assert!(compact.contains("10") && compact.contains("累计任务"), "real cumulative task count");
-        assert!(compact.contains("8") && compact.contains("累计验收"), "real cumulative accepted count");
-        assert!(compact.contains("80%"), "accept rate = accepted/tasks computed correctly (8/10)");
+        assert!(
+            compact.contains("10") && compact.contains("累计任务"),
+            "real cumulative task count"
+        );
+        assert!(
+            compact.contains("8") && compact.contains("累计验收"),
+            "real cumulative accepted count"
+        );
+        assert!(
+            compact.contains("80%"),
+            "accept rate = accepted/tasks computed correctly (8/10)"
+        );
         assert!(compact.contains("$8.00"), "real cumulative cost");
-        assert!(compact.contains("$0.80"), "average cost per task computed correctly (8.0/10)");
-        assert!(compact.contains("2023-11"), "tenure tile annotates the real first-hired date");
+        assert!(
+            compact.contains("$0.80"),
+            "average cost per task computed correctly (8.0/10)"
+        );
+        assert!(
+            compact.contains("2023-11"),
+            "tenure tile annotates the real first-hired date"
+        );
     }
 
     /// v0.18 B2：EVAL 上岗考试 section 三态——真实评测分/MOCK 跑标注/从未评测占位。
@@ -2771,22 +2963,39 @@ mod tests {
         };
 
         // 真实认证分：显示模型 + 真分,不带 MOCK/非认证 标注。
-        let real = ready(serde_json::json!({"score":84,"verdict":"PASS","model":"claude-opus","mock":false,
+        let real = ready(
+            serde_json::json!({"score":84,"verdict":"PASS","model":"claude-opus","mock":false,
             "evaluated_at":1_700_000_000_000_u64,
-            "exams":[{"id":"research-seed","score":84,"passed":true}]}));
-        assert!(real.contains("上岗考试·真实"), "real eval labeled 真实; got sample: has考试={}", real.contains("上岗考试"));
+            "exams":[{"id":"research-seed","score":84,"passed":true}]}),
+        );
+        assert!(
+            real.contains("上岗考试·真实"),
+            "real eval labeled 真实; got sample: has考试={}",
+            real.contains("上岗考试")
+        );
         assert!(real.contains("claude-opus"), "shows the grading model");
-        assert!(!real.contains("非认证分"), "a real cert score must NOT carry the non-cert tag");
+        assert!(
+            !real.contains("非认证分"),
+            "a real cert score must NOT carry the non-cert tag"
+        );
 
         // MOCK 跑：分数照显但明确标非认证。
-        let mock = ready(serde_json::json!({"score":100,"verdict":"PASS","model":"mock","mock":true,
+        let mock = ready(
+            serde_json::json!({"score":100,"verdict":"PASS","model":"mock","mock":true,
             "evaluated_at":1_700_000_000_000_u64,
-            "exams":[{"id":"smoke-1","score":100,"passed":true}]}));
-        assert!(mock.contains("非认证分"), "a mock run is explicitly marked non-cert");
+            "exams":[{"id":"smoke-1","score":100,"passed":true}]}),
+        );
+        assert!(
+            mock.contains("非认证分"),
+            "a mock run is explicitly marked non-cert"
+        );
 
         // 从未评测：回落占位,明示未评测 + 怎么跑真评测。
         let absent = ready(serde_json::json!(null));
-        assert!(absent.contains("未评测") && absent.contains("eval:expert"), "absent state points at how to get a real score");
+        assert!(
+            absent.contains("未评测") && absent.contains("eval:expert"),
+            "absent state points at how to get a real score"
+        );
     }
 
     /// v0.16 W6.1：EVAL 的 KPI 网格 Layout 在窄终端下不panic(退化单栏路径已有,这里补宽栏路径)。
@@ -2796,7 +3005,8 @@ mod tests {
         let mut ui = UiState::default();
         ui.screen = Screen::Eval;
         let mut t = Terminal::new(TestBackend::new(30, 20)).expect("term");
-        t.draw(|f| render(f, &state, &ui, "")).expect("draw must not panic at width=30");
+        t.draw(|f| render(f, &state, &ui, ""))
+            .expect("draw must not panic at width=30");
     }
 
     /// v0.16 W6.2：DREAM 宽屏加 MEMORY 记忆浏览器(MOCK)——tabs/列表/DETAIL 全渲染;
@@ -2813,12 +3023,24 @@ mod tests {
         let out = screen(&t);
         let compact = out.replace(' ', "");
         assert!(compact.contains("记忆浏览器"), "memory browser panel title");
-        assert!(compact.contains("MOCK"), "memory panel honestly tagged MOCK");
+        assert!(
+            compact.contains("MOCK"),
+            "memory panel honestly tagged MOCK"
+        );
         assert!(out.contains("DETAIL"), "detail pane label");
-        assert!(compact.contains("PLAYBOOKDIFF"), "playbook diff section present");
-        assert!(buffer_has_bg(&t, config::Theme::DARK.bg1), "diff rows use bg1 fill");
+        assert!(
+            compact.contains("PLAYBOOKDIFF"),
+            "playbook diff section present"
+        );
+        assert!(
+            buffer_has_bg(&t, config::Theme::DARK.bg1),
+            "diff rows use bg1 fill"
+        );
         // 首个记忆条目(全部 tab 下)应可见。
-        assert!(compact.contains("华东区营收口径"), "first memory item title shown");
+        assert!(
+            compact.contains("华东区营收口径"),
+            "first memory item title shown"
+        );
     }
 
     /// v0.16 W6.2：DREAM 双栏(main + memory)Layout 在窄终端下不panic。
@@ -2828,7 +3050,8 @@ mod tests {
         let mut ui = UiState::default();
         ui.screen = Screen::Dream;
         let mut t = Terminal::new(TestBackend::new(30, 20)).expect("term");
-        t.draw(|f| render(f, &state, &ui, "")).expect("draw must not panic at width=30");
+        t.draw(|f| render(f, &state, &ui, ""))
+            .expect("draw must not panic at width=30");
     }
 
     #[test]
@@ -2838,7 +3061,10 @@ mod tests {
         ui.screen = Screen::Market; // market 空
         let mut t = Terminal::new(TestBackend::new(84, 20)).expect("term");
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
-        assert!(screen(&t).contains("experts.json"), "empty market shows source hint");
+        assert!(
+            screen(&t).contains("experts.json"),
+            "empty market shows source hint"
+        );
     }
 
     fn scripted_workbench_state() -> AppState {
@@ -2875,7 +3101,11 @@ mod tests {
             1_783_400_200_000,
             serde_json::json!({"id":"a1","name":"report.md","kind":"markdown","path":"/x/report.md","status":"draft","bytes":12_700}),
         ));
-        state.reduce(&ev("token.delta", 1_783_400_210_000, serde_json::json!({"text":"报告已生成，等待验收。"})));
+        state.reduce(&ev(
+            "token.delta",
+            1_783_400_210_000,
+            serde_json::json!({"text":"报告已生成，等待验收。"}),
+        ));
         state.reduce(&ev(
             "task.completed",
             1_783_400_220_000,
@@ -2910,7 +3140,10 @@ mod tests {
         // 右栏真数据。
         assert!(out.contains("12.4 KB"), "artifact bytes as KB");
         assert!(out.contains("web_search"), "session-observed tool");
-        assert!(out.contains("[official]"), "evidence source_type tag (no fabricated confidence)");
+        assert!(
+            out.contains("[official]"),
+            "evidence source_type tag (no fabricated confidence)"
+        );
         // 三栏 SESSION 不重复员工卡（左栏已有身份）。
         assert!(!out.contains('╔'), "no duplicate pixel card in SESSION");
     }
@@ -2934,7 +3167,10 @@ mod tests {
         let out = screen(&t);
         let compact = out.replace(' ', "");
         assert!(out.contains("KPI"), "kpi sections present");
-        assert!(compact.contains("累计"), "a distinct cumulative section exists (not just this-session)");
+        assert!(
+            compact.contains("累计"),
+            "a distinct cumulative section exists (not just this-session)"
+        );
         assert!(compact.contains("$3.50"), "real cumulative cost shown");
         // 首次上岗日期是 YYYY-MM-DD（不是 HH:MM——这是跨会话的入职日,不是某次事件的时刻）。
         assert!(
@@ -2966,12 +3202,22 @@ mod tests {
         assert!(out.contains("task.started"), "timeline event types in log");
         assert!(out.contains("$0.36"), "real est_cost");
         assert!(out.contains("12.4 KB"), "artifact bytes as KB");
-        assert!(out.contains("official"), "evidence source_type (real, not fabricated)");
+        assert!(
+            out.contains("official"),
+            "evidence source_type (real, not fabricated)"
+        );
         // 全屏浮层覆盖：底层三栏的 TASK QUEUE 标题不再可见（被不透明底盖住）。
-        assert!(!out.contains("TASK QUEUE"), "full-screen overlay hides the 3-col underneath");
+        assert!(
+            !out.contains("TASK QUEUE"),
+            "full-screen overlay hides the 3-col underneath"
+        );
         // 返回提示。
         let compact = out.replace(' ', "");
-        assert!(compact.contains("返回工作台"), "esc-to-return hint; tail={:?}", &out[out.len().saturating_sub(500)..]);
+        assert!(
+            compact.contains("返回工作台"),
+            "esc-to-return hint; tail={:?}",
+            &out[out.len().saturating_sub(500)..]
+        );
     }
 
     /// v0.15 P1-5：产物预览浮层真读磁盘文件内容（read_artifact_preview 复用）。
@@ -3006,7 +3252,10 @@ mod tests {
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out = screen(&t);
         let compact = out.replace(' ', "");
-        assert!(out.contains("SENTINEL_ZZZ"), "real file contents shown in preview");
+        assert!(
+            out.contains("SENTINEL_ZZZ"),
+            "real file contents shown in preview"
+        );
         assert!(out.contains("report.md"), "artifact name in title");
         assert!(out.contains("2.0 KB"), "real bytes meta");
         assert!(compact.contains("关闭"), "close hint present");
@@ -3058,14 +3307,20 @@ mod tests {
 
         let mut t0 = Terminal::new(TestBackend::new(160, 44)).expect("term");
         t0.draw(|f| render(f, &state, &ui, "")).expect("draw");
-        assert!(screen(&t0).contains("LINE_MARK_000"), "top of file visible at scroll=0");
+        assert!(
+            screen(&t0).contains("LINE_MARK_000"),
+            "top of file visible at scroll=0"
+        );
         // 底部 n/N 序号(首个产物,共 2 个)。
         assert!(screen(&t0).contains("1/2"), "footer shows n/N file index");
 
         ui.preview_scroll = 30;
         let mut t1 = Terminal::new(TestBackend::new(160, 44)).expect("term");
         t1.draw(|f| render(f, &state, &ui, "")).expect("draw");
-        assert!(!screen(&t1).contains("LINE_MARK_000"), "scrolled past the first line");
+        assert!(
+            !screen(&t1).contains("LINE_MARK_000"),
+            "scrolled past the first line"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -3103,7 +3358,9 @@ mod tests {
         // 逐行断言需按 y 单独取一行文本(row_text),不能对 out 直接 .lines()。
         assert!(c2.contains("→去批准"), "action text for Approval kind");
         let title_row = row_text(&t2, 1);
-        let title_col = title_row.find("NOTIFICATIONS").expect("title row has NOTIFICATIONS");
+        let title_col = title_row
+            .find("NOTIFICATIONS")
+            .expect("title row has NOTIFICATIONS");
         assert!(
             title_col as u16 > t2.size().unwrap().width / 2,
             "overlay title starts in the right half (top-right anchor), got col={title_col}"
@@ -3133,7 +3390,9 @@ mod tests {
         let backend = t.backend().buffer();
         let width = t.size().unwrap().width;
         let find_col = |needle: &str, y: u16| -> Option<usize> {
-            let row: String = (0..width).map(|x| backend.cell((x, y)).unwrap().symbol()).collect::<String>();
+            let row: String = (0..width)
+                .map(|x| backend.cell((x, y)).unwrap().symbol())
+                .collect::<String>();
             row.find(needle)
         };
         // 找到 SCREENS 和 UI 各自所在的行(应相同,横排同一行)。
@@ -3147,7 +3406,10 @@ mod tests {
                 ui_row = Some(y);
             }
         }
-        assert_eq!(screens_row, ui_row, "SCREENS and UI group titles are on the same row (horizontal layout)");
+        assert_eq!(
+            screens_row, ui_row,
+            "SCREENS and UI group titles are on the same row (horizontal layout)"
+        );
     }
 
     /// v0.16 W4.5：命令菜单样式对齐设计稿——yellow 边框 + 题行提示 + ▌ 选中语言。
@@ -3161,8 +3423,14 @@ mod tests {
             query: "".to_string(),
             selected: 1,
             matches: vec![
-                CommandInfo { name: "/help".to_string(), desc: "打开帮助".to_string() },
-                CommandInfo { name: "/clear".to_string(), desc: "清空上下文".to_string() },
+                CommandInfo {
+                    name: "/help".to_string(),
+                    desc: "打开帮助".to_string(),
+                },
+                CommandInfo {
+                    name: "/clear".to_string(),
+                    desc: "清空上下文".to_string(),
+                },
             ],
         });
         let ui = UiState::default();
@@ -3174,7 +3442,10 @@ mod tests {
         assert!(out.contains("/help"), "first command listed");
         assert!(out.contains("/clear"), "second command listed");
         assert!(compact.contains("清空上下文"), "desc column shown");
-        assert!(buffer_has_fg(&t, config::Theme::DARK.yellow), "yellow accents present");
+        assert!(
+            buffer_has_fg(&t, config::Theme::DARK.yellow),
+            "yellow accents present"
+        );
     }
 
     /// v0.16 W4.6：入职仪式对齐设计稿——WELCOME ABOARD 题头(green)+ 每步标题 yellow +
@@ -3201,11 +3472,20 @@ mod tests {
         let out = screen(&t);
         let compact = out.replace(' ', "");
         assert!(out.contains("WELCOME ABOARD"), "welcome title");
-        assert!(compact.contains("协作方式"), "step 2 title shown (0-indexed step=1)");
+        assert!(
+            compact.contains("协作方式"),
+            "step 2 title shown (0-indexed step=1)"
+        );
         assert!(out.contains('●'), "current step dot filled");
         assert!(out.contains('○'), "other step dot hollow");
-        assert!(buffer_has_fg(&t, config::Theme::DARK.blue), "avatar rendered in blue");
-        assert!(buffer_has_fg(&t, config::Theme::DARK.green), "green welcome/border accents");
+        assert!(
+            buffer_has_fg(&t, config::Theme::DARK.blue),
+            "avatar rendered in blue"
+        );
+        assert!(
+            buffer_has_fg(&t, config::Theme::DARK.green),
+            "green welcome/border accents"
+        );
     }
 
     /// v0.16 修复：居中弹层必须先铺整帧幕布——四周留白不能露出底层 WORKBENCH 的真实内容。
@@ -3230,7 +3510,13 @@ mod tests {
         });
 
         // 底层三栏在这份 state 下真实会出现的、独一无二的文本片段。
-        let leaks = ["EMPLOYEE", "TASK QUEUE", "task.started", "ARTIFACTS", "调研 2026"];
+        let leaks = [
+            "EMPLOYEE",
+            "TASK QUEUE",
+            "task.started",
+            "ARTIFACTS",
+            "调研 2026",
+        ];
 
         let assert_no_leak = |ui: &UiState, label: &str| {
             let mut t = Terminal::new(TestBackend::new(160, 44)).expect("term");
@@ -3321,10 +3607,22 @@ mod tests {
         assert!(compact.contains("主题"), "theme row");
         // v0.16 W4.3：行距 → 信息密度(设计稿标签);desc 列 + 设计稿选项集。
         assert!(compact.contains("信息密度"), "density row (design label)");
-        assert!(compact.contains("行高与面板留白"), "desc column shown for density row");
-        assert!(compact.contains("comfortable") || compact.contains("compact"), "design's density option value shown");
-        assert!(compact.contains("$20") || compact.contains("$50"), "design's budget option value shown");
-        assert!(compact.contains("引擎暂不支持"), "behavior rows flagged unsupported (honest)");
+        assert!(
+            compact.contains("行高与面板留白"),
+            "desc column shown for density row"
+        );
+        assert!(
+            compact.contains("comfortable") || compact.contains("compact"),
+            "design's density option value shown"
+        );
+        assert!(
+            compact.contains("$20") || compact.contains("$50"),
+            "design's budget option value shown"
+        );
+        assert!(
+            compact.contains("引擎暂不支持"),
+            "behavior rows flagged unsupported (honest)"
+        );
     }
 
     /// v0.16 W0：整帧铺主题底色——4 套主题逐一应用后,画面四角的 cell.bg 必须等于该主题 bg。
@@ -3381,7 +3679,10 @@ mod tests {
                 _ => {}
             }
         }
-        assert!(saw_bg2, "modeline has bg2 segment blocks (screen/theme name)");
+        assert!(
+            saw_bg2,
+            "modeline has bg2 segment blocks (screen/theme name)"
+        );
         assert!(saw_ml, "modeline row is painted with --ml background");
         // INSERT 侧键帽词。
         ui.mode = InputMode::Insert;
@@ -3407,7 +3708,11 @@ mod tests {
             first_task: "写一份服务器清理报告".into(),
             ..Default::default()
         }];
-        ui.hire_reports = vec![HireHealth { status: "healthy".into(), issues: vec![], suggestions: vec![] }];
+        ui.hire_reports = vec![HireHealth {
+            status: "healthy".into(),
+            issues: vec![],
+            suggestions: vec![],
+        }];
         let state = AppState::default();
 
         // 步骤 0：真实校验行。
@@ -3418,7 +3723,10 @@ mod tests {
         let c0 = s0.replace(' ', "");
         assert!(s0.contains("PUBLISH"), "overlay title");
         assert!(s0.contains("Manifest"), "step 1 name in step bar");
-        assert!(c0.contains("registry+doctor") || c0.contains("真实校验"), "step 1 marked real");
+        assert!(
+            c0.contains("registry+doctor") || c0.contains("真实校验"),
+            "step 1 marked real"
+        );
         assert!(c0.contains("ChaoGeek"), "real registry cert shown");
         assert!(c0.contains("healthy"), "real doctor status shown");
         assert!(!s0.contains("MOCK"), "step 1 has no MOCK tag (it is real)");
@@ -3446,7 +3754,10 @@ mod tests {
         let mut t = Terminal::new(TestBackend::new(160, 44)).expect("term");
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out = screen(&t);
-        assert!(!out.contains('→'), "static arrow replaced by braille spinner while busy");
+        assert!(
+            !out.contains('→'),
+            "static arrow replaced by braille spinner while busy"
+        );
         assert!(
             SPINNER_FRAMES.iter().any(|f| out.contains(f)),
             "a braille spinner frame is present: {out}"
@@ -3456,7 +3767,10 @@ mod tests {
         state.busy_since = None;
         let mut t2 = Terminal::new(TestBackend::new(160, 44)).expect("term");
         t2.draw(|f| render(f, &state, &ui, "")).expect("draw");
-        assert!(screen(&t2).contains('→'), "falls back to static arrow when not busy");
+        assert!(
+            screen(&t2).contains('→'),
+            "falls back to static arrow when not busy"
+        );
     }
 
     /// v0.16 W3.5：审批 accepted 后,WAITING APPROVAL 条槽位改画绿色 verdict 结论
@@ -3471,7 +3785,10 @@ mod tests {
         let out = screen(&t);
         let compact = out.replace(' ', "");
         assert!(compact.contains("已验收"), "verdict text shown: {out}");
-        assert!(!out.contains("WAITING APPROVAL"), "no stale waiting-approval bar alongside verdict");
+        assert!(
+            !out.contains("WAITING APPROVAL"),
+            "no stale waiting-approval bar alongside verdict"
+        );
 
         // 仍在等待审批时不显示 verdict(approval 优先)。
         state.last_verdict = Some((false, "✗ 已驳回".to_string()));
@@ -3484,8 +3801,14 @@ mod tests {
         let mut t2 = Terminal::new(TestBackend::new(160, 44)).expect("term");
         t2.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out2 = screen(&t2);
-        assert!(out2.contains("WAITING APPROVAL"), "pending approval takes priority over stale verdict");
-        assert!(!out2.replace(' ', "").contains("已驳回"), "stale verdict hidden while approval pending");
+        assert!(
+            out2.contains("WAITING APPROVAL"),
+            "pending approval takes priority over stale verdict"
+        );
+        assert!(
+            !out2.replace(' ', "").contains("已驳回"),
+            "stale verdict hidden while approval pending"
+        );
     }
 
     /// v0.14 终验：全要素快照断言——大字标/头像/队列#号/SESSION右标题/右对齐meta/三盒/
@@ -3520,11 +3843,17 @@ mod tests {
         assert!(out.contains("✓ #1"), "task queue ordinal");
         assert!(out.contains("task #1"), "SESSION right title with real seq");
         assert!(out.contains("$0.36"), "real cost");
-        assert!(compact.contains("生成于12:56"), "artifact created-at (real ts)");
+        assert!(
+            compact.contains("生成于12:56"),
+            "artifact created-at (real ts)"
+        );
         assert!(out.contains("TOOLS"), "tools box");
         assert!(out.contains("EVIDENCE"), "evidence box");
         assert!(compact.contains("j/k切换事件"), "detail hint row");
-        assert!(out.contains("2:4"), "modeline n:N from real cursor/timeline");
+        assert!(
+            out.contains("2:4"),
+            "modeline n:N from real cursor/timeline"
+        );
         assert!(compact.contains("╌╌╌"), "dashed separators in EMPLOYEE");
     }
 
@@ -3546,13 +3875,19 @@ mod tests {
         assert!(wide.contains("WAITING APPROVAL"), "wide bar shown");
         assert!(wide.contains("[a]") && wide.contains("[r]"), "bar keys");
         // v0.14 N0：header 右侧显示真实待办数（审批挂起 = 1）。CJK 续格 → 去空格断言。
-        assert!(wide.replace(' ', "").contains("待办1·"), "header shows real pending count");
+        assert!(
+            wide.replace(' ', "").contains("待办1·"),
+            "header shows real pending count"
+        );
         // 窄屏：模态照旧。
         let mut t2 = Terminal::new(TestBackend::new(100, 30)).expect("term");
         t2.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let narrow = screen(&t2);
         assert!(!narrow.contains("WAITING APPROVAL"), "no bar below 120");
-        assert!(narrow.contains("[a]") && narrow.contains("[d]"), "modal keys");
+        assert!(
+            narrow.contains("[a]") && narrow.contains("[d]"),
+            "modal keys"
+        );
     }
 
     /// v0.13 M4：j/k 选中事件后，EVENT DETAIL 面板出现并显示该事件的 kv。
@@ -3583,7 +3918,10 @@ mod tests {
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out = screen(&t);
         assert!(!out.contains("TASK QUEUE"), "no 3-col chrome below 120");
-        assert!(out.contains('╔'), "single-column keeps the pixel employee card");
+        assert!(
+            out.contains('╔'),
+            "single-column keeps the pixel employee card"
+        );
     }
 
     #[test]
@@ -3635,8 +3973,14 @@ mod tests {
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out = screen(&t);
         // ASCII 标记（审批弹窗按钮）比 CJK 标题更可靠。
-        assert!(out.contains("[a]") && out.contains("[d]"), "approval modal buttons shown");
-        assert!(!out.contains("MOCK"), "DREAM body suppressed during approval");
+        assert!(
+            out.contains("[a]") && out.contains("[d]"),
+            "approval modal buttons shown"
+        );
+        assert!(
+            !out.contains("MOCK"),
+            "DREAM body suppressed during approval"
+        );
     }
 
     #[test]
@@ -3649,8 +3993,14 @@ mod tests {
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.clone()))
             .collect();
-        assert!(joined.contains("小鲸"), "empty state shows employee identity");
-        assert!(joined.contains('▛'), "employee pixel card present on empty state");
+        assert!(
+            joined.contains("小鲸"),
+            "empty state shows employee identity"
+        );
+        assert!(
+            joined.contains('▛'),
+            "employee pixel card present on empty state"
+        );
     }
 
     #[test]
@@ -3678,7 +4028,9 @@ mod tests {
     fn user_wrapped_continuation_keeps_gutter() {
         // AC-VIS-002：宽度窄时用户长文本折行，每条物理行都带 gutter。
         let mut state = employee_state();
-        state.push_user_message("这是一段需要折行的比较长的用户消息内容用来验证续行也带轨".to_string());
+        state.push_user_message(
+            "这是一段需要折行的比较长的用户消息内容用来验证续行也带轨".to_string(),
+        );
         let lines = layout_lines(&state, 20);
         let gutter_lines = lines
             .iter()
@@ -3689,7 +4041,10 @@ mod tests {
                     .unwrap_or(false)
             })
             .count();
-        assert!(gutter_lines >= 2, "wrapped user message keeps gutter on each physical line");
+        assert!(
+            gutter_lines >= 2,
+            "wrapped user message keeps gutter on each physical line"
+        );
     }
 
     #[test]
@@ -3702,7 +4057,10 @@ mod tests {
             .expect("draw");
         let screen = screen(&terminal);
         // 输入框标题应含 model；顶部第一行不应是旧 header 的「模式·状态·模型」串。
-        assert!(screen.contains("claude"), "model label present (input title)");
+        assert!(
+            screen.contains("claude"),
+            "model label present (input title)"
+        );
         assert!(!screen.contains("Chat · "), "old header status string gone");
     }
 
@@ -3717,8 +4075,14 @@ mod tests {
         use super::super::protocol::TaskEvent;
         let ev = |t: &str, d: serde_json::Value| TaskEvent::from_parts(t, 0, d);
         let mut state = AppState::default();
-        state.reduce(&ev("task.started", serde_json::json!({"id":"t","title":"分析","mode":"Chat"})));
-        state.reduce(&ev("thinking.delta", serde_json::json!({"text":"先看渠道结构，"})));
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"t","title":"分析","mode":"Chat"}),
+        ));
+        state.reduce(&ev(
+            "thinking.delta",
+            serde_json::json!({"text":"先看渠道结构，"}),
+        ));
         state.reduce(&ev("token.delta", serde_json::json!({"text":"结论如下"})));
         state.reduce(&ev("task.completed", serde_json::json!({"id":"t"})));
 
@@ -3727,9 +4091,18 @@ mod tests {
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.clone()))
             .collect();
-        assert!(folded_txt.contains("✦") && folded_txt.contains("思考"), "folded thinking header");
-        assert!(folded_txt.contains("+1 lines"), "folded shows line count, not the reasoning body");
-        assert!(!folded_txt.contains("先看渠道结构"), "reasoning body hidden when folded");
+        assert!(
+            folded_txt.contains("✦") && folded_txt.contains("思考"),
+            "folded thinking header"
+        );
+        assert!(
+            folded_txt.contains("+1 lines"),
+            "folded shows line count, not the reasoning body"
+        );
+        assert!(
+            !folded_txt.contains("先看渠道结构"),
+            "reasoning body hidden when folded"
+        );
 
         if let Some(e) = state.timeline.iter_mut().find(|e| e.label == "思考") {
             e.expanded = true;
@@ -3738,7 +4111,10 @@ mod tests {
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.clone()))
             .collect();
-        assert!(expanded_txt.contains("先看渠道结构"), "expanded shows reasoning body");
+        assert!(
+            expanded_txt.contains("先看渠道结构"),
+            "expanded shows reasoning body"
+        );
     }
 
     #[test]
@@ -3760,12 +4136,20 @@ mod tests {
         };
         let lines = task_meta_lines(&meta, 100);
         assert_eq!(lines.len(), 2, "separator rule + count bar");
-        let bar: String = lines[1].spans.iter().map(|s| s.content.to_string()).collect();
+        let bar: String = lines[1]
+            .spans
+            .iter()
+            .map(|s| s.content.to_string())
+            .collect();
         assert!(bar.contains("⏱ 耗时 10m 36s"), "shows elapsed as Xm Ys");
         assert!(bar.contains("读取8") && bar.contains("联网搜索38") && bar.contains("命令9"));
         assert!(!bar.contains("工具"), "zero-count categories are omitted");
         // 分隔线是 ─ 组成。
-        let rule: String = lines[0].spans.iter().map(|s| s.content.to_string()).collect();
+        let rule: String = lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.to_string())
+            .collect();
         assert!(rule.chars().all(|c| c == '─') && !rule.is_empty());
     }
 
@@ -3792,7 +4176,10 @@ mod tests {
         assert!(text.contains("AI 采纳研究员"), "card shows role");
         assert!(text.contains("claude"), "card shows model");
         assert!(text.contains("EMP·"), "card shows employee id tag");
-        assert!(text.contains('▛') && text.contains('▙'), "card shows pixel avatar");
+        assert!(
+            text.contains('▛') && text.contains('▙'),
+            "card shows pixel avatar"
+        );
         assert!(text.contains("ChaoGeek"), "card shows certification");
     }
 
@@ -3805,7 +4192,10 @@ mod tests {
             .iter()
             .flat_map(|ln| ln.spans.iter().map(|s| s.content.to_string()))
             .collect();
-        assert!(text.contains("CREWCLAW") || text.contains('█'), "generic banner");
+        assert!(
+            text.contains("CREWCLAW") || text.contains('█'),
+            "generic banner"
+        );
         assert!(!text.contains("EMP·"), "no employee card without employee");
     }
 
@@ -4010,8 +4400,8 @@ mod tests {
             status: "ready".to_string(),
             summary: Some("fallback summary".to_string()),
             checks: Vec::new(),
-                bytes: None,
-                created_ts: 0,
+            bytes: None,
+            created_ts: 0,
         }];
         let mut ui_state = UiState::default();
         ui_state.drawer = Some(FocusPanel::Artifacts);
@@ -4285,8 +4675,8 @@ mod tests {
             status: "ready".to_string(),
             summary: None,
             checks: Vec::new(),
-                bytes: None,
-                created_ts: 0,
+            bytes: None,
+            created_ts: 0,
         });
         let mut terminal = Terminal::new(TestBackend::new(90, 24)).expect("test terminal");
 
@@ -4714,4 +5104,3 @@ mod tests {
     // 不再是本测试曾锁定的旧版单行状态栏(`idle_status_line`，v0.14 hint_row/modeline 改版时
     // 已被替换掉——本审计一并清理了那批死代码)。旧测试随之移除，验收标准由新测试覆盖。
 }
-

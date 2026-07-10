@@ -125,7 +125,12 @@ fn styled_line(line: &str, line_start: usize, spans: &[(usize, usize)]) -> Line<
     let mut local: Vec<(usize, usize)> = spans
         .iter()
         .filter(|(s, e)| *s < line_end && *e > line_start)
-        .map(|(s, e)| (s.saturating_sub(line_start), (*e).min(line_end) - line_start))
+        .map(|(s, e)| {
+            (
+                s.saturating_sub(line_start),
+                (*e).min(line_end) - line_start,
+            )
+        })
         .collect();
     if local.is_empty() {
         return Line::from(Span::raw(line.to_string()));
@@ -139,7 +144,9 @@ fn styled_line(line: &str, line_start: usize, spans: &[(usize, usize)]) -> Line<
         }
         out.push(Span::styled(
             line[s..e].to_string(),
-            Style::default().fg(ACCENT()).add_modifier(Modifier::REVERSED),
+            Style::default()
+                .fg(ACCENT())
+                .add_modifier(Modifier::REVERSED),
         ));
         pos = e;
     }

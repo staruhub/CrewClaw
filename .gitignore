@@ -53,3 +53,7 @@ coverage/
 
 # session persistence (runtime state)
 .sessions/
+
+# local tool/test artifacts
+test-results/
+.claude/launch.json

@@ -101,5 +101,7 @@ export function track(event: AnalyticsEventName, props: AnalyticsProps = {}) {
 }
 
 export function useAnalytics() {
-  return useCallback(track, []);
+  // react-hooks requires an inline function expression here (a bare reference defeats the
+  // compiler's dependency analysis); behavior is identical — a stable wrapper around track.
+  return useCallback((event: AnalyticsEventName, props: AnalyticsProps = {}) => track(event, props), []);
 }

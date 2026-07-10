@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 import {
   AlertTriangle,
@@ -252,12 +252,10 @@ export default function ReviewQueue() {
   const highRiskCount = pending.filter(
     (submission) => submission.high_risk_permissions.length > 0,
   ).length;
-  const rows = useMemo(
-    () =>
-      submissions.filter(
-        (submission) => submission.status === "submitted" || submission.status === "published",
-      ),
-    [submissions],
+  // 与上面 pending/published 同款的直接 filter——手写 useMemo 反而让 React Compiler 无法保留
+  // 记忆化并跳过整个组件的编译（收益为负）；这个过滤本身开销可忽略。
+  const rows = submissions.filter(
+    (submission) => submission.status === "submitted" || submission.status === "published",
   );
 
   function approve(id: string) {

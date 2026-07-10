@@ -9,20 +9,10 @@ import {
   ShieldCheck,
   Undo2,
 } from "lucide-react";
-import {
-  getPermissionLevel,
-  PermissionLevel,
-  permissionLabel,
-  type PermissionRiskLevel,
-} from "@/components/employee/PermissionLevel";
-import {
-  CHECKOUT_PLANS,
-  PricingBadge,
-  PricingBulletList,
-  PricingPlanIcon,
-  pricingTone,
-  type CheckoutPlanId,
-} from "@/components/PricingInfo";
+import { PermissionLevel } from "@/components/employee/PermissionLevel";
+import { PricingBadge, PricingBulletList, PricingPlanIcon } from "@/components/PricingInfo";
+import { getPermissionLevel, permissionLabel, type PermissionRiskLevel } from "@/lib/permissions";
+import { CHECKOUT_PLANS, pricingTone, type CheckoutPlanId } from "@/lib/pricing";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -212,18 +202,24 @@ export default function HireConfirm() {
     [permissionSummaries],
   );
   const [permissions, setPermissions] = useState<string[]>(defaultPermissions);
-  const [selectedPlan, setSelectedPlan] = useState<CheckoutPlanId>("free");
+  const [selectedPlan, setSelectedPlan] = useState<CheckoutPlanId>(
+    employee ? defaultPlanForPricing(employee.pricing) : "free",
+  );
   const [mockCheckoutConfirmed, setMockCheckoutConfirmed] = useState(false);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [hasJoined, setHasJoined] = useState(false);
 
-  useEffect(() => {
+  // 换员工时重置整套雇佣流程状态。用 React 官方的"渲染期对比上一个 key 调整 state"模式替代
+  // setState-in-effect（后者多渲染一帧旧员工的状态且触发级联渲染警告）。
+  const [prevEmployeeId, setPrevEmployeeId] = useState(employee?.employee_id);
+  if (employee?.employee_id !== prevEmployeeId) {
+    setPrevEmployeeId(employee?.employee_id);
     setPermissions(defaultPermissions);
     setSelectedPlan(employee ? defaultPlanForPricing(employee.pricing) : "free");
     setMockCheckoutConfirmed(false);
     setResultMessage(null);
     setHasJoined(false);
-  }, [defaultPermissions, employee]);
+  }
 
   useEffect(() => {
     if (!employee) return;

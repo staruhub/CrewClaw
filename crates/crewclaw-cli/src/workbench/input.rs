@@ -183,8 +183,7 @@ impl InputBuffer {
         }
         let line_count = normalized.split('\n').count();
         let char_count = normalized.chars().count();
-        let should_fold =
-            line_count >= PASTE_FOLD_MIN_LINES || char_count >= PASTE_FOLD_MIN_CHARS;
+        let should_fold = line_count >= PASTE_FOLD_MIN_LINES || char_count >= PASTE_FOLD_MIN_CHARS;
         if !should_fold {
             self.insert_str(&normalized);
             return;
@@ -615,7 +614,11 @@ fn single_existing_file_path(text: &str) -> Option<String> {
     let unquoted = trimmed
         .strip_prefix('"')
         .and_then(|s| s.strip_suffix('"'))
-        .or_else(|| trimmed.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .or_else(|| {
+            trimmed
+                .strip_prefix('\'')
+                .and_then(|s| s.strip_suffix('\''))
+        })
         .unwrap_or(trimmed);
     if unquoted.is_empty() || unquoted.contains('\n') {
         return None;
@@ -662,9 +665,16 @@ mod span_tests {
         b.insert_paste(&src);
         assert!(b.has_spans(), "multiline paste must fold");
         assert!(b.as_str().contains("[Pasted ~20 lines]"));
-        assert_eq!(b.as_str().lines().count(), 1, "display collapses to one line");
+        assert_eq!(
+            b.as_str().lines().count(),
+            1,
+            "display collapses to one line"
+        );
         let submitted = b.take();
-        assert_eq!(submitted, src, "submit expands placeholder back to original");
+        assert_eq!(
+            submitted, src,
+            "submit expands placeholder back to original"
+        );
         assert_eq!(submitted.lines().count(), 20);
     }
 

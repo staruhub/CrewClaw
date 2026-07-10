@@ -85,7 +85,13 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState, _ui_state: &UiState, area
     }
 }
 
-fn render_main(frame: &mut Frame<'_>, b: &EvalBoard, cum: &KpiCumulative, eval: Option<&EvalReport>, area: Rect) {
+fn render_main(
+    frame: &mut Frame<'_>,
+    b: &EvalBoard,
+    cum: &KpiCumulative,
+    eval: Option<&EvalReport>,
+    area: Rect,
+) {
     let dim = Style::default().fg(config::dim());
     let fg = Style::default().fg(config::fg());
 
@@ -93,13 +99,20 @@ fn render_main(frame: &mut Frame<'_>, b: &EvalBoard, cum: &KpiCumulative, eval: 
     // verdict)仍是一个滚动 Paragraph,用 Layout 纵向分两段。
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(6), Constraint::Min(3)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(6),
+            Constraint::Min(3),
+        ])
         .split(area);
     // v0.17 P2 C1：这 6 格瓦片现在是真数据——标"真实"而非 MOCK(月度条形/考试仍在下方标 MOCK)。
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             " 累计 KPI · 真实（跨会话）",
-            Style::default().fg(config::green()).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(config::green())
+                .add_modifier(Modifier::BOLD),
         ))),
         rows[0],
     );
@@ -129,18 +142,39 @@ fn render_main(frame: &mut Frame<'_>, b: &EvalBoard, cum: &KpiCumulative, eval: 
 }
 
 /// v0.18 B2：上岗考试 section 的三态渲染（真实 / MOCK 跑 / 从未评测占位）。
-fn render_exams(lines: &mut Vec<Line<'static>>, b: &EvalBoard, eval: Option<&EvalReport>, dim: Style, fg: Style) {
+fn render_exams(
+    lines: &mut Vec<Line<'static>>,
+    b: &EvalBoard,
+    eval: Option<&EvalReport>,
+    dim: Style,
+    fg: Style,
+) {
     let score_bar = |score: u32| {
-        let color = if score >= 85 { config::green() } else if score >= 60 { config::yellow() } else { config::red() };
+        let color = if score >= 85 {
+            config::green()
+        } else if score >= 60 {
+            config::yellow()
+        } else {
+            config::red()
+        };
         (bar(score, 100, 18), color)
     };
     match eval {
         // 真实认证分。
         Some(rep) if !rep.mock => {
             lines.push(Line::from(vec![
-                Span::styled("上岗考试 · ", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD)),
                 Span::styled(
-                    format!("真实（{} · {}）", rep.model, crate::workbench::ui::fmt_date(rep.evaluated_at)),
+                    "上岗考试 · ",
+                    Style::default()
+                        .fg(config::dim())
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(
+                        "真实（{} · {}）",
+                        rep.model,
+                        crate::workbench::ui::fmt_date(rep.evaluated_at)
+                    ),
                     Style::default().fg(config::green()),
                 ),
             ]));
@@ -158,8 +192,16 @@ fn render_exams(lines: &mut Vec<Line<'static>>, b: &EvalBoard, eval: Option<&Eva
         // MOCK 跑（CREW_MOCK 机械 harness，非认证分）。
         Some(rep) => {
             lines.push(Line::from(vec![
-                Span::styled("上岗考试 · ", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD)),
-                Span::styled("MOCK 跑（CREW_MOCK · 非认证分）", Style::default().fg(config::orange())),
+                Span::styled(
+                    "上岗考试 · ",
+                    Style::default()
+                        .fg(config::dim())
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "MOCK 跑（CREW_MOCK · 非认证分）",
+                    Style::default().fg(config::orange()),
+                ),
             ]));
             for exam in &rep.exams {
                 let name = crate::workbench::ui::truncate_display_width(&exam.id, 14);
@@ -175,11 +217,23 @@ fn render_exams(lines: &mut Vec<Line<'static>>, b: &EvalBoard, eval: Option<&Eva
         // 从未评测——保留占位（明示 MOCK；提示怎么跑真评测）。
         None => {
             lines.push(Line::from(vec![
-                Span::styled("上岗考试 · ", Style::default().fg(config::dim()).add_modifier(Modifier::BOLD)),
-                Span::styled("示例数据（未评测,跑 eval:expert 出真分）", Style::default().fg(config::orange())),
+                Span::styled(
+                    "上岗考试 · ",
+                    Style::default()
+                        .fg(config::dim())
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "示例数据（未评测,跑 eval:expert 出真分）",
+                    Style::default().fg(config::orange()),
+                ),
             ]));
             for (name, score) in b.exams {
-                let color = if score >= 85 { config::green() } else { config::yellow() };
+                let color = if score >= 85 {
+                    config::green()
+                } else {
+                    config::yellow()
+                };
                 lines.push(Line::from(vec![
                     Span::styled(format!("  {name:<14}"), dim),
                     Span::styled(bar(score, 100, 18), Style::default().fg(color)),
@@ -258,18 +312,33 @@ fn render_kpi_tiles(frame: &mut Frame<'_>, cum: &KpiCumulative, area: Rect) {
                     .style(Style::default().bg(config::bg1())),
                 *col,
             );
-            let value_area = Rect { x: col.x + 1, y: col.y + 1, width: col.width.saturating_sub(2), height: 1.min(col.height) };
+            let value_area = Rect {
+                x: col.x + 1,
+                y: col.y + 1,
+                width: col.width.saturating_sub(2),
+                height: 1.min(col.height),
+            };
             frame.render_widget(
                 Paragraph::new(Line::from(Span::styled(
                     format!("{value}  {label}"),
-                    Style::default().fg(config::green()).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(config::green())
+                        .add_modifier(Modifier::BOLD),
                 ))),
                 value_area,
             );
             if col.height > 2 && !trend.is_empty() {
-                let trend_area = Rect { x: col.x + 1, y: col.y + 2, width: col.width.saturating_sub(2), height: 1 };
+                let trend_area = Rect {
+                    x: col.x + 1,
+                    y: col.y + 2,
+                    width: col.width.saturating_sub(2),
+                    height: 1,
+                };
                 frame.render_widget(
-                    Paragraph::new(Line::from(Span::styled(trend.clone(), Style::default().fg(config::dim())))),
+                    Paragraph::new(Line::from(Span::styled(
+                        trend.clone(),
+                        Style::default().fg(config::dim()),
+                    ))),
                     trend_area,
                 );
             }

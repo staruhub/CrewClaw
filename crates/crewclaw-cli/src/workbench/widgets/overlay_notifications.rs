@@ -44,7 +44,12 @@ fn top_right_rect(frame_area: Rect) -> Rect {
     let height = ((frame_area.height * 6) / 10).min(frame_area.height.saturating_sub(2));
     let x = frame_area.width.saturating_sub(width + 1);
     let y = 1u16.min(frame_area.height.saturating_sub(1));
-    Rect { x, y, width, height }
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
 pub(crate) fn render_notifications(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState) {

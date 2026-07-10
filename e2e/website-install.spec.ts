@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { expect, test } from "@playwright/test";
 
 // Read the registry via fs (not a JSON import) so this stays loader-agnostic under Playwright's
@@ -154,6 +155,9 @@ test("copied website command hires a temporary Hermes profile end to end", async
 
   const profileName = `crewclaw-e2e-${Date.now()}`;
   const hermes = await run("hermes", ["--version"], { timeoutMs: 60_000 });
+  // Environment-dependent: requires a real Hermes install. Skip honestly instead of failing on
+  // machines without the binary (code 127 = spawn ENOENT).
+  test.skip(hermes.code === 127, "hermes binary not on PATH — Hermes end-to-end skipped");
   expect(hermes.code, hermes.stderr || hermes.stdout).toBe(0);
 
   const profiles = await run("hermes", ["profile", "list"], { timeoutMs: 60_000 });
@@ -162,7 +166,7 @@ test("copied website command hires a temporary Hermes profile end to end", async
 
   try {
     const install = await run(commandParts[0], [...commandParts.slice(1), "--name", profileName, "--yes"], {
-      cwd: "/Users/pongpong",
+      cwd: homedir(),
       input: "1\n",
       timeoutMs: 120_000,
     });

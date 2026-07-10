@@ -1,13 +1,10 @@
+// Classification helpers live in @/lib/permissions — this file only exports components so react
+// fast refresh works (react-refresh/only-export-components).
 import type { ComponentType } from "react";
 import { AlertTriangle, Eye, FileCheck2, PencilLine } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { getPermissionLevel, permissionLabel, type PermissionRiskLevel } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
-
-export type PermissionRiskLevel =
-  | "Read-only"
-  | "Write with confirmation"
-  | "Autonomous write"
-  | "Sensitive action";
 
 type PermissionLevelConfig = {
   className: string;
@@ -37,44 +34,6 @@ const LEVEL_CONFIG: Record<PermissionRiskLevel, PermissionLevelConfig> = {
     icon: AlertTriangle,
   },
 };
-
-export function permissionLabel(permission: string) {
-  return permission
-    .replace(/:disabled_by_default/g, " (disabled by default)")
-    .replace(/:human_confirmation_required/g, " (human confirmation required)")
-    .replace(/:disabled/g, " (disabled)")
-    .replace(/_/g, " ");
-}
-
-export function getPermissionLevel(permission: string): PermissionRiskLevel {
-  const value = permission.toLowerCase();
-
-  if (
-    value.includes("delete") ||
-    value.includes("payment") ||
-    value.includes("billing:charge") ||
-    value.includes("invoice:pay") ||
-    value.includes("pay:") ||
-    value.includes("付款") ||
-    value.includes("支付") ||
-    value === "mailbox:send" ||
-    value.includes("email:send") ||
-    value.includes("message:send") ||
-    value.includes("contacts:write")
-  ) {
-    return "Sensitive action";
-  }
-
-  if (value.includes("human_confirmation_required") || value.includes("confirmation")) {
-    return "Write with confirmation";
-  }
-
-  if (value.includes(":write") || value.includes(" write") || value.includes("write:")) {
-    return "Autonomous write";
-  }
-
-  return "Read-only";
-}
 
 export function PermissionLevel({
   className,
