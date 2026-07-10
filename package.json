@@ -28,6 +28,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "schema:generate": "node --import tsx contracts/scripts/generate-schemas.ts",
+    "web:employees": "node --import tsx contracts/scripts/generate-web-employees.ts",
     "eval:expert": "node packages/runtime/eval-runner.mjs"
   },
   "dependencies": {

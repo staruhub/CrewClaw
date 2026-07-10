@@ -61,12 +61,13 @@ export default function Marketplace() {
   const [sortBy, setSortBy] = useState<EmployeeSort>("recommended");
   const saved = useSavedEmployees();
   const categoryGroups = byCategory();
-  const featuredEmployees = [...availableEmployees]
-    .sort((a, b) => b.hire_count - a.hire_count)
-    .slice(0, 2);
-  const topRatedEmployees = [...availableEmployees]
-    .sort((a, b) => b.rating - a.rating || b.hire_count - a.hire_count)
-    .slice(0, 3);
+  // Real-value picks (rating/hire_count were fabricated and are gone): featured = recommended
+  // order, certified = employees that passed ChaoGeek certification with a published spec.
+  const featuredEmployees = sortEmployees(availableEmployees, "recommended").slice(0, 2);
+  const certifiedEmployees = sortEmployees(
+    availableEmployees.filter((employee) => employee.verified),
+    "recommended",
+  ).slice(0, 3);
   const sortedEmployees = useMemo(() => sortEmployees(availableEmployees, sortBy), [sortBy]);
   const savedEmployees = useMemo(() => {
     const savedIds = new Set(saved.savedIds);
@@ -225,7 +226,7 @@ export default function Marketplace() {
             <SectionHeading
               eyebrow="Browse"
               title="Employee bench"
-              description="Every published employee includes a role, verified status, rating, hire count, and pricing."
+              description="Every published employee includes a role, verified status, version, and pricing."
             />
             <div className="flex items-center gap-3">
               <span className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
@@ -266,11 +267,11 @@ export default function Marketplace() {
         <section className="mt-12 pb-8">
           <SectionHeading
             eyebrow="Trusted"
-            title="High rating employees"
-            description="Employees with strong ratings and enough hires to be useful starting points."
+            title="ChaoGeek Certified employees"
+            description="Employees that passed ChaoGeek certification and ship the full two-file spec with an eval suite."
           />
           <div className="mt-6 grid gap-5 md:grid-cols-3">
-            {topRatedEmployees.map((employee) => (
+            {certifiedEmployees.map((employee) => (
               <EmployeeCard
                 className="bg-[linear-gradient(180deg,rgba(200,121,65,0.08),rgba(255,255,255,0.025))]"
                 employee={employee}

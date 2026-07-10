@@ -55,6 +55,12 @@ function responseSeconds(employee: Employee, index: number) {
   return Number((base + skillAdjustment).toFixed(1));
 }
 
+// Demo constant like responseSeconds above — there is no real hire telemetry yet and the page
+// labels these columns as mock. The fabricated employee.hire_count/rating fields are gone.
+function mockMarketplaceHires(index: number) {
+  return 240 + index * 130;
+}
+
 function percent(value: number, total: number) {
   if (total === 0) return "0%";
   return `${Math.round((value / total) * 100)}%`;
@@ -113,10 +119,10 @@ export default function Performance() {
           return {
             employee,
             health: report.health_status,
-            marketplaceHires: employee.hire_count,
+            marketplaceHires: mockMarketplaceHires(index),
             taskCount,
             responseSeconds: response,
-            contributionScore: Math.min(100, 70 + taskCount * 5 + Math.round(employee.rating * 3)),
+            contributionScore: Math.min(100, 70 + taskCount * 5 + employee.skills.length * 3),
           };
         })
         .filter((row): row is EmployeePerformance => Boolean(row)),

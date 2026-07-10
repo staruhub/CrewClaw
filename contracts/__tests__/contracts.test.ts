@@ -98,8 +98,6 @@ describe("CrewClaw contract model schemas", () => {
     verified: true,
     categories: ["Local Expert"],
     tags: ["Macao"],
-    rating: 4.8,
-    hire_count: 1200,
     created_at: "2026-06-22T00:00:00.000Z",
     updated_at: "2026-06-22T00:00:00.000Z",
   };

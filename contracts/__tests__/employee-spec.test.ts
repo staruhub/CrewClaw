@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import { EMPLOYEE_SPEC_REQUIRED_KEYS, EmployeeSpecSchema } from "../employee-spec";
 // @ts-expect-error — untyped .mjs runtime module; the drift guard only reads a string array.
 import { REQUIRED_FIELDS } from "../../packages/runtime/employee-package.mjs";
-// @ts-expect-error — untyped .mjs runtime module (js-yaml with hand-rolled fallback).
 import yaml from "../../packages/runtime/yaml.mjs";
 
 const repoRoot = path.resolve(__dirname, "../..");

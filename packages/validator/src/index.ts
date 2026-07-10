@@ -9,7 +9,6 @@ import { getAvailableExperts } from "../../registry/src/index";
 // The spec file uses dotted map keys (tool_needs: web.search / artifact.report), which this
 // module's hand-rolled parseYaml silently drops (its key regex is [A-Za-z0-9_]+). Parse the spec
 // with the runtime's YAML module instead — it already handles the whale prototype end to end.
-// @ts-expect-error — untyped runtime .mjs module.
 import runtimeYaml from "../../runtime/yaml.mjs";
 
 const requiredFiles = [

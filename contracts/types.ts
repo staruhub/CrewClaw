@@ -21,8 +21,6 @@ export const AgentEmployeeSchema = z
     verified: z.boolean(),
     categories: StringArraySchema,
     tags: StringArraySchema,
-    rating: z.number(),
-    hire_count: z.number(),
     created_at: DateTimeSchema,
     updated_at: DateTimeSchema,
   })

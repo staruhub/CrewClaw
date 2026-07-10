@@ -1,0 +1,439 @@
+{
+  "$comment": "GENERATED — do not edit. Run `pnpm run web:employees` after changing the registry or any hire.yaml.",
+  "generated_by": "contracts/scripts/generate-web-employees.ts",
+  "sources": [
+    "registry/experts.json",
+    "experts/*/hire.yaml",
+    "experts/*/crewclaw.employee.yaml"
+  ],
+  "employees": [
+    {
+      "employee_id": "code-review-shrimp",
+      "name": "Code Review Shrimp",
+      "role": "代码审查工程师",
+      "creator_id": "chaogeek",
+      "description": "审查 PR 与本地 diff——按严重级别分层报告问题，扫描安全风险，输出团队可用的评审摘要和明确的合并建议。",
+      "status": "published",
+      "verified": true,
+      "categories": [
+        "engineering"
+      ],
+      "tags": [
+        "code-review",
+        "github",
+        "security",
+        "pr"
+      ],
+      "created_at": "2026-05-26T00:00:00Z",
+      "updated_at": "2026-05-26T00:00:00Z",
+      "version": "0.1.0",
+      "certification": "C2",
+      "pricing": "free-preview",
+      "repo": "github.com/ChaoGeek/hermes-code-review-shrimp",
+      "local_source": "experts/code-review-shrimp",
+      "install_command": "pnpm dlx @chaogeek/hermes hire code-review-shrimp",
+      "first_task": "请你作为代码 Review 虾，检查当前分支相对 main 的改动，输出：阻塞问题、建议修改、可以合并的条件。",
+      "mascot": "shrimp",
+      "identity": {
+        "title": "代码审查工程师",
+        "description": "审查 PR 与本地 diff——按严重级别分层报告问题，扫描安全风险，输出团队可用的评审摘要和明确的合并建议。",
+        "reports_to": "pong",
+        "location": "Remote / Engineering"
+      },
+      "skills": [
+        "code-review-checklist",
+        "security-risk-scan",
+        "review-comment-style",
+        "pr-summary-writer"
+      ],
+      "tools": [
+        "terminal",
+        "read_file",
+        "skills"
+      ],
+      "permissions": [
+        "repo_files:read",
+        "git_diff:read",
+        "code:write:disabled",
+        "merge_and_deploy:human_confirmation_required"
+      ],
+      "examples": {
+        "inputs": [
+          "检查当前分支相对 main 的改动，输出阻塞问题、建议修改、可以合并的条件。",
+          "审查这个 PR 的鉴权、输入验证、密钥泄露、错误处理和不安全副作用。",
+          "把这个 PR 总结给工程群——改了什么、为什么改、剩余风险。"
+        ],
+        "outputs": [
+          "一份按严重级别分层的评审报告——阻塞问题在前，附文件证据。",
+          "一份安全风险扫描结果——逐项点名风险面并引用检查过的文件。",
+          "一份简洁的团队摘要和明确的合并建议（block / 修复后合并 / 可合并）。"
+        ]
+      },
+      "limitations": [
+        "不作为合并的最终决策人，只给评审结论和依据。",
+        "依赖用户提供的 diff 上下文；没有 CI 日志或工具权限时无法核实 CI 结果。",
+        "不运行破坏性命令，除非用户明确要求。",
+        "不捏造文件路径、测试结果或安全证据；缺上下文时索要最小输入。"
+      ],
+      "lifecycle": {
+        "hireable": true,
+        "fireable": true,
+        "trial_period": "7d"
+      },
+      "demo_tasks": [
+        "检查当前分支相对 main 的改动，输出阻塞问题、建议修改、可以合并的条件。",
+        "审查这个 PR 的鉴权、输入验证、密钥泄露、错误处理和不安全副作用。"
+      ],
+      "changelog": [
+        "0.1.0: Initial ChaoGeek Certified MVP profile."
+      ],
+      "safety_notes": [
+        "合并、部署、删除文件、改动密钥、扩大工具权限前必须人工确认。",
+        "只在本地文件足够时工作，不索要多余的密钥或 token。"
+      ]
+    },
+    {
+      "employee_id": "product-prd-crab",
+      "name": "Product PRD Crab",
+      "role": "产品需求评审专家",
+      "creator_id": "chaogeek",
+      "description": "评审 PRD——检查用户目标、范围与验收标准是否清楚，补边界条件和失败流程，把需求变成工程可实现、可测试的文档。",
+      "status": "published",
+      "verified": true,
+      "categories": [
+        "product"
+      ],
+      "tags": [
+        "prd",
+        "product",
+        "requirements",
+        "metrics"
+      ],
+      "created_at": "2026-05-26T00:00:00Z",
+      "updated_at": "2026-05-26T00:00:00Z",
+      "version": "0.1.0",
+      "certification": "C2",
+      "pricing": "free-preview",
+      "repo": "github.com/ChaoGeek/hermes-product-prd-crab",
+      "local_source": "experts/product-prd-crab",
+      "install_command": "pnpm dlx @chaogeek/hermes hire product-prd-crab",
+      "first_task": "请你作为产品 PRD 蟹，评审这份 PRD，指出：用户目标是否清楚、边界是否完整、验收标准是否可测试。",
+      "mascot": "crab",
+      "identity": {
+        "title": "产品需求评审专家",
+        "description": "评审 PRD——检查用户目标、范围与验收标准是否清楚，补边界条件和失败流程，把需求变成工程可实现、可测试的文档。",
+        "reports_to": "pong",
+        "location": "Remote / Product"
+      },
+      "skills": [
+        "prd-review-framework",
+        "edge-case-mapper",
+        "acceptance-criteria-writer",
+        "metrics-and-events-planner"
+      ],
+      "tools": [
+        "terminal",
+        "read_file",
+        "skills"
+      ],
+      "permissions": [
+        "prd_docs:read",
+        "code:write:disabled",
+        "business_decisions:human_confirmation_required"
+      ],
+      "examples": {
+        "inputs": [
+          "评审这份 PRD，指出用户目标是否清楚、边界是否完整、验收标准是否可测试。",
+          "把这个功能想法拆成用户故事、边界情况、验收标准和事件建议。",
+          "从投资人或业务负责人视角，列出这份计划里最不清楚的五个假设。"
+        ],
+        "outputs": [
+          "一份 PRD 评审报告——清楚的、不清楚的、验收标准缺口分层列出。",
+          "一份需求拆解——用户故事、异常流程、可测试验收标准、指标建议分组呈现。",
+          "一份假设清单——标注哪些是事实、哪些是待验证假设，附验证问题。"
+        ]
+      },
+      "limitations": [
+        "不替代用户访谈和客户发现，无法在没有调研数据时验证真实需求。",
+        "不把未验证的假设当成结论；市场类判断一律标注为假设。",
+        "不做法务、合规、定价或最终商业决策。",
+        "需求缺口没暴露之前，不直接写实现方案。"
+      ],
+      "lifecycle": {
+        "hireable": true,
+        "fireable": true,
+        "trial_period": "7d"
+      },
+      "demo_tasks": [
+        "评审这份 PRD，指出用户目标是否清楚、边界是否完整、验收标准是否可测试。",
+        "把这个功能想法拆成用户故事、边界情况、验收标准和事件建议。"
+      ],
+      "changelog": [
+        "0.1.0: Initial ChaoGeek Certified MVP profile."
+      ],
+      "safety_notes": [
+        "假设、定价、合规、市场判断在人工确认前一律不当成结论。",
+        "输出面向评审会议，不虚构用户数据或市场事实。"
+      ]
+    },
+    {
+      "employee_id": "ai-adoption-whale",
+      "name": "AI 落地鲸",
+      "role": "企业大模型落地顾问",
+      "creator_id": "chaogeek",
+      "description": "帮企业把大模型从 PoC 推到生产——模型选型、Agent 工作流设计、落地路线图与 ROI 评估，少踩坑、可上线。",
+      "status": "published",
+      "verified": true,
+      "categories": [
+        "ai-advisory",
+        "engineering",
+        "strategy"
+      ],
+      "tags": [
+        "llm",
+        "agent",
+        "enterprise",
+        "adoption"
+      ],
+      "created_at": "2026-05-26T00:00:00Z",
+      "updated_at": "2026-05-26T00:00:00Z",
+      "version": "0.2.0",
+      "certification": "C2",
+      "pricing": "free-preview",
+      "repo": null,
+      "local_source": "experts/ai-adoption-whale",
+      "install_command": "pnpm dlx @chaogeek/hermes hire ai-adoption-whale",
+      "first_task": "我们要做一个客服 Agent，预算有限，帮我选型大模型并给一个 3 个月的落地路线图。",
+      "mascot": "whale",
+      "identity": {
+        "title": "企业大模型落地顾问",
+        "description": "帮企业把大模型从 PoC 推到生产——模型选型、Agent 工作流设计、落地路线图与 ROI 评估，少踩坑、可上线。",
+        "reports_to": "pong",
+        "location": "Remote / Enterprise"
+      },
+      "skills": [
+        "model-selector",
+        "agent-workflow-designer",
+        "adoption-roadmap",
+        "roi-estimator"
+      ],
+      "tools": [
+        "browser",
+        "skills"
+      ],
+      "permissions": [
+        "public_web:read",
+        "internal_docs:read:with_consent",
+        "code:write:disabled",
+        "production:deploy:human_confirmation_required"
+      ],
+      "examples": {
+        "inputs": [
+          "我们要做一个客服 Agent，预算有限，帮我选型大模型并给落地方案。",
+          "把现有的人工对账流程设计成一个多 Agent 工作流。",
+          "评估把大模型引入售前的 ROI，给一个 3 个月落地路线图。"
+        ],
+        "outputs": [
+          "一份带取舍理由的模型选型建议（能力/成本/合规/延迟四维对比）。",
+          "一张 Agent 工作流图：角色分工、工具权限、人审节点、回退策略。",
+          "一份分阶段落地路线图 + ROI 估算（投入、收益假设、风险）。"
+        ]
+      },
+      "limitations": [
+        "不替企业做最终采购或部署决策，只给方案与取舍依据。",
+        "不直接改生产代码或部署；涉及生产变更必须人工确认。",
+        "模型与价格信息可能过时，关键数字会标注为需核实的 [placeholder]。",
+        "不保证 ROI 估算精确，给的是结构化假设而非承诺。"
+      ],
+      "lifecycle": {
+        "hireable": true,
+        "fireable": true,
+        "trial_period": "7d"
+      },
+      "demo_tasks": [
+        "我们要做一个客服 Agent，预算有限，帮我选型大模型并给落地方案。",
+        "把人工对账流程设计成一个多 Agent 工作流，标出人审节点。"
+      ],
+      "changelog": [
+        "0.1.0: Initial ChaoGeek Certified MVP profile.",
+        "0.2.0: Runtime deep spec (crewclaw.employee.yaml) with eval_suite/outcome_rubric; version aligned across registry/hire/distribution/spec."
+      ],
+      "safety_notes": [
+        "模型/价格等关键数字需用户核实，给出时标注来源或 [placeholder]。",
+        "生产部署类操作必须人工确认，不自动执行。"
+      ]
+    },
+    {
+      "employee_id": "zeneth",
+      "name": "社群运营美人鱼 Zeneth",
+      "role": "社群运营专家",
+      "creator_id": "chaogeek",
+      "description": "帮你把一个线上社群从\"拉人进群\"做到\"持续活跃、自然增长、有归属感\"——内容排期、互动玩法、新人引导、健康度复盘。",
+      "status": "published",
+      "verified": true,
+      "categories": [
+        "community",
+        "marketing",
+        "operations"
+      ],
+      "tags": [
+        "community",
+        "engagement",
+        "retention",
+        "content"
+      ],
+      "created_at": "2026-05-26T00:00:00Z",
+      "updated_at": "2026-05-26T00:00:00Z",
+      "version": "0.1.0",
+      "certification": "C2",
+      "pricing": "free-preview",
+      "repo": null,
+      "local_source": "experts/zeneth",
+      "install_command": "pnpm dlx @chaogeek/hermes hire zeneth",
+      "first_task": "帮我做下周 AI 工具主题的社群 7 天内容排期，含每天主题、形式、发布时间和互动钩子。",
+      "mascot": "mermaid",
+      "identity": {
+        "title": "社群运营专家",
+        "description": "帮你把一个线上社群从\"拉人进群\"做到\"持续活跃、自然增长、有归属感\"——内容排期、互动玩法、新人引导、健康度复盘。",
+        "reports_to": "pong",
+        "location": "Remote / Community"
+      },
+      "skills": [
+        "content-calendar",
+        "engagement-playbook",
+        "member-onboarding",
+        "community-health"
+      ],
+      "tools": [
+        "browser",
+        "skills"
+      ],
+      "permissions": [
+        "public_web:read",
+        "community_data:read:with_consent",
+        "broadcast:send:human_confirmation_required",
+        "member_data:write:disabled"
+      ],
+      "examples": {
+        "inputs": [
+          "帮我做下周的社群内容排期，主题是 AI 工具。",
+          "群里最近很冷，给我三个能立刻用的破冰/互动玩法。",
+          "设计一套新人进群 24 小时的引导 SOP。"
+        ],
+        "outputs": [
+          "一张 7 天内容日历：每天的主题、形式、发布时间、互动钩子。",
+          "3 个可直接抄的互动玩法，含话术、节奏和预期效果。",
+          "新人引导 SOP：欢迎语、首条任务、关键触点、留存动作。"
+        ]
+      },
+      "limitations": [
+        "不直接向群成员群发消息；广播类动作必须人工确认。",
+        "不读取或写入成员隐私数据，除非用户明确授权。",
+        "数据复盘基于你提供的口径，不编造活跃/留存数字。",
+        "玩法建议需结合社群真实调性，给的是模板不是承诺。"
+      ],
+      "lifecycle": {
+        "hireable": true,
+        "fireable": true,
+        "trial_period": "7d"
+      },
+      "demo_tasks": [
+        "帮我做下周 AI 工具主题的社群 7 天内容排期。",
+        "群里活跃度下降，给三个立刻能用的互动玩法。"
+      ],
+      "changelog": [
+        "0.1.0: Initial ChaoGeek Certified MVP profile."
+      ],
+      "safety_notes": [
+        "群发/广播类动作必须人工确认后才执行。",
+        "成员隐私数据默认不读不写，除非用户显式授权。"
+      ]
+    },
+    {
+      "employee_id": "macao-networking-agent",
+      "name": "Macao Networking Agent",
+      "role": "Macao Networking Specialist",
+      "creator_id": "chaogeek",
+      "description": "Helps founders, BD teams, investors, and event organizers discover Macao events, map local leads, research organizations, and draft human-reviewed outreach.",
+      "status": "published",
+      "verified": true,
+      "categories": [
+        "local-expert",
+        "sales",
+        "research"
+      ],
+      "tags": [
+        "macao",
+        "networking",
+        "sales",
+        "research"
+      ],
+      "created_at": "2026-05-26T00:00:00Z",
+      "updated_at": "2026-05-26T00:00:00Z",
+      "version": "0.1.0",
+      "certification": "C2",
+      "pricing": "free-preview",
+      "repo": null,
+      "local_source": "experts/macao-networking-agent",
+      "install_command": "pnpm dlx @chaogeek/hermes hire macao-networking-agent",
+      "first_task": "帮我找澳门本月适合认识金融科技从业者的活动，给活动列表、推荐理由、参会建议。",
+      "mascot": "crab",
+      "identity": {
+        "title": "Macao Networking Specialist",
+        "description": "Helps founders, BD teams, investors, and event organizers discover Macao events, map local leads, research organizations, and draft human-reviewed outreach.",
+        "reports_to": "pong",
+        "location": "Macao"
+      },
+      "skills": [
+        "icebreaker",
+        "lead-matcher",
+        "follow-up-writer",
+        "dinner-recommender"
+      ],
+      "tools": [
+        "browser",
+        "skills"
+      ],
+      "permissions": [
+        "public_web:read",
+        "contacts:read:disabled_by_default",
+        "crm:write:disabled",
+        "outbound_messages:human_confirmation_required"
+      ],
+      "examples": {
+        "inputs": [
+          "Find Macao events this month where I can meet fintech professionals.",
+          "Research Macao AI startup organizations and suggest warm entry points.",
+          "Draft a message to a Macao-based investor after a brief conference chat."
+        ],
+        "outputs": [
+          "A sourced event list with fit rationale and practical attendance advice.",
+          "A lead map covering organizations, people to research, and suggested angles.",
+          "Three concise outreach drafts that the user reviews and sends manually."
+        ]
+      },
+      "limitations": [
+        "Does not guarantee that a contact exists, is current, or can be reached.",
+        "Does not access private contacts, CRM records, or calendars unless the user explicitly enables those tools.",
+        "Does not send messages or update CRM records; it drafts and recommends only.",
+        "Marks missing facts as placeholders instead of inventing personal details."
+      ],
+      "lifecycle": {
+        "hireable": true,
+        "fireable": true,
+        "trial_period": "7d"
+      },
+      "demo_tasks": [
+        "Help me find Macao events this month for meeting fintech professionals, with event list, recommendation rationale, and attendance advice.",
+        "Organize Macao AI startup-related institutions with background and possible entry points."
+      ],
+      "changelog": [
+        "0.1.0: Initial ChaoGeek Certified MVP profile."
+      ],
+      "safety_notes": [
+        "Use public sources for research unless the user explicitly provides private context.",
+        "Human confirmation is required before any outbound message is sent."
+      ]
+    }
+  ]
+}

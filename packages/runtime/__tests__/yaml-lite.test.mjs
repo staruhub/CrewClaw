@@ -26,3 +26,19 @@ runtime:
   assert.deepEqual(parsed.permissions, ["public_web:read"]);
   assert.equal(parsed.runtime.demo_tasks[0].input.task_text, "查官方价格");
 });
+
+test("quoted array items containing colons stay scalars (hire.yaml changelog regression)", () => {
+  const parsed = yaml.load(`
+changelog:
+  - "0.1.0: Initial ChaoGeek Certified MVP profile."
+  - '0.2.0: Runtime deep spec; version aligned.'
+safety_notes:
+  - 合并、部署前必须人工确认。
+`);
+
+  assert.deepEqual(parsed.changelog, [
+    "0.1.0: Initial ChaoGeek Certified MVP profile.",
+    "0.2.0: Runtime deep spec; version aligned.",
+  ]);
+  assert.deepEqual(parsed.safety_notes, ["合并、部署前必须人工确认。"]);
+});

@@ -27,6 +27,27 @@ test("marketplace lists real registry employees and shows no stale absolute path
   expect(consoleErrors).toEqual([]);
 });
 
+// v0.18 收束3: the website projects the registry (employees.generated.json), so every available
+// expert — including whale and Zeneth, which the old hand-copied dataset dropped — must have a
+// reachable detail page rendering its real hire.yaml facts.
+test("all 5 available employees have reachable detail pages", async ({ page }) => {
+  const expected: Array<[string, string]> = [
+    ["code-review-shrimp", "Code Review Shrimp"],
+    ["product-prd-crab", "Product PRD Crab"],
+    ["ai-adoption-whale", "AI 落地鲸"],
+    ["zeneth", "社群运营美人鱼 Zeneth"],
+    ["macao-networking-agent", "Macao Networking Agent"],
+  ];
+
+  for (const [employeeId, displayName] of expected) {
+    await page.goto(`/employee/${employeeId}`);
+    await expect(
+      page.getByRole("heading", { name: displayName }).first(),
+      `${employeeId} detail page should render`,
+    ).toBeVisible();
+  }
+});
+
 test("a visitor can hire an employee end to end and see it join the crew", async ({ page }) => {
   const employeeId = "macao-networking-agent";
   const displayName = "Macao Networking Agent";

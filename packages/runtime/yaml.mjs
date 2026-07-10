@@ -161,7 +161,8 @@ function parseArray(lines, index, indent) {
       continue;
     }
 
-    const pair = splitKeyValue(rest);
+    // A quoted item is always a scalar — `- "0.1.0: note"` must not be split into a mapping.
+    const pair = rest.startsWith('"') || rest.startsWith("'") ? null : splitKeyValue(rest);
     if (pair) {
       const [item, next] = parseArrayObject(lines, cursor, indent, pair);
       array.push(item);
