@@ -3,29 +3,16 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { join, relative, resolve } from "node:path";
 import { findExpert } from "../../packages/registry/src/index";
+import { isForbiddenPath } from "../../contracts/forbidden-paths";
 
 // pack-employee — builds a downloadable employee package (gzipped tar) from experts/<slug>/, so the
 // website's "download employee" is a real artifact, not just a copyable command. Dependency-free:
-// tar is 512-byte blocks and zlib is built in. Reuses the validator's forbidden-path rules so no
-// local secrets/state (.env, sessions, memories, …) can ever leak into a shipped package.
+// tar is 512-byte blocks and zlib is built in. The forbidden-path check is the SHARED
+// contracts/forbidden-paths module the validator uses, so no local secrets/state (.env, sessions,
+// memories, …) can ever leak into a shipped package, and the two can't drift apart.
 
-// Kept identical to packages/validator/src/index.ts's forbidden set — the security boundary.
-const FORBIDDEN_NAMES = new Set([
-  ".env",
-  "auth.json",
-  "memories",
-  "sessions",
-  "logs",
-  "workspace",
-  "plans",
-  "home",
-  "local",
-]);
-
-export function isForbiddenPackagePath(relPath: string): boolean {
-  const parts = relPath.split(/[\\/]/);
-  return parts.some((p) => FORBIDDEN_NAMES.has(p)) || /^state\.db(?:-.+)?$/.test(parts.at(-1) ?? "");
-}
+// Re-exported under the old name so existing importers/tests keep working.
+export { isForbiddenPath as isForbiddenPackagePath } from "../../contracts/forbidden-paths";
 
 function walkFiles(dir: string, root: string): string[] {
   const out: string[] = [];
@@ -33,7 +20,7 @@ function walkFiles(dir: string, root: string): string[] {
     if (entry.name.startsWith("._")) continue;
     const abs = join(dir, entry.name);
     const rel = relative(root, abs).replace(/\\/g, "/");
-    if (isForbiddenPackagePath(rel)) continue;
+    if (isForbiddenPath(rel)) continue;
     if (entry.isDirectory()) out.push(...walkFiles(abs, root));
     else if (entry.isFile()) out.push(rel);
   }

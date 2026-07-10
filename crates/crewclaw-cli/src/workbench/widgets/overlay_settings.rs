@@ -27,7 +27,9 @@ pub(crate) const ROW_COUNT: usize = 8;
 const SCANLINES_OPTS: [&str; 2] = ["off", "on"];
 // v0.16 W4.3：选项集改设计稿原值(density 是设计稿原文的英文词)。
 const DENSITY_OPTS: [&str; 2] = ["comfortable", "compact"];
-const APPROVAL_OPTS: [&str; 3] = ["所有交付", "仅产出物", "信任后自动"];
+// v0.18 收束：从三档收敛为两档真语义——旧"仅产出物"与"所有交付"行为完全相同（审批本就只在
+// 产出交付物时触发），是没有行为差异的假档，删除。0=所有交付(手动闸)，1=信任后自动。
+const APPROVAL_OPTS: [&str; 2] = ["所有交付", "信任后自动"];
 const PARALLEL_OPTS: [&str; 4] = ["1", "2", "3", "4"];
 const BUDGET_OPTS: [&str; 4] = ["$20", "$50", "$100", "$200"];
 const PERM_OPTS: [&str; 3] = ["单次调用", "任务生命周期", "会话"];

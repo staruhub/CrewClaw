@@ -4,6 +4,7 @@ import { join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { EmployeeManifestSchema, type EmployeeManifest } from "../../../contracts/manifest";
 import { EmployeeSpecSchema, type EmployeeSpec } from "../../../contracts/employee-spec";
+import { isForbiddenPath } from "../../../contracts/forbidden-paths";
 import { getAvailableExperts } from "../../registry/src/index";
 // The spec file uses dotted map keys (tool_needs: web.search / artifact.report), which this
 // module's hand-rolled parseYaml silently drops (its key regex is [A-Za-z0-9_]+). Parse the spec
@@ -24,7 +25,6 @@ const requiredFiles = [
   "CHANGELOG.md",
 ];
 
-const forbiddenNames = new Set([".env", "auth.json", "memories", "sessions", "logs", "workspace", "plans", "home", "local"]);
 const secretPatterns = [
   /sk-[A-Za-z0-9_-]{20,}/,
   /gh[pousr]_[A-Za-z0-9_]{20,}/,
@@ -184,11 +184,6 @@ async function walkFiles(root: string): Promise<string[]> {
   }
   await visit(root);
   return output;
-}
-
-function isForbiddenPath(path: string) {
-  const parts = path.split(/[\\/]/);
-  return parts.some((part) => forbiddenNames.has(part)) || /^state\.db(?:-.+)?$/.test(parts.at(-1) ?? "");
 }
 
 function hasPotentialSecret(content: string) {

@@ -5,10 +5,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Mirrors overlay_settings.rs APPROVAL_OPTS = ["所有交付", "仅产出物", "信任后自动"] by index.
+// Mirrors overlay_settings.rs APPROVAL_OPTS = ["所有交付", "信任后自动"] by index (v0.18 收束:
+// dropped the no-op "仅产出物" middle tier that behaved identically to "所有交付").
 export const APPROVAL_ALL_DELIVERIES = 0;
-export const APPROVAL_ARTIFACTS_ONLY = 1;
-export const APPROVAL_TRUST_AUTO = 2;
+export const APPROVAL_TRUST_AUTO = 1;
 
 // After this many cumulative accepted tasks, "信任后自动" stops asking and auto-accepts. Uses the
 // same real accepted count the KPI panel shows — trust is earned by a track record, not assumed.
@@ -22,11 +22,13 @@ export function readPrefs(root) {
   }
 }
 
-/** The approval policy index (0/1/2). Default 0 = current "every delivery needs approval". */
+/**
+ * The approval policy: 0 = 所有交付 (manual gate), 1 = 信任后自动. Default 0.
+ * Any stored value ≥1 is treated as trust — this also absorbs a legacy "2" from the pre-collapse
+ * 3-tier scheme (old 信任后自动=2 → still trust), so no separate migration table is needed.
+ */
 export function readApprovalPolicy(root) {
-  const p = readPrefs(root);
-  const v = Number(p.approval);
-  return v === APPROVAL_ARTIFACTS_ONLY || v === APPROVAL_TRUST_AUTO ? v : APPROVAL_ALL_DELIVERIES;
+  return Number(readPrefs(root).approval) >= 1 ? APPROVAL_TRUST_AUTO : APPROVAL_ALL_DELIVERIES;
 }
 
 /** The monthly-budget option index (0..3 → $20/$50/$100/$200). Default 0. */

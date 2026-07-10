@@ -67,14 +67,14 @@ async function defaultPolicyHoldsForManualApproval() {
 }
 
 async function trustAutoBelowThresholdStillAsks() {
-  const { types } = await runDeliverable(makeRoot({ approval: 2, accepted: 1 }));
+  const { types } = await runDeliverable(makeRoot({ approval: 1, accepted: 1 }));
   assert.ok(types.includes("approval.requested"), "信任后自动 below the trust threshold still asks");
   assert.ok(!types.includes("approval.accepted"), "no auto-accept before trust is earned");
   console.log("  ✓ 信任后自动 below threshold (accepted<3) still requires manual approval");
 }
 
 async function trustAutoAboveThresholdAutoAccepts() {
-  const { events, types } = await runDeliverable(makeRoot({ approval: 2, accepted: 3 }));
+  const { events, types } = await runDeliverable(makeRoot({ approval: 1, accepted: 3 }));
   assert.ok(types.includes("artifact.created"), "deliverable still produced");
   assert.ok(types.includes("approval.accepted"), "信任后自动 auto-accepts once trust is earned");
   assert.ok(types.includes("task.completed"), "auto-accepted task completes without a keystroke");
