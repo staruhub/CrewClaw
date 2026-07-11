@@ -105,6 +105,13 @@ fn validate_approval_payload(
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum TaskEvent {
+    #[serde(rename = "protocol.ready")]
+    ProtocolReady {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "session.ready")]
     SessionReady {
         #[serde(default)]
@@ -436,6 +443,69 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "dream.recommended")]
+    DreamRecommended {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.started")]
+    DreamStarted {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.candidate_ready")]
+    DreamCandidateReady {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.validation_failed")]
+    DreamValidationFailed {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.blocked")]
+    DreamBlocked {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.approved")]
+    DreamApproved {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.rejected")]
+    DreamRejected {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.activated")]
+    DreamActivated {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.rolled_back")]
+    DreamRolledBack {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "debug.line")]
     DebugLine {
         #[serde(default)]
@@ -463,6 +533,24 @@ pub struct UserAction {
 }
 
 impl UserAction {
+    pub fn client_ready(event_families: Vec<String>) -> Self {
+        Self {
+            action_type: "client.ready".to_string(),
+            data: serde_json::json!({ "event_families": event_families }),
+        }
+    }
+
+    pub fn dream(action: &str, dream_id: Option<String>) -> Self {
+        let mut data = serde_json::json!({});
+        if let Some(id) = dream_id {
+            data["dream_id"] = Value::String(id);
+        }
+        Self {
+            action_type: format!("dream.{action}"),
+            data,
+        }
+    }
+
     pub fn user_message(text: String, refs: Vec<ResolvedReference>) -> Self {
         Self {
             action_type: "user.message".to_string(),
@@ -516,6 +604,7 @@ impl UserAction {
 impl TaskEvent {
     pub fn from_parts(event_type: &str, ts: u64, data: Value) -> Self {
         match event_type {
+            "protocol.ready" => Self::ProtocolReady { ts, data },
             "session.ready" => Self::SessionReady { ts, data },
             "task.started" => Self::TaskStarted { ts, data },
             "task.mode_changed" => Self::TaskModeChanged { ts, data },
@@ -563,6 +652,15 @@ impl TaskEvent {
             "memory.saved" => Self::MemorySaved { ts, data },
             "workspace.revealed" => Self::WorkspaceRevealed { ts, data },
             "outcome.checked" => Self::OutcomeChecked { ts, data },
+            "dream.recommended" => Self::DreamRecommended { ts, data },
+            "dream.started" => Self::DreamStarted { ts, data },
+            "dream.candidate_ready" => Self::DreamCandidateReady { ts, data },
+            "dream.validation_failed" => Self::DreamValidationFailed { ts, data },
+            "dream.blocked" => Self::DreamBlocked { ts, data },
+            "dream.approved" => Self::DreamApproved { ts, data },
+            "dream.rejected" => Self::DreamRejected { ts, data },
+            "dream.activated" => Self::DreamActivated { ts, data },
+            "dream.rolled_back" => Self::DreamRolledBack { ts, data },
             "debug.line" => Self::DebugLine { ts, data },
             _ => Self::Unknown,
         }
@@ -576,6 +674,23 @@ impl TaskEvent {
         let event_type = self.event_type();
         let data = self.data();
         match self {
+            Self::ProtocolReady { .. } => {
+                require_non_empty(
+                    data.get("protocol").and_then(Value::as_str),
+                    "data.protocol",
+                )?;
+                let families = data
+                    .get("event_families")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| "data.event_families must be an array".to_string())?;
+                if families
+                    .iter()
+                    .any(|value| value.as_str().is_none_or(str::is_empty))
+                {
+                    return Err("data.event_families must contain non-empty strings".to_string());
+                }
+                Ok(())
+            }
             Self::TaskStarted { .. } => {
                 let payload = decode_payload::<CanonicalTaskPayload>(event_type, data)?;
                 require_non_empty(payload.id.as_deref(), "data.id")
@@ -690,12 +805,31 @@ impl TaskEvent {
                 }
                 Ok(())
             }
+            Self::DreamRecommended { .. }
+            | Self::DreamStarted { .. }
+            | Self::DreamCandidateReady { .. }
+            | Self::DreamValidationFailed { .. }
+            | Self::DreamBlocked { .. }
+            | Self::DreamApproved { .. }
+            | Self::DreamRejected { .. }
+            | Self::DreamActivated { .. }
+            | Self::DreamRolledBack { .. } => {
+                require_non_empty(
+                    data.get("dream_id").and_then(Value::as_str),
+                    "data.dream_id",
+                )?;
+                require_non_empty(
+                    data.get("employee_id").and_then(Value::as_str),
+                    "data.employee_id",
+                )
+            }
             _ => Ok(()),
         }
     }
 
     pub fn event_type(&self) -> &'static str {
         match self {
+            Self::ProtocolReady { .. } => "protocol.ready",
             Self::SessionReady { .. } => "session.ready",
             Self::TaskStarted { .. } => "task.started",
             Self::TaskModeChanged { .. } => "task.mode_changed",
@@ -743,6 +877,15 @@ impl TaskEvent {
             Self::MemorySaved { .. } => "memory.saved",
             Self::WorkspaceRevealed { .. } => "workspace.revealed",
             Self::OutcomeChecked { .. } => "outcome.checked",
+            Self::DreamRecommended { .. } => "dream.recommended",
+            Self::DreamStarted { .. } => "dream.started",
+            Self::DreamCandidateReady { .. } => "dream.candidate_ready",
+            Self::DreamValidationFailed { .. } => "dream.validation_failed",
+            Self::DreamBlocked { .. } => "dream.blocked",
+            Self::DreamApproved { .. } => "dream.approved",
+            Self::DreamRejected { .. } => "dream.rejected",
+            Self::DreamActivated { .. } => "dream.activated",
+            Self::DreamRolledBack { .. } => "dream.rolled_back",
             Self::DebugLine { .. } => "debug.line",
             Self::Unknown => "unknown",
         }
@@ -750,7 +893,8 @@ impl TaskEvent {
 
     pub fn data(&self) -> &Value {
         match self {
-            Self::SessionReady { data, .. }
+            Self::ProtocolReady { data, .. }
+            | Self::SessionReady { data, .. }
             | Self::TaskStarted { data, .. }
             | Self::TaskModeChanged { data, .. }
             | Self::PlanCreated { data, .. }
@@ -797,6 +941,15 @@ impl TaskEvent {
             | Self::MemorySaved { data, .. }
             | Self::WorkspaceRevealed { data, .. }
             | Self::OutcomeChecked { data, .. }
+            | Self::DreamRecommended { data, .. }
+            | Self::DreamStarted { data, .. }
+            | Self::DreamCandidateReady { data, .. }
+            | Self::DreamValidationFailed { data, .. }
+            | Self::DreamBlocked { data, .. }
+            | Self::DreamApproved { data, .. }
+            | Self::DreamRejected { data, .. }
+            | Self::DreamActivated { data, .. }
+            | Self::DreamRolledBack { data, .. }
             | Self::DebugLine { data, .. } => data,
             Self::Unknown => UNKNOWN_DATA.get_or_init(|| Value::Null),
         }
@@ -806,7 +959,8 @@ impl TaskEvent {
     /// SESSION 事件行的 HH:MM 与 EVENT DETAIL 由此取时。
     pub fn ts(&self) -> u64 {
         match self {
-            Self::SessionReady { ts, .. }
+            Self::ProtocolReady { ts, .. }
+            | Self::SessionReady { ts, .. }
             | Self::TaskStarted { ts, .. }
             | Self::TaskModeChanged { ts, .. }
             | Self::PlanCreated { ts, .. }
@@ -853,6 +1007,15 @@ impl TaskEvent {
             | Self::MemorySaved { ts, .. }
             | Self::WorkspaceRevealed { ts, .. }
             | Self::OutcomeChecked { ts, .. }
+            | Self::DreamRecommended { ts, .. }
+            | Self::DreamStarted { ts, .. }
+            | Self::DreamCandidateReady { ts, .. }
+            | Self::DreamValidationFailed { ts, .. }
+            | Self::DreamBlocked { ts, .. }
+            | Self::DreamApproved { ts, .. }
+            | Self::DreamRejected { ts, .. }
+            | Self::DreamActivated { ts, .. }
+            | Self::DreamRolledBack { ts, .. }
             | Self::DebugLine { ts, .. } => *ts,
             Self::Unknown => 0,
         }
@@ -967,6 +1130,30 @@ mod tests {
     }
 
     #[test]
+    fn dream_v1_events_are_first_class_and_validate_correlation() {
+        let event = TaskEvent::from_parts(
+            "dream.recommended",
+            42,
+            json!({"dream_id":"dream-1","employee_id":"whale"}),
+        );
+        assert_eq!(event.event_type(), "dream.recommended");
+        event.validate_payload().expect("valid dream event");
+        assert!(
+            TaskEvent::from_parts("dream.blocked", 42, json!({"dream_id":"dream-1"}))
+                .validate_payload()
+                .unwrap_err()
+                .contains("employee_id")
+        );
+        TaskEvent::from_parts(
+            "protocol.ready",
+            1,
+            json!({"protocol":"crewclaw.task-event/v1","event_families":["core/v1","dream/v1"]}),
+        )
+        .validate_payload()
+        .expect("valid protocol negotiation");
+    }
+
+    #[test]
     fn user_action_serializes_structured_workbench_commands() {
         let message = UserAction::user_message(
             "请基于 @artifact:a1 修改".to_string(),
@@ -1005,6 +1192,17 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&approval).expect("approval action"),
             json!({"type":"approval.resolve","data":{"id":"ap1","decision":"accept"}})
+        );
+
+        let ready = UserAction::client_ready(vec!["core/v1".to_string(), "dream/v1".to_string()]);
+        assert_eq!(
+            serde_json::to_value(&ready).expect("client ready action"),
+            json!({"type":"client.ready","data":{"event_families":["core/v1","dream/v1"]}})
+        );
+        let dream = UserAction::dream("approve", Some("dream-1".to_string()));
+        assert_eq!(
+            serde_json::to_value(&dream).expect("dream action"),
+            json!({"type":"dream.approve","data":{"dream_id":"dream-1"}})
         );
     }
 }

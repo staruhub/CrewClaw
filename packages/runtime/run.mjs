@@ -1243,7 +1243,7 @@ async function interactiveChat({
   resume,
   mock = false,
 }) {
-  let { model, temperature, system, skills, displayName, title, avatar } =
+  let { model, temperature, system, skills, displayName, title, avatar, dreamPolicy } =
     profile;
   let name = displayName || titleizeId(agentId);
   let currentAgentId = agentId;
@@ -1290,6 +1290,7 @@ async function interactiveChat({
         skills: skillNames,
         agentId: currentAgentId,
         avatar: avatar || [],
+        dreamPolicy,
       },
       history: rHistory,
       saveSession: () => saveSession(WORKSPACE_ROOT, currentAgentId, rHistory),

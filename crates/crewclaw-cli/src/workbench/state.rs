@@ -1004,9 +1004,37 @@ impl AppState {
         self.cur_ev_kv = flatten_event_kv(data);
 
         match ev {
+            TaskEvent::ProtocolReady { .. } => {
+                self.debug
+                    .push("protocol.ready: dream/v1 available".to_string());
+            }
             TaskEvent::SessionReady { .. } => {
                 self.clear_busy();
                 self.reduce_session_ready(data);
+            }
+            TaskEvent::DreamRecommended { .. }
+            | TaskEvent::DreamStarted { .. }
+            | TaskEvent::DreamCandidateReady { .. }
+            | TaskEvent::DreamValidationFailed { .. }
+            | TaskEvent::DreamBlocked { .. }
+            | TaskEvent::DreamApproved { .. }
+            | TaskEvent::DreamRejected { .. }
+            | TaskEvent::DreamActivated { .. }
+            | TaskEvent::DreamRolledBack { .. } => {
+                let id = string_field(data, "dream_id").unwrap_or_else(|| self.id_for(data));
+                let event_type = ev.event_type();
+                let blocked = matches!(
+                    ev,
+                    TaskEvent::DreamValidationFailed { .. }
+                        | TaskEvent::DreamBlocked { .. }
+                        | TaskEvent::DreamRejected { .. }
+                );
+                self.push(
+                    id,
+                    if blocked { SYM_WARN } else { SYM_OK },
+                    event_type.to_string(),
+                    string_field(data, "reason").unwrap_or_default(),
+                );
             }
             TaskEvent::TaskModeChanged { .. } => {
                 if !self.task_correlation_matches(data, "taskRunId") {

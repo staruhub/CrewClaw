@@ -45,10 +45,16 @@ import { readKpi, recordTaskOutcome } from "../kpi.mjs";
 import { readEvalResult } from "../eval-runner.mjs";
 import { buildReflection, writeReflection } from "../reflect.mjs";
 import {
+  DREAM_EVENT_FAMILY,
+  assessDreamFromWorkspace,
+  persistDreamRecommendation,
+} from "../dream-controller.mjs";
+import {
   readApprovalPolicy,
   readBudgetIndex,
   APPROVAL_TRUST_AUTO,
   TRUST_AUTO_THRESHOLD,
+  readDreamRecommendation,
 } from "./prefs.mjs";
 import {
   recordSpend,
@@ -88,6 +94,8 @@ export async function startJsonlBridge({
   let closeReason = "input_eof";
   let closeTerminalEmitted = false;
   let usageAcc = { prompt: 0, completion: 0 };
+  const clientEventFamilies = new Set();
+  const emittedDreamRecommendations = new Set();
   const turnUsage = () => ({ ...usageAcc });
 
   const emit = (type, data) => {
@@ -147,6 +155,13 @@ export async function startJsonlBridge({
     output.write(JSON.stringify(makeEvent(type, data, Date.now())) + "\n");
   };
 
+  // Capability negotiation comes before optional event families. Old clients may continue with
+  // session.ready; dream/v1 stays silent until client.ready explicitly opts in.
+  emit(EVENTS.PROTOCOL_READY, {
+    protocol: "crewclaw.task-event/v1",
+    event_families: ["core/v1", DREAM_EVENT_FAMILY],
+  });
+
   // a header event so the front-end can paint the badge + tool/memory truth immediately.
   // caps.ansi=true tells the front-end this engine will also emit assistant.rendered (pre-typeset
   // ANSI); a front-end that lacks an ANSI parser simply ignores that event and keeps token.delta.
@@ -157,6 +172,79 @@ export async function startJsonlBridge({
   // v0.18 B2：eval = 上岗考试真评测结果（eval-runner 落 .crewclaw/eval/<agent>.json）。null=从未评测
   // → EVAL 屏保留 MOCK 占位；mock:true → 屏上标注"非认证分"；mock:false → 真认证分。
   const evalResult = readEvalResult(bridgeRoot, meta.agentId);
+  const budgetIndex = readBudgetIndex(bridgeRoot);
+  const dreamOptions = ({ manualTrigger = false } = {}) => {
+    const currentSpend = readSpend(bridgeRoot);
+    return {
+      policy: meta.dreamPolicy || {},
+      baseline: evalResult,
+      employeeIdle: !busy && !pendingApproval && !pendingConfirm,
+      budgetAvailable:
+        currentSpend.state !== SPEND_STATE_INVALID &&
+        currentSpend.total < capForBudgetIndex(budgetIndex),
+      recommendationEnabled: readDreamRecommendation(bridgeRoot),
+      manualTrigger,
+    };
+  };
+  let dreamAssessment = meta.agentId
+    ? assessDreamFromWorkspace(bridgeRoot, meta.agentId, dreamOptions())
+    : null;
+  const dreamIdFor = assessment =>
+    `dream-${String(assessment.input.input_snapshot_hash).replace(/^sha256:/, "").slice(0, 8)}-${String(assessment.base_memory_hash).replace(/^sha256:/, "").slice(0, 8)}`;
+  const emitDreamAssessment = (assessment, { force = false } = {}) => {
+    if (!assessment || !meta.agentId) return false;
+    if (!clientEventFamilies.has(DREAM_EVENT_FAMILY)) return false;
+    const dreamId = dreamIdFor(assessment);
+    if (assessment.recommended) {
+      const stored = persistDreamRecommendation(bridgeRoot, assessment, { dreamId });
+      if (!stored.ok) {
+        emit(EVENTS.DREAM_BLOCKED, {
+          dream_id: dreamId,
+          employee_id: meta.agentId,
+          reason: stored.reason || "recommendation_not_persisted",
+          blockers: ["recommendation_not_persisted"],
+        });
+        return false;
+      }
+      if (!emittedDreamRecommendations.has(dreamId) || force) {
+        emit(EVENTS.DREAM_RECOMMENDED, {
+          dream_id: dreamId,
+          employee_id: meta.agentId,
+          base_memory_hash: assessment.base_memory_hash,
+          trigger_reasons: assessment.trigger_reasons,
+          metrics: assessment.metrics,
+          curation: assessment.curation,
+          activation: assessment.activation,
+          estimated_cost_usd: assessment.cost.estimated_usd,
+          estimated_input_tokens: assessment.cost.estimated_input_tokens,
+          estimated_output_tokens: assessment.cost.estimated_output_tokens,
+          generation_available: false,
+        });
+        emittedDreamRecommendations.add(dreamId);
+      }
+      return true;
+    }
+    if (force) {
+      emit(EVENTS.DREAM_BLOCKED, {
+        dream_id: dreamId,
+        employee_id: meta.agentId,
+        reason: "dream_not_recommended",
+        blockers: assessment.curation.blockers,
+        trigger_reasons: assessment.trigger_reasons,
+        metrics: assessment.metrics,
+      });
+    }
+    return false;
+  };
+  const refreshDreamAssessment = ({ manualTrigger = false, force = false } = {}) => {
+    if (!meta.agentId) return false;
+    dreamAssessment = assessDreamFromWorkspace(
+      bridgeRoot,
+      meta.agentId,
+      dreamOptions({ manualTrigger })
+    );
+    return emitDreamAssessment(dreamAssessment, { force });
+  };
   emit(EVENTS.SESSION_READY, {
     employee: {
       name: agentName,
@@ -368,6 +456,7 @@ export async function startJsonlBridge({
       est_cost: cost,
     });
     writeBridgeReflection(held, { outcome: "accepted", outputValid: true, feedback: "useful" });
+    refreshDreamAssessment();
     if (!removePendingDelivery(held)) {
       emit(EVENTS.DEBUG_LINE, {
         line: "验收已提交，但恢复回执暂未清除；下次恢复将按 taskRunId 幂等重放",
@@ -428,6 +517,7 @@ export async function startJsonlBridge({
       outputValid: false,
       feedback: "not_useful",
     });
+    refreshDreamAssessment();
     if (!removePendingDelivery(held)) {
       emit(EVENTS.DEBUG_LINE, {
         line: "拒绝已提交，但恢复回执暂未清除；下次恢复将幂等重放",
@@ -742,6 +832,35 @@ export async function startJsonlBridge({
     if (text === "/exit" || text === ":q") {
       closeReason = "user_exit";
       rl.close();
+      return;
+    }
+
+    if (action?.type === "client.ready") {
+      const result = safelyApplyUserAction(action);
+      for (const family of result.eventFamilies || []) clientEventFamilies.add(family);
+      emitDreamAssessment(dreamAssessment);
+      return;
+    }
+
+    if (action?.type?.startsWith("dream.")) {
+      const result = safelyApplyUserAction(action);
+      if (!clientEventFamilies.has(DREAM_EVENT_FAMILY)) return;
+      if (!dreamAssessment || !meta.agentId) {
+        emit(EVENTS.DEBUG_LINE, { line: "dream action ignored: no employee bound" });
+        return;
+      }
+      if (result.dreamAction === "run") {
+        refreshDreamAssessment({ manualTrigger: true, force: true });
+      } else if (result.dreamAction === "inspect") {
+        emitDreamAssessment(dreamAssessment, { force: true });
+      } else {
+        emit(EVENTS.DREAM_BLOCKED, {
+          dream_id: result.dreamId || dreamIdFor(dreamAssessment),
+          employee_id: meta.agentId,
+          reason: "dream_action_not_available_before_m4",
+          blockers: ["milestone_not_available"],
+        });
+      }
       return;
     }
 

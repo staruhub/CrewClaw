@@ -19,6 +19,7 @@ export function createTaskJsonlEmitter({
 }
 
 const USER_ACTION_TYPES = new Set([
+  "client.ready",
   "user.message",
   "pending.run",
   "artifact.preview",
@@ -26,6 +27,11 @@ const USER_ACTION_TYPES = new Set([
   "artifact.reveal",
   "artifact.export",
   "approval.resolve",
+  "dream.run",
+  "dream.inspect",
+  "dream.approve",
+  "dream.reject",
+  "dream.rollback",
 ]);
 
 const PREFLIGHT_FAILURE_STATUSES = new Set([
@@ -71,6 +77,24 @@ export function applyUserAction(
   if (!action) return { handled: true };
   const data = action.data || {};
   switch (action.type) {
+    case "client.ready":
+      return {
+        handled: true,
+        clientReady: true,
+        eventFamilies: Array.isArray(data.event_families)
+          ? data.event_families.map(String)
+          : [],
+      };
+    case "dream.run":
+    case "dream.inspect":
+    case "dream.approve":
+    case "dream.reject":
+    case "dream.rollback":
+      return {
+        handled: true,
+        dreamAction: action.type.slice("dream.".length),
+        dreamId: data.dream_id ? String(data.dream_id) : null,
+      };
     case "artifact.preview": {
       const id = artifactIdOrError(data, emit, action.type);
       if (!id)

@@ -1513,6 +1513,9 @@ export function readEvalResult(
             r.judge_model === null ? null : String(r.judge_model ?? "unknown"),
           graded_by: String(r.graded_by ?? "mechanical"),
           mock: r.mock,
+          memory_state_hash: r.memory_state_hash,
+          memory_hash_schema: r.memory_hash_schema,
+          provider_status: r.mock === false ? "verified" : "unverified",
           evaluated_at: Number(r.evaluated_at ?? 0),
           exams: Array.isArray(r.per_test)
             ? r.per_test.map(t => ({

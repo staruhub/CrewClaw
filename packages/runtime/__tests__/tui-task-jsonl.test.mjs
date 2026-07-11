@@ -420,3 +420,25 @@ test("malformed artifact actions are contained instead of throwing", () => {
   assert.equal(result.ok, false);
   assert.equal(JSON.parse(lines[0]).type, "debug.line");
 });
+
+test("client.ready and the five dream/v1 UserActions are parsed as control-plane input", () => {
+  const ready = applyUserAction(
+    parseUserActionLine(
+      '{"type":"client.ready","data":{"event_families":["core/v1","dream/v1"]}}'
+    )
+  );
+  assert.equal(ready.handled, true);
+  assert.equal(ready.clientReady, true);
+  assert.deepEqual(ready.eventFamilies, ["core/v1", "dream/v1"]);
+
+  for (const action of ["run", "inspect", "approve", "reject", "rollback"]) {
+    const result = applyUserAction(
+      parseUserActionLine(
+        JSON.stringify({ type: `dream.${action}`, data: { dream_id: "dream-1" } })
+      )
+    );
+    assert.equal(result.handled, true);
+    assert.equal(result.dreamAction, action);
+    assert.equal(result.dreamId, "dream-1");
+  }
+});

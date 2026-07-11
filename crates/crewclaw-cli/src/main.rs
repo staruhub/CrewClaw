@@ -1248,12 +1248,12 @@ fn resolve_command_path(command: &str) -> OsString {
         // Prefer the OS-shipped bsdtar: an MSYS/Git-Bash GNU tar earlier on PATH parses the `:` in
         // `C:\...` (and canonicalized `\\?\C:\...`) as a remote host and fails on native Windows
         // paths. bsdtar (Windows 10+, System32) handles both forms natively.
-        if command == "tar" {
-            if let Some(system_root) = env::var_os("SystemRoot") {
-                let bsdtar = Path::new(&system_root).join("System32").join("tar.exe");
-                if bsdtar.is_file() {
-                    return bsdtar.into_os_string();
-                }
+        if command == "tar"
+            && let Some(system_root) = env::var_os("SystemRoot")
+        {
+            let bsdtar = Path::new(&system_root).join("System32").join("tar.exe");
+            if bsdtar.is_file() {
+                return bsdtar.into_os_string();
             }
         }
         let command_path = Path::new(command);

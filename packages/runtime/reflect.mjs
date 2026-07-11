@@ -151,6 +151,8 @@ export function isTrustedReflection(reflection) {
   if (!reflection || typeof reflection !== "object") return false;
   if (reflection.contract !== REFLECT_CONTRACT) return false;
   if (reflection.mock === true) return false;
+  if (reflection.sensitive === true || reflection.ephemeral === true) return false;
+  if (reflection.confidence === "low") return false;
   // Accepted + valid output is the primary trust signal.
   if (reflection.outcome === "accepted" && reflection.output_valid === true) return true;
   // A verified failure path (doctor/grader/test confirmed) with evidence is also admissible —

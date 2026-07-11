@@ -138,10 +138,13 @@ M0 十条完成定义全部满足；`accept → addMemory` 路径保持原样；
 
 ## 后续里程碑（feature branch `dream-m1-m4`，一次合入）
 
-- **M1** Reflect 拆分：`reflectTaskRun` 确定性提取落 reflections/；
+- **M1（完成）** Reflect 拆分：`reflectTaskRun` 确定性提取落 reflections/；
   `commitAcceptedTaskMemory` 迁到 `legacy_learning` flag（默认开，保持生产行为）。
-- **M2** DreamController：两道门 + mode:manual 先行（`dream.run`）→ 软触发/推荐分/冷却；
-  `dream.recommended` 等事件族 + 协议协商。
+- **M2（完成）** DreamController：两道门、软触发/推荐分/冷却、可信池与诚实成本估算；
+  `protocol.ready/client.ready` 协商后才启用 `dream/v1`。事件族冻结为 9 个
+  （recommended/started/candidate_ready/validation_failed/blocked/approved/rejected/activated/
+  rolled_back），动作冻结为 5 个（run/inspect/approve/reject/rollback）。M2 只落
+  `RECOMMENDED` job，明确 `generation_available:false`；M3 前不伪装成已开始策展。
 - **M3** Dream job：确定性预处理 → 强模型策展 → 候选+diff → 四道校验。
 - **M4** 审批+激活：DREAM 屏真值化；approve/reject/rollback；原子切换+归档；
   发布时 flag 翻转（新管线默认开，legacy 变回滚开关）。

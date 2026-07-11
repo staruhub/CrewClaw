@@ -358,6 +358,7 @@ fn run_live_loop(
     let mut input = InputBuffer::with_history_path(prompt_history_path(root));
     refresh_persisted_insights(root, employee_id, &mut state, &mut ui_state);
     let mut next_persisted_refresh = Instant::now() + Duration::from_secs(2);
+    let mut client_ready_sent = false;
 
     loop {
         if ui_state.persisted_refresh_requested || Instant::now() >= next_persisted_refresh {
@@ -471,9 +472,23 @@ fn run_live_loop(
         while let Ok(message) = events.try_recv() {
             match message {
                 WorkbenchMessage::Event(event) => {
+                    if matches!(event, TaskEvent::ProtocolReady { .. }) && !client_ready_sent {
+                        write_user_action(
+                            child_stdin,
+                            &UserAction::client_ready(vec![
+                                "core/v1".to_string(),
+                                "dream/v1".to_string(),
+                            ]),
+                        )?;
+                        client_ready_sent = true;
+                    }
                     let refresh = matches!(
                         event.event_type(),
                         "session.ready"
+                            | "dream.recommended"
+                            | "dream.candidate_ready"
+                            | "dream.activated"
+                            | "dream.rolled_back"
                             | "task.completed"
                             | "task.failed"
                             | "task.revision_needed"
@@ -1011,6 +1026,16 @@ fn handle_key_event(
             KeyCode::Char('r') if matches!(ui_state.screen, Screen::Eval | Screen::Dream) => {
                 ui_state.persisted_refresh_requested = true;
                 return Ok(TerminalAction::Continue);
+            }
+            // Conditional Dream uses dedicated keys: keep `r` as the existing refresh binding so
+            // M4 reject/rollback cannot accidentally inherit an ambiguous hotkey.
+            KeyCode::Char('g') if ui_state.screen == Screen::Dream => {
+                return Ok(TerminalAction::SendAction(UserAction::dream("run", None)));
+            }
+            KeyCode::Char('v') if ui_state.screen == Screen::Dream => {
+                return Ok(TerminalAction::SendAction(UserAction::dream(
+                    "inspect", None,
+                )));
             }
             KeyCode::Char('i') => {
                 ui_state.mode = InputMode::Insert;
@@ -2184,6 +2209,45 @@ mod tests {
         assert_eq!(ui.dream_mem_tab, 3, "f cycles to tab 3 (E)");
         press(&mut state, &mut ui, &mut input, KeyCode::Char('f'));
         assert_eq!(ui.dream_mem_tab, 0, "f wraps back to tab 0 (全部)");
+    }
+
+    #[test]
+    fn dream_g_and_v_emit_dedicated_actions_without_stealing_refresh() {
+        let mut state = AppState::default();
+        let mut ui = UiState::default();
+        ui.mode = InputMode::Normal;
+        ui.screen = Screen::Dream;
+        let mut input = InputBuffer::default();
+
+        let action = handle_key_event(
+            &mut state,
+            &mut ui,
+            &mut input,
+            false,
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+        )
+        .expect("g handled");
+        assert!(matches!(
+            action,
+            TerminalAction::SendAction(UserAction { action_type, .. }) if action_type == "dream.run"
+        ));
+
+        let action = handle_key_event(
+            &mut state,
+            &mut ui,
+            &mut input,
+            false,
+            KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
+        )
+        .expect("v handled");
+        assert!(matches!(
+            action,
+            TerminalAction::SendAction(UserAction { action_type, .. }) if action_type == "dream.inspect"
+        ));
+
+        ui.persisted_refresh_requested = false;
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('r'));
+        assert!(ui.persisted_refresh_requested, "r remains refresh on DREAM");
     }
 
     #[test]

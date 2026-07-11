@@ -109,6 +109,9 @@ assert.equal(
   false,
   "mock is never trusted"
 );
+assert.equal(isTrustedReflection({ ...r, sensitive: true }), false);
+assert.equal(isTrustedReflection({ ...r, ephemeral: true }), false);
+assert.equal(isTrustedReflection({ ...r, confidence: "low" }), false);
 assert.equal(
   isTrustedReflection({ ...withFailures, evidence_ids: ["ev_1"] }),
   true,

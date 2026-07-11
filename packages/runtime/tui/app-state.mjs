@@ -41,6 +41,8 @@ export function initialAppState(meta = {}) {
     caps: {},
     commands: [],
     budgetWarning: null,
+    protocol: { eventFamilies: [] },
+    dream: null,
   };
 }
 
@@ -228,6 +230,13 @@ function currentTaskHasArtifact(state) {
 export function reduce(state, ev) {
   const d = ev.data || {};
   switch (ev.type) {
+    case EVENTS.PROTOCOL_READY:
+      return {
+        ...state,
+        protocol: {
+          eventFamilies: Array.isArray(d.event_families) ? d.event_families : [],
+        },
+      };
     case EVENTS.SESSION_READY: {
       const employee =
         d.employee && typeof d.employee === "object"
@@ -1053,6 +1062,32 @@ export function reduce(state, ev) {
         ),
       };
     }
+    case EVENTS.DREAM_RECOMMENDED:
+    case EVENTS.DREAM_STARTED:
+    case EVENTS.DREAM_CANDIDATE_READY:
+    case EVENTS.DREAM_VALIDATION_FAILED:
+    case EVENTS.DREAM_BLOCKED:
+    case EVENTS.DREAM_APPROVED:
+    case EVENTS.DREAM_REJECTED:
+    case EVENTS.DREAM_ACTIVATED:
+    case EVENTS.DREAM_ROLLED_BACK:
+      return {
+        ...state,
+        dream: { type: ev.type, ...d },
+        timeline: push(
+          state.timeline,
+          d.dream_id || idFor(state, d),
+          new Set([
+            EVENTS.DREAM_VALIDATION_FAILED,
+            EVENTS.DREAM_BLOCKED,
+            EVENTS.DREAM_REJECTED,
+          ]).has(ev.type)
+            ? SYM.warn
+            : SYM.ok,
+          ev.type,
+          d.reason || (Array.isArray(d.trigger_reasons) ? d.trigger_reasons.join(", ") : "")
+        ),
+      };
     case EVENTS.DEBUG_LINE:
       return typeof d.line === "string" || typeof d.message === "string"
         ? { ...state, debug: [...state.debug, d.line || d.message] }

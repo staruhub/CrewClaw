@@ -8,6 +8,7 @@
 export const TASK_EVENT_PROTOCOL_VERSION = 1;
 
 export const EVENTS = {
+  PROTOCOL_READY: "protocol.ready",
   SESSION_READY: "session.ready",
   TASK_STARTED: "task.started",
   TASK_MODE_CHANGED: "task.mode_changed",
@@ -63,6 +64,17 @@ export const EVENTS = {
   MEMORY_SAVED: "memory.saved",
   WORKSPACE_REVEALED: "workspace.revealed",
   OUTCOME_CHECKED: "outcome.checked", // completion verdict (§5.8 No-Chat-only-Done): did the task leave a real deliverable?
+  // Conditional Dream event family (dream/v1). Node and Rust land these together; the engine
+  // emits them only after client.ready advertises support for dream/v1.
+  DREAM_RECOMMENDED: "dream.recommended",
+  DREAM_STARTED: "dream.started",
+  DREAM_CANDIDATE_READY: "dream.candidate_ready",
+  DREAM_VALIDATION_FAILED: "dream.validation_failed",
+  DREAM_BLOCKED: "dream.blocked",
+  DREAM_APPROVED: "dream.approved",
+  DREAM_REJECTED: "dream.rejected",
+  DREAM_ACTIVATED: "dream.activated",
+  DREAM_ROLLED_BACK: "dream.rolled_back",
   // v0.8 M3 — a slash command's result. The engine executes commands (they depend on engine
   // state: registry/history/model); the front-end only shows output. `clear:true` also tells
   // the front-end to reset its transcript so /clear stays a single source of truth.
@@ -141,6 +153,11 @@ export function validateTaskEventPayload(type, data) {
   }
 
   switch (type) {
+    case EVENTS.PROTOCOL_READY:
+      requireString(data, "protocol", errors);
+      if (!Array.isArray(data.event_families))
+        errors.push("data.event_families must be an array");
+      break;
     case EVENTS.TASK_STARTED:
       requireString(data, "id", errors);
       break;
@@ -222,6 +239,18 @@ export function validateTaskEventPayload(type, data) {
       if (data.decision !== undefined && data.decision !== "reject") {
         errors.push("data.decision must be reject when present");
       }
+      break;
+    case EVENTS.DREAM_RECOMMENDED:
+    case EVENTS.DREAM_STARTED:
+    case EVENTS.DREAM_CANDIDATE_READY:
+    case EVENTS.DREAM_VALIDATION_FAILED:
+    case EVENTS.DREAM_BLOCKED:
+    case EVENTS.DREAM_APPROVED:
+    case EVENTS.DREAM_REJECTED:
+    case EVENTS.DREAM_ACTIVATED:
+    case EVENTS.DREAM_ROLLED_BACK:
+      requireString(data, "dream_id", errors);
+      requireString(data, "employee_id", errors);
       break;
   }
 
