@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { backfillEmployeeMemory, backfillMemoryItem } from "../memory-backfill.mjs";
+import {
+  backfillEmployeeMemory,
+  backfillMemoryItem,
+} from "../memory-backfill.mjs";
 import { computeMemoryStateHash } from "../memory-hash.mjs";
 import { loadMemory } from "../memory-store.mjs";
 
@@ -38,7 +48,9 @@ try {
   assert.equal(first.ok, true);
   assert.equal(first.changed, true);
   assert.equal(first.backfilled, 2);
-  assert.ok(first.backup && readFileSync(first.backup, "utf8").includes("volcengine"));
+  assert.ok(
+    first.backup && readFileSync(first.backup, "utf8").includes("volcengine")
+  );
 
   const after = JSON.parse(readFileSync(file, "utf8"));
   assert.equal(after.length, 2);
@@ -71,17 +83,33 @@ try {
   );
 
   // Second run: idempotent — nothing changes, nothing is written, no new backup.
-  const backupsBefore = readdirSync(memoryDir).filter(name => name.includes(".bak")).length;
+  const backupsBefore = readdirSync(memoryDir).filter(name =>
+    name.includes(".bak")
+  ).length;
   const contentBefore = readFileSync(file, "utf8");
   const second = backfillEmployeeMemory(root, employeeId);
   assert.equal(second.ok, true);
   assert.equal(second.changed, false);
-  assert.equal(readFileSync(file, "utf8"), contentBefore, "second run must not rewrite the file");
-  const backupsAfter = readdirSync(memoryDir).filter(name => name.includes(".bak")).length;
-  assert.equal(backupsAfter, backupsBefore, "second run must not create another backup");
+  assert.equal(
+    readFileSync(file, "utf8"),
+    contentBefore,
+    "second run must not rewrite the file"
+  );
+  const backupsAfter = readdirSync(memoryDir).filter(name =>
+    name.includes(".bak")
+  ).length;
+  assert.equal(
+    backupsAfter,
+    backupsBefore,
+    "second run must not create another backup"
+  );
 
   // Item-level helper is pure and additive.
-  const { item: filled, changed } = backfillMemoryItem({ category: "user_prefs", text: "x", confidence: "high" });
+  const { item: filled, changed } = backfillMemoryItem({
+    category: "user_prefs",
+    text: "x",
+    confidence: "high",
+  });
   assert.equal(changed, true);
   assert.equal(filled.source_type, "legacy");
   const { changed: again } = backfillMemoryItem(filled);

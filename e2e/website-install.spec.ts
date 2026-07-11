@@ -39,9 +39,7 @@ function quoteShellArgument(value: string) {
 }
 
 function normalizeRecordedCommand(value: string) {
-  return value
-    .replaceAll("\\", "/")
-    .replaceAll(/\/\/\?\/(?=[A-Za-z]:\/)/g, "");
+  return value.replaceAll("\\", "/").replaceAll(/\/\/\?\/(?=[A-Za-z]:\/)/g, "");
 }
 
 function run(

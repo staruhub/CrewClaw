@@ -234,7 +234,9 @@ export function reduce(state, ev) {
       return {
         ...state,
         protocol: {
-          eventFamilies: Array.isArray(d.event_families) ? d.event_families : [],
+          eventFamilies: Array.isArray(d.event_families)
+            ? d.event_families
+            : [],
         },
       };
     case EVENTS.SESSION_READY: {
@@ -1085,7 +1087,10 @@ export function reduce(state, ev) {
             ? SYM.warn
             : SYM.ok,
           ev.type,
-          d.reason || (Array.isArray(d.trigger_reasons) ? d.trigger_reasons.join(", ") : "")
+          d.reason ||
+            (Array.isArray(d.trigger_reasons)
+              ? d.trigger_reasons.join(", ")
+              : "")
         ),
       };
     case EVENTS.DEBUG_LINE:

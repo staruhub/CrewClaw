@@ -434,7 +434,10 @@ test("client.ready and the five dream/v1 UserActions are parsed as control-plane
   for (const action of ["run", "inspect", "approve", "reject", "rollback"]) {
     const result = applyUserAction(
       parseUserActionLine(
-        JSON.stringify({ type: `dream.${action}`, data: { dream_id: "dream-1" } })
+        JSON.stringify({
+          type: `dream.${action}`,
+          data: { dream_id: "dream-1" },
+        })
       )
     );
     assert.equal(result.handled, true);

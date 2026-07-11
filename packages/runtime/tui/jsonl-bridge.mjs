@@ -172,9 +172,9 @@ export async function startJsonlBridge({
   // v0.18 B2：eval = 上岗考试真评测结果（eval-runner 落 .crewclaw/eval/<agent>.json）。null=从未评测
   // → EVAL 屏保留 MOCK 占位；mock:true → 屏上标注"非认证分"；mock:false → 真认证分。
   const evalResult = readEvalResult(bridgeRoot, meta.agentId);
-  const budgetIndex = readBudgetIndex(bridgeRoot);
   const dreamOptions = ({ manualTrigger = false } = {}) => {
     const currentSpend = readSpend(bridgeRoot);
+    const budgetIndex = readBudgetIndex(bridgeRoot);
     return {
       policy: meta.dreamPolicy || {},
       baseline: evalResult,
@@ -190,13 +190,19 @@ export async function startJsonlBridge({
     ? assessDreamFromWorkspace(bridgeRoot, meta.agentId, dreamOptions())
     : null;
   const dreamIdFor = assessment =>
-    `dream-${String(assessment.input.input_snapshot_hash).replace(/^sha256:/, "").slice(0, 8)}-${String(assessment.base_memory_hash).replace(/^sha256:/, "").slice(0, 8)}`;
+    `dream-${String(assessment.input.input_snapshot_hash)
+      .replace(/^sha256:/, "")
+      .slice(0, 8)}-${String(assessment.base_memory_hash)
+      .replace(/^sha256:/, "")
+      .slice(0, 8)}`;
   const emitDreamAssessment = (assessment, { force = false } = {}) => {
     if (!assessment || !meta.agentId) return false;
     if (!clientEventFamilies.has(DREAM_EVENT_FAMILY)) return false;
     const dreamId = dreamIdFor(assessment);
     if (assessment.recommended) {
-      const stored = persistDreamRecommendation(bridgeRoot, assessment, { dreamId });
+      const stored = persistDreamRecommendation(bridgeRoot, assessment, {
+        dreamId,
+      });
       if (!stored.ok) {
         emit(EVENTS.DREAM_BLOCKED, {
           dream_id: dreamId,
@@ -236,7 +242,10 @@ export async function startJsonlBridge({
     }
     return false;
   };
-  const refreshDreamAssessment = ({ manualTrigger = false, force = false } = {}) => {
+  const refreshDreamAssessment = ({
+    manualTrigger = false,
+    force = false,
+  } = {}) => {
     if (!meta.agentId) return false;
     dreamAssessment = assessDreamFromWorkspace(
       bridgeRoot,
@@ -345,7 +354,9 @@ export async function startJsonlBridge({
   const writeBridgeReflection = (held, { outcome, outputValid, feedback }) => {
     const employeeId = held.agentId || meta.agentId;
     if (!employeeId) {
-      emit(EVENTS.DEBUG_LINE, { line: "reflect skipped: no agent bound to this delivery" });
+      emit(EVENTS.DEBUG_LINE, {
+        line: "reflect skipped: no agent bound to this delivery",
+      });
       return;
     }
     try {
@@ -365,7 +376,9 @@ export async function startJsonlBridge({
       );
       writeReflection(held.root || bridgeRoot, reflection);
     } catch (error) {
-      emit(EVENTS.DEBUG_LINE, { line: `reflect skipped: ${error?.message ?? error}` });
+      emit(EVENTS.DEBUG_LINE, {
+        line: `reflect skipped: ${error?.message ?? error}`,
+      });
     }
   };
 
@@ -455,7 +468,11 @@ export async function startJsonlBridge({
       usage: produced,
       est_cost: cost,
     });
-    writeBridgeReflection(held, { outcome: "accepted", outputValid: true, feedback: "useful" });
+    writeBridgeReflection(held, {
+      outcome: "accepted",
+      outputValid: true,
+      feedback: "useful",
+    });
     refreshDreamAssessment();
     if (!removePendingDelivery(held)) {
       emit(EVENTS.DEBUG_LINE, {
@@ -837,8 +854,9 @@ export async function startJsonlBridge({
 
     if (action?.type === "client.ready") {
       const result = safelyApplyUserAction(action);
-      for (const family of result.eventFamilies || []) clientEventFamilies.add(family);
-      emitDreamAssessment(dreamAssessment);
+      for (const family of result.eventFamilies || [])
+        clientEventFamilies.add(family);
+      refreshDreamAssessment();
       return;
     }
 
@@ -846,13 +864,15 @@ export async function startJsonlBridge({
       const result = safelyApplyUserAction(action);
       if (!clientEventFamilies.has(DREAM_EVENT_FAMILY)) return;
       if (!dreamAssessment || !meta.agentId) {
-        emit(EVENTS.DEBUG_LINE, { line: "dream action ignored: no employee bound" });
+        emit(EVENTS.DEBUG_LINE, {
+          line: "dream action ignored: no employee bound",
+        });
         return;
       }
       if (result.dreamAction === "run") {
         refreshDreamAssessment({ manualTrigger: true, force: true });
       } else if (result.dreamAction === "inspect") {
-        emitDreamAssessment(dreamAssessment, { force: true });
+        refreshDreamAssessment({ force: true });
       } else {
         emit(EVENTS.DREAM_BLOCKED, {
           dream_id: result.dreamId || dreamIdFor(dreamAssessment),

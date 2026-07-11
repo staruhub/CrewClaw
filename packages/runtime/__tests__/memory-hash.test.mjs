@@ -94,8 +94,9 @@ assert.equal(
 // 文本规范化固定：NFC + trim + 内部空白折叠。
 assert.equal(normalizeMemoryText("  a\t\tb  \n c  "), "a b c");
 assert.equal(
-  computeMemoryStateHash([{ ...baseItems[0], text: `  ${baseItems[0].text}  ` }])
-    .memory_state_hash,
+  computeMemoryStateHash([
+    { ...baseItems[0], text: `  ${baseItems[0].text}  ` },
+  ]).memory_state_hash,
   computeMemoryStateHash([baseItems[0]]).memory_state_hash,
   "surrounding whitespace never changes the hash"
 );

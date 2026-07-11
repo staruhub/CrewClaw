@@ -66,7 +66,12 @@ export function backfillEmployeeMemory(root, employeeId) {
       const raw = readStateFileGuarded(file, { root }).toString("utf8");
       const items = JSON.parse(raw);
       if (!Array.isArray(items)) {
-        return { ok: false, employeeId, changed: false, reason: "memory file is not an array" };
+        return {
+          ok: false,
+          employeeId,
+          changed: false,
+          reason: "memory file is not an array",
+        };
       }
 
       let changedCount = 0;

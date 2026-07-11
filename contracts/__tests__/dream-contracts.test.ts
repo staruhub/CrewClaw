@@ -57,7 +57,10 @@ describe("dream_policy formal schema", () => {
         eligibility: { trusted_input_ratio: 0.9 },
         budget: { memory_budget_tokens: 8000 },
         input_policy: { forbid_sensitive: true },
-        promotion_policy: { require_baseline: true, require_candidate_eval: true },
+        promotion_policy: {
+          require_baseline: true,
+          require_candidate_eval: true,
+        },
         cooldown: { hours: 24 },
         limits: { max_batch_tasks: 32 },
         extensions: { "vendor.x": { anything: true } },
@@ -133,7 +136,11 @@ describe("reflect/v1", () => {
         accepted_artifact_ids: ["artifact_1"],
         evidence_ids: ["ev_1"],
         verified_failures: [
-          { code: "JS_SHELL", tool: "web.fetch", verification: "doctor_confirmed" },
+          {
+            code: "JS_SHELL",
+            tool: "web.fetch",
+            verification: "doctor_confirmed",
+          },
         ],
         user_feedback: { useful: true },
         created_at: "2026-07-11T00:00:00.000Z",

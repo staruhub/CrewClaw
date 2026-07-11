@@ -67,7 +67,10 @@ export function startMockModel(scenario, { dreamResponse } = {}) {
         body = {};
       }
 
-      if (dreamResponse !== undefined && rawBody.includes("crewclaw.dream/v1")) {
+      if (
+        dreamResponse !== undefined &&
+        rawBody.includes("crewclaw.dream/v1")
+      ) {
         const content =
           typeof dreamResponse === "string"
             ? dreamResponse

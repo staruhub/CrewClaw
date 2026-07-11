@@ -31,12 +31,15 @@ const accepted = index =>
     }
   );
 
-const reflections = Array.from({ length: 8 }, (_, index) => accepted(index + 1));
+const reflections = Array.from({ length: 8 }, (_, index) =>
+  accepted(index + 1)
+);
 const currentMemory = [];
 const baseline = {
   mock: false,
   provider_status: "verified",
-  memory_state_hash: "sha256:220ad790cbf47e8dc290182fc5148ad8b3b0f1276a6e37e59318e5bdb337806b",
+  memory_state_hash:
+    "sha256:220ad790cbf47e8dc290182fc5148ad8b3b0f1276a6e37e59318e5bdb337806b",
 };
 
 // Eight accepted, trusted, non-legacy tasks cross the accumulation trigger.
@@ -52,10 +55,18 @@ assert.equal(automatic.recommended, true);
 assert.ok(automatic.trigger_reasons.includes("accepted_tasks"));
 assert.equal(automatic.metrics.accepted_tasks, 8);
 assert.equal(automatic.input.reflection_ids.length, 8);
-assert.ok(automatic.cost.estimated_usd > 0, "recommendation cost is an honest estimate, not zero");
+assert.ok(
+  automatic.cost.estimated_usd > 0,
+  "recommendation cost is an honest estimate, not zero"
+);
 
 // Baseline is an activation-only gate: curation remains possible and explicit about the block.
-const noBaseline = assessDream({ employeeId, reflections, memoryItems: [], now });
+const noBaseline = assessDream({
+  employeeId,
+  reflections,
+  memoryItems: [],
+  now,
+});
 assert.equal(noBaseline.curation.eligible, true);
 assert.equal(noBaseline.recommended, true);
 assert.equal(noBaseline.activation.eligible, false);
@@ -99,7 +110,10 @@ assert.ok(blocked.curation.blockers.includes("no_trusted_input"));
 // M1 legacy writes are excluded from the new pool, preventing double absorption on flag flip.
 const legacyOnly = assessDream({
   employeeId,
-  reflections: reflections.map(record => ({ ...record, legacy_committed: true })),
+  reflections: reflections.map(record => ({
+    ...record,
+    legacy_committed: true,
+  })),
   manualTrigger: true,
   now,
 });
@@ -109,22 +123,33 @@ assert.ok(legacyOnly.curation.blockers.includes("no_trusted_input"));
 // Workspace scan + immutable RECOMMENDED job persistence.
 const root = mkdtempSync(join(tmpdir(), "crew-dream-controller-"));
 try {
-  for (const reflection of reflections) assert.equal(writeReflection(root, reflection).ok, true);
+  for (const reflection of reflections)
+    assert.equal(writeReflection(root, reflection).ok, true);
   const scanned = assessDreamFromWorkspace(root, employeeId, { now });
   assert.equal(scanned.recommended, true);
   assert.deepEqual(scanned.input_errors, []);
-  const persisted = persistDreamRecommendation(root, scanned, { dreamId: "dream-m2-test" });
+  const persisted = persistDreamRecommendation(root, scanned, {
+    dreamId: "dream-m2-test",
+  });
   assert.equal(persisted.ok, true);
   assert.equal(persisted.written, true);
   assert.ok(existsSync(dreamJobPath(root, employeeId, "dream-m2-test")));
-  const replay = persistDreamRecommendation(root, scanned, { dreamId: "dream-m2-test" });
+  const replay = persistDreamRecommendation(root, scanned, {
+    dreamId: "dream-m2-test",
+  });
   assert.equal(replay.ok, true);
   assert.equal(replay.written, false);
-  const laterAssessment = assessDreamFromWorkspace(root, employeeId, { now: now + 60_000 });
+  const laterAssessment = assessDreamFromWorkspace(root, employeeId, {
+    now: now + 60_000,
+  });
   const laterReplay = persistDreamRecommendation(root, laterAssessment, {
     dreamId: "dream-m2-test",
   });
-  assert.equal(laterReplay.ok, true, "same immutable input reuses its recommendation across restarts");
+  assert.equal(
+    laterReplay.ok,
+    true,
+    "same immutable input reuses its recommendation across restarts"
+  );
   assert.equal(laterReplay.written, false);
 } finally {
   rmSync(root, { recursive: true, force: true });

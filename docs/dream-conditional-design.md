@@ -31,6 +31,7 @@ M5 稳定后：      删除 legacy learning
 ```
 
 硬规则：
+
 - 生产环境不得出现"任务已验收但员工完全不再积累经验"的窗口。
 - 新旧管线不得同时写 active memory（禁双写）。
 - 回滚开关仅管理员可启用，启用必须写审计事件。
@@ -68,16 +69,16 @@ Evidence 引用，不能作为记忆正文。
 
 ## 契约冻结（M0.1，已实现）
 
-| 契约 | Schema 位置 | 用途 |
-|---|---|---|
-| `crewclaw.memory-item/v2` | contracts/dream.ts `MemoryItemV2Schema` | 记忆条目生命周期+溯源 |
-| `crewclaw.reflect/v1` | `ReflectionSchema` | 不可变任务工作日志 |
-| `crewclaw.dream-job/v1` | `DreamJobSchema` | 一次 Dream 运行全记录（含状态机） |
-| `crewclaw.dream-candidate/v1` | `DreamCandidateSchema` | 候选库（recall 永不直读） |
-| `crewclaw.dream-diff/v1` | `DreamDiffSchema` | add/merge/replace/drop/keep + 逐项溯源 |
-| `crewclaw.dream-approval/v1` | `DreamApprovalSchema` | 不可变审批回执 |
-| `crewclaw.memory-activation/v1` | `MemoryActivationSchema` | 原子切换记录 |
-| `crewclaw.memory-state-hash/v1` | packages/runtime/memory-hash.mjs | 成长判断锚点 |
+| 契约                            | Schema 位置                             | 用途                                   |
+| ------------------------------- | --------------------------------------- | -------------------------------------- |
+| `crewclaw.memory-item/v2`       | contracts/dream.ts `MemoryItemV2Schema` | 记忆条目生命周期+溯源                  |
+| `crewclaw.reflect/v1`           | `ReflectionSchema`                      | 不可变任务工作日志                     |
+| `crewclaw.dream-job/v1`         | `DreamJobSchema`                        | 一次 Dream 运行全记录（含状态机）      |
+| `crewclaw.dream-candidate/v1`   | `DreamCandidateSchema`                  | 候选库（recall 永不直读）              |
+| `crewclaw.dream-diff/v1`        | `DreamDiffSchema`                       | add/merge/replace/drop/keep + 逐项溯源 |
+| `crewclaw.dream-approval/v1`    | `DreamApprovalSchema`                   | 不可变审批回执                         |
+| `crewclaw.memory-activation/v1` | `MemoryActivationSchema`                | 原子切换记录                           |
+| `crewclaw.memory-state-hash/v1` | packages/runtime/memory-hash.mjs        | 成长判断锚点                           |
 
 `dream_policy` 从 `passthrough()` 收紧为正式 Schema：顶层未知字段拒绝；
 `mode/triggers/eligibility/budget/input_policy/promotion_policy/cooldown/limits/extensions`；
@@ -93,7 +94,7 @@ Evidence 引用，不能作为记忆正文。
 - 文本规范化 v1 固定：Unicode NFC → trim → 内部空白折叠为单空格。
 - 条目按 (category, normalized text) 码元序排序（无 locale 依赖）。
 - 输出：`{memory_state_hash: "sha256:…", memory_hash_schema, active_item_count,
-  estimated_injection_tokens}`；token 估算算法固定（CJK/全宽=1，其余 4 字符=1，明示 estimate）。
+estimated_injection_tokens}`；token 估算算法固定（CJK/全宽=1，其余 4 字符=1，明示 estimate）。
 - 改任何规则必须升 schema 版本，否则历史报告不可比。
 
 ## Eval 报告绑定（M0.3，已实现）

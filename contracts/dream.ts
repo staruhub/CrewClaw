@@ -63,7 +63,13 @@ export const ReflectionSchema = z
     contract: z.literal(REFLECT_CONTRACT),
     task_id: NonEmptyString,
     employee_id: NonEmptyString,
-    outcome: z.enum(["accepted", "rejected", "revision_needed", "failed", "blocked"]),
+    outcome: z.enum([
+      "accepted",
+      "rejected",
+      "revision_needed",
+      "failed",
+      "blocked",
+    ]),
     output_valid: z.boolean(),
     accepted_artifact_ids: z.array(NonEmptyString),
     evidence_ids: z.array(NonEmptyString),
@@ -72,13 +78,15 @@ export const ReflectionSchema = z
         .object({
           code: NonEmptyString,
           tool: NonEmptyString.optional(),
-          verification: z.enum(["doctor_confirmed", "outcome_grader", "deterministic_test"]),
+          verification: z.enum([
+            "doctor_confirmed",
+            "outcome_grader",
+            "deterministic_test",
+          ]),
         })
         .strict()
     ),
-    user_feedback: z
-      .object({ useful: z.boolean().nullable() })
-      .strict(),
+    user_feedback: z.object({ useful: z.boolean().nullable() }).strict(),
     tool_stats: z
       .array(
         z

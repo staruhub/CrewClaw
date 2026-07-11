@@ -13,17 +13,53 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 
 import { reflectionPath } from "./dream-paths.mjs";
-import { readStateFileGuarded, withStateLock, writeJsonAtomic } from "./state-lock.mjs";
+import {
+  readStateFileGuarded,
+  withStateLock,
+  writeJsonAtomic,
+} from "./state-lock.mjs";
 
 export const REFLECT_CONTRACT = "crewclaw.reflect/v1";
 
-const OUTCOMES = new Set(["accepted", "rejected", "revision_needed", "failed", "blocked"]);
+const OUTCOMES = new Set([
+  "accepted",
+  "rejected",
+  "revision_needed",
+  "failed",
+  "blocked",
+]);
 // Only these verification sources make a failure "verified" (worth distilling later).
-const VERIFICATIONS = new Set(["doctor_confirmed", "outcome_grader", "deterministic_test"]);
+const VERIFICATIONS = new Set([
+  "doctor_confirmed",
+  "outcome_grader",
+  "deterministic_test",
+]);
+const REFLECTION_KEYS = new Set([
+  "contract",
+  "task_id",
+  "employee_id",
+  "outcome",
+  "output_valid",
+  "accepted_artifact_ids",
+  "evidence_ids",
+  "verified_failures",
+  "user_feedback",
+  "tool_stats",
+  "cost_usd",
+  "duration_ms",
+  "created_at",
+  // Runtime-only provenance added after frozen-contract validation. It is persisted deliberately
+  // and is the sole extension accepted when records are read back from disk.
+  "legacy_committed",
+]);
+const VERIFIED_FAILURE_KEYS = new Set(["code", "tool", "verification"]);
+const TOOL_STAT_KEYS = new Set(["tool_name", "status", "decision"]);
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 
 function canonicalStringify(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalStringify).join(",")}]`;
+  if (Array.isArray(value))
+    return `[${value.map(canonicalStringify).join(",")}]`;
   const keys = Object.keys(value).sort();
   return `{${keys.map(key => `${JSON.stringify(key)}:${canonicalStringify(value[key])}`).join(",")}}`;
 }
@@ -39,28 +75,83 @@ function feedbackBool(userFeedback) {
 }
 
 // Structural mirror of ReflectionSchema (contracts/dream.ts) — checks the frozen shape without a
-// TS toolchain. Throws on violation so a corrupt reflection never reaches disk.
-function assertReflectionShape(r) {
+// TS toolchain. Throws on violation so corrupt or schema-invalid records cannot reach Dream.
+export function assertReflectionShape(r) {
   const bad = msg => {
     throw new Error(`invalid reflection: ${msg}`);
   };
+  const nonEmptyString = value => typeof value === "string" && value.length > 0;
+  const stringArray = (value, label) => {
+    if (!Array.isArray(value) || value.some(item => !nonEmptyString(item)))
+      bad(label);
+  };
+  const strictKeys = (value, allowed, label) => {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      Object.keys(value).some(key => !allowed.has(key))
+    )
+      bad(label);
+  };
+
+  strictKeys(r, REFLECTION_KEYS, "record");
   if (r.contract !== REFLECT_CONTRACT) bad("contract");
-  if (typeof r.task_id !== "string" || !r.task_id) bad("task_id");
-  if (typeof r.employee_id !== "string" || !r.employee_id) bad("employee_id");
+  if (!nonEmptyString(r.task_id)) bad("task_id");
+  if (!nonEmptyString(r.employee_id)) bad("employee_id");
   if (!OUTCOMES.has(r.outcome)) bad("outcome");
   if (typeof r.output_valid !== "boolean") bad("output_valid");
-  if (!Array.isArray(r.accepted_artifact_ids)) bad("accepted_artifact_ids");
-  if (!Array.isArray(r.evidence_ids)) bad("evidence_ids");
+  stringArray(r.accepted_artifact_ids, "accepted_artifact_ids");
+  stringArray(r.evidence_ids, "evidence_ids");
   if (!Array.isArray(r.verified_failures)) bad("verified_failures");
   for (const f of r.verified_failures) {
-    if (!f || typeof f.code !== "string" || !f.code) bad("verified_failure.code");
-    if (!VERIFICATIONS.has(f.verification)) bad("verified_failure.verification");
+    strictKeys(f, VERIFIED_FAILURE_KEYS, "verified_failure");
+    if (!nonEmptyString(f.code)) bad("verified_failure.code");
+    if (f.tool !== undefined && !nonEmptyString(f.tool))
+      bad("verified_failure.tool");
+    if (!VERIFICATIONS.has(f.verification))
+      bad("verified_failure.verification");
   }
-  if (!r.user_feedback || typeof r.user_feedback !== "object") bad("user_feedback");
-  if (!(r.user_feedback.useful === null || typeof r.user_feedback.useful === "boolean"))
+  strictKeys(r.user_feedback, new Set(["useful"]), "user_feedback");
+  if (
+    !(
+      r.user_feedback.useful === null ||
+      typeof r.user_feedback.useful === "boolean"
+    )
+  )
     bad("user_feedback.useful");
-  if (typeof r.created_at !== "string" || Number.isNaN(Date.parse(r.created_at)))
+  if (r.tool_stats !== undefined) {
+    if (!Array.isArray(r.tool_stats)) bad("tool_stats");
+    for (const stat of r.tool_stats) {
+      strictKeys(stat, TOOL_STAT_KEYS, "tool_stat");
+      if (!nonEmptyString(stat.tool_name)) bad("tool_stat.tool_name");
+      if (stat.status !== undefined && !nonEmptyString(stat.status))
+        bad("tool_stat.status");
+      if (stat.decision !== undefined && !nonEmptyString(stat.decision))
+        bad("tool_stat.decision");
+    }
+  }
+  if (
+    r.cost_usd !== undefined &&
+    (!Number.isFinite(r.cost_usd) || r.cost_usd < 0)
+  )
+    bad("cost_usd");
+  if (
+    r.duration_ms !== undefined &&
+    (!Number.isInteger(r.duration_ms) || r.duration_ms < 0)
+  )
+    bad("duration_ms");
+  if (
+    !nonEmptyString(r.created_at) ||
+    !ISO_UTC.test(r.created_at) ||
+    Number.isNaN(Date.parse(r.created_at))
+  )
     bad("created_at");
+  if (
+    r.legacy_committed !== undefined &&
+    typeof r.legacy_committed !== "boolean"
+  )
+    bad("legacy_committed");
 }
 
 /**
@@ -69,7 +160,12 @@ function assertReflectionShape(r) {
  */
 export function buildReflection(
   run,
-  { evidenceIds = [], verifiedFailures = [], legacyCommitted = false, createdAt } = {}
+  {
+    evidenceIds = [],
+    verifiedFailures = [],
+    legacyCommitted = false,
+    createdAt,
+  } = {}
 ) {
   if (!run || typeof run !== "object" || !run.id || !run.employee_id) {
     throw new Error("reflect requires a settled TaskRun with id + employee_id");
@@ -119,12 +215,15 @@ export function buildReflection(
  * no-op success (crash-replay safe); a divergent one for the same task is rejected as corruption.
  */
 export function writeReflection(root, reflection) {
+  assertReflectionShape(reflection);
   const path = reflectionPath(root, reflection.employee_id, reflection.task_id);
   return withStateLock(
     `${path}.lock`,
     () => {
       if (existsSync(path)) {
-        const existing = JSON.parse(readStateFileGuarded(path, { root }).toString("utf8"));
+        const existing = JSON.parse(
+          readStateFileGuarded(path, { root }).toString("utf8")
+        );
         if (canonicalHash(existing) === canonicalHash(reflection)) {
           return { ok: true, written: false, path };
         }
@@ -132,7 +231,8 @@ export function writeReflection(root, reflection) {
           ok: false,
           written: false,
           path,
-          reason: "reflection already exists with different content (corruption?)",
+          reason:
+            "reflection already exists with different content (corruption?)",
         };
       }
       writeJsonAtomic(path, reflection, { root });
@@ -148,13 +248,18 @@ export function writeReflection(root, reflection) {
  * unaccepted, low-confidence, and sensitive reflections are refused.
  */
 export function isTrustedReflection(reflection) {
-  if (!reflection || typeof reflection !== "object") return false;
-  if (reflection.contract !== REFLECT_CONTRACT) return false;
+  try {
+    assertReflectionShape(reflection);
+  } catch {
+    return false;
+  }
   if (reflection.mock === true) return false;
-  if (reflection.sensitive === true || reflection.ephemeral === true) return false;
+  if (reflection.sensitive === true || reflection.ephemeral === true)
+    return false;
   if (reflection.confidence === "low") return false;
   // Accepted + valid output is the primary trust signal.
-  if (reflection.outcome === "accepted" && reflection.output_valid === true) return true;
+  if (reflection.outcome === "accepted" && reflection.output_valid === true)
+    return true;
   // A verified failure path (doctor/grader/test confirmed) with evidence is also admissible —
   // it teaches the employee what NOT to do.
   if (

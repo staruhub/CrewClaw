@@ -28,24 +28,33 @@ export function normalizeMemoryText(value) {
 }
 
 function isActive(item) {
-  return item && typeof item === "object" && (item.status === undefined || item.status === "active");
+  return (
+    item &&
+    typeof item === "object" &&
+    (item.status === undefined || item.status === "active")
+  );
 }
 
 function canonicalItem(item) {
   return {
     category: String(item.category ?? ""),
     confidence: item.confidence === undefined ? null : String(item.confidence),
-    supersedes: item.supersedes === undefined || item.supersedes === null ? null : String(item.supersedes),
+    supersedes:
+      item.supersedes === undefined || item.supersedes === null
+        ? null
+        : String(item.supersedes),
     text: normalizeMemoryText(item.text),
-    valid_until: item.valid_until === undefined || item.valid_until === null ? null : String(item.valid_until),
+    valid_until:
+      item.valid_until === undefined || item.valid_until === null
+        ? null
+        : String(item.valid_until),
   };
 }
 
 // Deterministic token estimate: CJK/full-width code points count as 1 token each; everything
 // else counts 1 token per 4 characters (ceil per item). Fixed for v1 — do not "improve" this
 // without bumping the schema version, or historical reports stop being comparable.
-const WIDE_RE =
-  /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦　-〿]/u;
+const WIDE_RE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦　-〿]/u;
 
 export function estimateInjectionTokens(text) {
   const normalized = normalizeMemoryText(text);
@@ -59,7 +68,9 @@ export function estimateInjectionTokens(text) {
 }
 
 export function computeMemoryStateHash(items) {
-  const active = (Array.isArray(items) ? items : []).filter(isActive).map(canonicalItem);
+  const active = (Array.isArray(items) ? items : [])
+    .filter(isActive)
+    .map(canonicalItem);
   active.sort((a, b) => {
     if (a.category !== b.category) return a.category < b.category ? -1 : 1;
     if (a.text !== b.text) return a.text < b.text ? -1 : 1;
@@ -74,7 +85,10 @@ export function computeMemoryStateHash(items) {
   }
 
   const estimatedTokens = active.reduce(
-    (sum, item) => sum + estimateInjectionTokens(item.text) + estimateInjectionTokens(item.category),
+    (sum, item) =>
+      sum +
+      estimateInjectionTokens(item.text) +
+      estimateInjectionTokens(item.category),
     0
   );
 

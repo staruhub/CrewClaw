@@ -13,13 +13,13 @@
 
 ## 1. 术语正名：两条"做梦"脉络，别混
 
-| | RL 世界模型一脉（Dreamer） | Agent 记忆巩固一脉（Dreaming/Sleep-time） |
-|---|---|---|
-| 代表 | Hafner 的 Dreamer/DreamerV3（"Mastering Diverse Domains through World Models"） | Letta sleep-time compute、Anthropic Claude Dreaming、Generative Agents reflection |
-| "梦"是什么 | 在学到的**潜空间世界模型**里做想象 rollout，actor-critic 完全在想象轨迹上训练 | 离线读取**过往会话/任务日志**，重写记忆库（去重、合并、提炼模式） |
-| 改变什么 | 模型权重（策略网络） | 可读记忆（上下文），**不改权重** |
-| 适用前提 | 有可交互环境 + 可训练的世界模型 | 有持久记忆库 + 任务痕迹 |
-| 对 CrewClaw | ❌ 不适用——数字员工没有可微世界模型，也不做权重训练 | ✅ 完全对口——员工的"成长"就是记忆库质量的提升 |
+|             | RL 世界模型一脉（Dreamer）                                                      | Agent 记忆巩固一脉（Dreaming/Sleep-time）                                         |
+| ----------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| 代表        | Hafner 的 Dreamer/DreamerV3（"Mastering Diverse Domains through World Models"） | Letta sleep-time compute、Anthropic Claude Dreaming、Generative Agents reflection |
+| "梦"是什么  | 在学到的**潜空间世界模型**里做想象 rollout，actor-critic 完全在想象轨迹上训练   | 离线读取**过往会话/任务日志**，重写记忆库（去重、合并、提炼模式）                 |
+| 改变什么    | 模型权重（策略网络）                                                            | 可读记忆（上下文），**不改权重**                                                  |
+| 适用前提    | 有可交互环境 + 可训练的世界模型                                                 | 有持久记忆库 + 任务痕迹                                                           |
+| 对 CrewClaw | ❌ 不适用——数字员工没有可微世界模型，也不做权重训练                             | ✅ 完全对口——员工的"成长"就是记忆库质量的提升                                     |
 
 DreamerV3 的价值是**名字的出处和隐喻**（在想象中学习、离线自我改进），工程上 CrewClaw
 应该完整走第二脉。Letta 论文里有一句桥接两者的话：sleep-time compute 可视为
@@ -27,15 +27,15 @@ DreamerV3 的价值是**名字的出处和隐喻**（在想象中学习、离线
 
 ## 2. 行业实现对照（谁在什么时候做什么梦）
 
-| 系统 | 梦的时机 | 输入 | 输出 | 关键设计 |
-|---|---|---|---|---|
-| **Anthropic Claude Dreaming**（Managed Agents，2026-05 research preview） | 定时调度（用户配频率：每晚/每小时/自定义），**不在活跃会话中** | 现有 memory store + 最多 **100 个先前 session** | **一个新的候选 memory store**（重组、合并重复、替换过期、浮现跨会话模式） | "memory 是写入层，dreaming 是策展层"；可选**人工审核后才生效**；改的是可读记忆不是权重 |
-| **Letta sleep-time compute**（arXiv:2504.13171，与 Ion Stoica 等合作） | 主 agent 空闲期，频率可配（频率↔token 成本旋钮） | 主 agent 的核心记忆块 + 会话历史 + 归档记忆 + 上传文档 | 优化后的记忆状态（anytime 更新） | **双 agent 架构**：primary（快模型，无核心记忆写权）+ sleep agent（强模型，全记忆管理权）；AIME/GSM 上帕累托改进 |
-| **小米 MiMo Code** | 每 **7 天**自动触发 | 积累的编码会话 | 更新的记忆 | 行业采纳的旁证：梦是产品功能不是论文玩具 |
-| **Generative Agents**（Park et al. 2023） | 显著性累积触发（salience 阈值） | episodic 记忆流 | 高阶 reflection（递归总结成洞察） | 记忆流 + 检索 + 反思三件套；证明长程一致行为靠记忆架构不靠底模 |
-| **Reflexion**（Shinn et al. 2023, NeurIPS） | **每次任务失败/结束后立即**（不是离线） | 环境反馈（标量/二值）+ 本轮轨迹 | 自然语言反思，存 episodic buffer，下轮前置进上下文 | "verbal reinforcement"：把反馈转成**语义梯度**；纯上下文、零权重更新 |
-| **Voyager**（Wang et al. 2023） | 任务成功后 | 通过验证的解决方案代码 | 技能库新条目 | **只存已验证成功的技能**——不存猜测，这是防污染的第一性原则 |
-| **MemGPT/Letta 记忆分层** | 持续 | — | — | OS 式层级：message buffer / core（上下文内可自编）/ recall（全历史可搜）/ archival（外部库） |
+| 系统                                                                      | 梦的时机                                                       | 输入                                                   | 输出                                                                      | 关键设计                                                                                                         |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Anthropic Claude Dreaming**（Managed Agents，2026-05 research preview） | 定时调度（用户配频率：每晚/每小时/自定义），**不在活跃会话中** | 现有 memory store + 最多 **100 个先前 session**        | **一个新的候选 memory store**（重组、合并重复、替换过期、浮现跨会话模式） | "memory 是写入层，dreaming 是策展层"；可选**人工审核后才生效**；改的是可读记忆不是权重                           |
+| **Letta sleep-time compute**（arXiv:2504.13171，与 Ion Stoica 等合作）    | 主 agent 空闲期，频率可配（频率↔token 成本旋钮）               | 主 agent 的核心记忆块 + 会话历史 + 归档记忆 + 上传文档 | 优化后的记忆状态（anytime 更新）                                          | **双 agent 架构**：primary（快模型，无核心记忆写权）+ sleep agent（强模型，全记忆管理权）；AIME/GSM 上帕累托改进 |
+| **小米 MiMo Code**                                                        | 每 **7 天**自动触发                                            | 积累的编码会话                                         | 更新的记忆                                                                | 行业采纳的旁证：梦是产品功能不是论文玩具                                                                         |
+| **Generative Agents**（Park et al. 2023）                                 | 显著性累积触发（salience 阈值）                                | episodic 记忆流                                        | 高阶 reflection（递归总结成洞察）                                         | 记忆流 + 检索 + 反思三件套；证明长程一致行为靠记忆架构不靠底模                                                   |
+| **Reflexion**（Shinn et al. 2023, NeurIPS）                               | **每次任务失败/结束后立即**（不是离线）                        | 环境反馈（标量/二值）+ 本轮轨迹                        | 自然语言反思，存 episodic buffer，下轮前置进上下文                        | "verbal reinforcement"：把反馈转成**语义梯度**；纯上下文、零权重更新                                             |
+| **Voyager**（Wang et al. 2023）                                           | 任务成功后                                                     | 通过验证的解决方案代码                                 | 技能库新条目                                                              | **只存已验证成功的技能**——不存猜测，这是防污染的第一性原则                                                       |
+| **MemGPT/Letta 记忆分层**                                                 | 持续                                                           | —                                                      | —                                                                         | OS 式层级：message buffer / core（上下文内可自编）/ recall（全历史可搜）/ archival（外部库）                     |
 
 认知架构论文 CoALA（Sumers et al. 2023）给了记忆分类学：**episodic**（发生过什么）→
 **semantic**（世界知识/事实）→ **procedural**（怎么做事/技能）。"做梦"本质上是把
@@ -97,6 +97,7 @@ episodic 往 semantic 和 procedural 蒸馏的那道工序。
 与上文研究结论对得很齐：
 
 **已有（且方向正确）**
+
 - 任务后小梦（Reflexion 式）：`reviewTaskRun({taskRun, deliverable, existingMemory, policy})`
   → 模型产出 `new_memory_candidates` + `new_playbook_candidates`（→ verified_sops）。
 - 验证极严：6 类记忆白名单、字数/控制字节/键集校验、64KiB 响应上限。
@@ -107,6 +108,7 @@ episodic 往 semantic 和 procedural 蒸馏的那道工序。
 - `shouldRecord` 丢弃 sensitive/low-confidence/ephemeral。
 
 **缺口（按研究结论排序）**
+
 1. **跨任务大梦（batch curation）没有**——现在只有 per-task 反思，没有"读全库+近 N 个
    已验收任务 → 产出候选新库（去重/合并/替换过期/浮现模式）"的策展层。记忆只增不减。
 2. **逐条溯源没有**——候选条目只有 {category, text, confidence}，缺

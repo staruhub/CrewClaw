@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   REFLECT_CONTRACT,
+  assertReflectionShape,
   buildReflection,
   isTrustedReflection,
   writeReflection,
@@ -56,6 +63,16 @@ assert.deepEqual(r, r2);
 // missing identity throws (a corrupt reflection must never reach disk).
 assert.throws(() => buildReflection({ status: "accepted" }), /settled TaskRun/);
 
+// JSON syntax is not enough: a contract-shaped object missing required fields must fail closed.
+const schemaInvalid = {
+  contract: REFLECT_CONTRACT,
+  employee_id: acceptedRun.employee_id,
+  outcome: "accepted",
+  output_valid: true,
+};
+assert.throws(() => assertReflectionShape(schemaInvalid), /task_id/);
+assert.equal(isTrustedReflection(schemaInvalid), false);
+
 // only enum verification sources survive.
 const withFailures = buildReflection(
   { ...acceptedRun, status: "rejected", output_valid: false },
@@ -91,7 +108,9 @@ try {
   assert.match(conflict.reason, /different content/);
 
   // on-disk file is the original, untouched.
-  const onDisk = JSON.parse(readFileSync(reflectionPath(root, r.employee_id, r.task_id), "utf8"));
+  const onDisk = JSON.parse(
+    readFileSync(reflectionPath(root, r.employee_id, r.task_id), "utf8")
+  );
   assert.equal(onDisk.outcome, "accepted");
 } finally {
   rmSync(root, { recursive: true, force: true });

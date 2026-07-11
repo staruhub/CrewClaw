@@ -1,22 +1,28 @@
 import { expect, test } from "@playwright/test";
+import { getLatestTaskRun } from "../src/data/task-runs";
+
+const run = getLatestTaskRun();
+const primaryArtifact = run.artifacts[0];
 
 test("task run workbench exposes artifact-first panels", async ({ page }) => {
-  await page.goto("/task-run/task_1782348262131");
+  await page.goto(`/task-run/${run.id}`);
 
   await expect(page).toHaveTitle(/CrewClaw/);
   await expect(
-    page.getByRole("heading", { name: /调研火山引擎 Seed 2\.1/ })
+    page.getByRole("heading", { name: run.user_goal })
   ).toBeVisible();
   await expect(page.getByText("TaskRun Workbench")).toBeVisible();
 
   await expect(page.getByText("Timeline", { exact: true })).toBeVisible();
   await expect(page.getByText("员工动作")).toBeVisible();
-  await expect(page.getByText("-> planned")).toBeVisible();
-  await expect(page.getByText("正在阅读 en.wikipedia.org")).toBeVisible();
+  await expect(page.getByText(run.events[0].summary)).toBeVisible();
+  await expect(page.getByText(run.events[2].summary)).toBeVisible();
 
   await expect(page.getByText("Artifacts", { exact: true })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: /artifact_1782348310459\.md/ })
+    page.getByRole("button", {
+      name: new RegExp(primaryArtifact.name.replace(".", "\\.")),
+    })
   ).toBeVisible();
 
   // Panel labels are uppercase <p> headers; several strings (Tools/Preview) also appear as
@@ -26,20 +32,25 @@ test("task run workbench exposes artifact-first panels", async ({ page }) => {
     page.getByText("Preview", { exact: true }).first()
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "artifact_1782348310459.md" })
+    page.getByRole("heading", { name: primaryArtifact.name })
   ).toBeVisible();
-  await expect(page.getByText("（已达工具调用步数上限）")).toBeVisible();
+  await expect(
+    page.getByText(primaryArtifact.preview.split("\n")[0])
+  ).toBeVisible();
 
   await expect(page.getByText("Checks", { exact: true })).toBeVisible();
-  await expect(page.getByText("验收")).toBeVisible();
-  await expect(page.getByText("有效任务")).toBeVisible();
-  await expect(page.getByText("✗ missing feedback")).toBeVisible();
+  await expect(page.getByText(primaryArtifact.checks[0].label)).toBeVisible();
+  await expect(page.getByText(primaryArtifact.checks[1].label)).toBeVisible();
 
   await expect(page.getByText("工具与权限")).toBeVisible();
   await expect(page.getByText("web_search").first()).toBeVisible();
   await expect(page.getByText("success · allow").first()).toBeVisible();
 
-  await expect(page.getByText("Debug / JSONL / Audit")).toBeVisible();
-  await expect(page.getByText("Run Truth")).toBeVisible();
-  await expect(page.getByText("tool_called").first()).toBeVisible();
+  const inspectPanel = page
+    .getByRole("heading", { name: "Debug / JSONL / Audit" })
+    .locator("..");
+  await expect(inspectPanel.getByText("Run Truth")).toBeVisible();
+  await expect(inspectPanel.locator("pre")).toContainText(
+    run.inspect.raw_events[1]
+  );
 });

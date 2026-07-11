@@ -125,7 +125,10 @@ export function validateDreamReview(value, { taskRunId } = {}) {
     "confidence",
     "needs_user_review",
   ]);
-  if (!exactKeys(review, allowed) || Object.keys(review).length !== allowed.size) {
+  if (
+    !exactKeys(review, allowed) ||
+    Object.keys(review).length !== allowed.size
+  ) {
     throw new Error("dream model response does not match the closed contract");
   }
   if (
@@ -198,15 +201,15 @@ function buildMockReview({ taskRun, deliverable, existingMemory }) {
   }
   const validated = validateDreamReview(
     {
-    summary: "显式 mock 模式的确定性复盘，仅用于验证 Dream 管道。",
-    new_memory_candidates: newMemoryCandidates,
-    new_playbook_candidates: newPlaybookCandidates,
-    confidence: taskRun.effective
-      ? "high"
-      : taskRun.output_valid
-        ? "medium"
-        : "low",
-    needs_user_review: true,
+      summary: "显式 mock 模式的确定性复盘，仅用于验证 Dream 管道。",
+      new_memory_candidates: newMemoryCandidates,
+      new_playbook_candidates: newPlaybookCandidates,
+      confidence: taskRun.effective
+        ? "high"
+        : taskRun.output_valid
+          ? "medium"
+          : "low",
+      needs_user_review: true,
     },
     { taskRunId: taskRun.id }
   );
@@ -219,12 +222,11 @@ function buildMockReview({ taskRun, deliverable, existingMemory }) {
 }
 
 function safeDreamPolicy(policy) {
-  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return null;
+  if (!policy || typeof policy !== "object" || Array.isArray(policy))
+    return null;
   return {
     after_task: Array.isArray(policy.after_task)
-      ? policy.after_task
-          .slice(0, 20)
-          .map(item => String(item).slice(0, 500))
+      ? policy.after_task.slice(0, 20).map(item => String(item).slice(0, 500))
       : [],
     retention:
       typeof policy.retention === "string"
@@ -233,7 +235,12 @@ function safeDreamPolicy(policy) {
   };
 }
 
-export function dreamModelInput({ taskRun, deliverable, existingMemory, policy }) {
+export function dreamModelInput({
+  taskRun,
+  deliverable,
+  existingMemory,
+  policy,
+}) {
   return {
     contract: DREAM_CONTRACT,
     task: {
@@ -283,7 +290,12 @@ export async function reviewTaskRun({
       "real dream requires an explicit model; refusing heuristic downgrade"
     );
   }
-  const input = dreamModelInput({ taskRun, deliverable, existingMemory, policy });
+  const input = dreamModelInput({
+    taskRun,
+    deliverable,
+    existingMemory,
+    policy,
+  });
   if (JSON.stringify(input).length > MAX_MODEL_INPUT_CHARS) {
     throw new Error("dream model input exceeds 128 KiB");
   }

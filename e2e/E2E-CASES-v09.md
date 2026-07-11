@@ -1,8 +1,9 @@
 # CrewClaw E2E Test-Case Catalog — v0.9 + recently-fixed regressions
 
 Scope: end-to-end scenarios for the digital-employee flow (chat → workbench), covering the
-v0.9 visual redesign, the M5 discoverability features, and the confirmed-bug regressions
-recently fixed in `packages/runtime/tui/jsonl-bridge.mjs` and `packages/runtime/tui/route.mjs`.
+v0.9 visual redesign, the M5 discoverability features, conditional Dream negotiation, and the
+confirmed-bug regressions recently fixed in `packages/runtime/tui/jsonl-bridge.mjs` and
+`packages/runtime/tui/route.mjs`.
 
 ## Why three layers
 
@@ -76,11 +77,29 @@ Existing specs; listed for completeness (these drive the DOM, not the TUI).
 
 ---
 
+## D. Conditional Dream negotiation and recovery — bridge-node
+
+Implemented in `packages/runtime/__tests__/dream-protocol-negotiation.test.mjs`.
+
+| id     | scenario                                        | expected                                                                                         |
+| ------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| E2E-21 | `dream/v1` negotiation + restart                | Silent before `client.ready`; recommendation persists; restart reuses the same ID and single job |
+| E2E-22 | Existing recommendation file is corrupt         | Emits `dream.blocked`; bridge stays alive; corrupt file is not overwritten                       |
+| E2E-23 | Client advertises only `core/v1`                | No `dream.*` event or job, including after an unsupported `dream.run`                            |
+| E2E-24 | Manual policy                                   | Quiet after negotiation; `dream.run` explicitly produces the recommendation                      |
+| E2E-25 | Reflection contains invalid JSON                | `dream.run` fails closed with `input_state_unreadable`; no job                                   |
+| E2E-26 | Reflection is valid JSON but violates schema    | Same fail-closed result; malformed facts never enter the trusted pool                            |
+| E2E-27 | Budget preference changes during a live session | Negotiation and `dream.run` re-read the current cap and block when current spend exceeds it      |
+
+---
+
 ## How to run
 
 - **bridge-node** (this catalog's runnable subset):
   `cd packages/runtime && node __tests__/run-all.mjs`
   (runs every `__tests__/*.test.mjs` under `CREW_MOCK=1`; `e2e-tui-flow.test.mjs` is auto-discovered).
   To run just the new file: `cd packages/runtime && CREW_MOCK=1 node __tests__/e2e-tui-flow.test.mjs`
+  To run Dream negotiation only:
+  `node packages/runtime/__tests__/dream-protocol-negotiation.test.mjs`
 - **rust-testbackend**: `cargo test -p crewclaw-cli` (workbench unit tests).
 - **playwright-web**: the repo's Playwright command against `e2e/*.spec.ts`.

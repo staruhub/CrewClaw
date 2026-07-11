@@ -28,53 +28,94 @@ function safeSegment(value, label) {
 }
 
 export function reflectionsDir(root, employeeId) {
-  return join(root, ".crewclaw", "reflections", safeSegment(employeeId, "employeeId"));
+  return join(
+    root,
+    ".crewclaw",
+    "reflections",
+    safeSegment(employeeId, "employeeId")
+  );
 }
 
 export function reflectionPath(root, employeeId, taskId) {
   return resolveStatePath(
-    join(reflectionsDir(root, employeeId), `${safeSegment(taskId, "taskId")}.json`),
+    join(
+      reflectionsDir(root, employeeId),
+      `${safeSegment(taskId, "taskId")}.json`
+    ),
     root
   );
 }
 
 export function dreamDir(root, employeeId) {
-  return join(root, ".crewclaw", "dream", safeSegment(employeeId, "employeeId"));
+  return join(
+    root,
+    ".crewclaw",
+    "dream",
+    safeSegment(employeeId, "employeeId")
+  );
 }
 
 export function dreamJobPath(root, employeeId, dreamRunId) {
   return resolveStatePath(
-    join(dreamDir(root, employeeId), "jobs", `${safeSegment(dreamRunId, "dreamRunId")}.json`),
+    join(
+      dreamDir(root, employeeId),
+      "jobs",
+      `${safeSegment(dreamRunId, "dreamRunId")}.json`
+    ),
     root
   );
 }
 
 export function dreamCandidateDir(root, employeeId, dreamRunId) {
-  return join(dreamDir(root, employeeId), "candidates", safeSegment(dreamRunId, "dreamRunId"));
+  return join(
+    dreamDir(root, employeeId),
+    "candidates",
+    safeSegment(dreamRunId, "dreamRunId")
+  );
 }
 
 export function dreamCandidateMemoryPath(root, employeeId, dreamRunId) {
-  return resolveStatePath(join(dreamCandidateDir(root, employeeId, dreamRunId), "candidate-memory.json"), root);
+  return resolveStatePath(
+    join(
+      dreamCandidateDir(root, employeeId, dreamRunId),
+      "candidate-memory.json"
+    ),
+    root
+  );
 }
 
 export function dreamCandidateDiffPath(root, employeeId, dreamRunId) {
-  return resolveStatePath(join(dreamCandidateDir(root, employeeId, dreamRunId), "diff.json"), root);
+  return resolveStatePath(
+    join(dreamCandidateDir(root, employeeId, dreamRunId), "diff.json"),
+    root
+  );
 }
 
 export function dreamCandidateValidationPath(root, employeeId, dreamRunId) {
-  return resolveStatePath(join(dreamCandidateDir(root, employeeId, dreamRunId), "validation.json"), root);
+  return resolveStatePath(
+    join(dreamCandidateDir(root, employeeId, dreamRunId), "validation.json"),
+    root
+  );
 }
 
 export function dreamApprovalPath(root, employeeId, dreamRunId) {
   return resolveStatePath(
-    join(dreamDir(root, employeeId), "approvals", `${safeSegment(dreamRunId, "dreamRunId")}.json`),
+    join(
+      dreamDir(root, employeeId),
+      "approvals",
+      `${safeSegment(dreamRunId, "dreamRunId")}.json`
+    ),
     root
   );
 }
 
 export function dreamActivationPath(root, employeeId, activationId) {
   return resolveStatePath(
-    join(dreamDir(root, employeeId), "activations", `${safeSegment(activationId, "activationId")}.json`),
+    join(
+      dreamDir(root, employeeId),
+      "activations",
+      `${safeSegment(activationId, "activationId")}.json`
+    ),
     root
   );
 }
@@ -83,7 +124,11 @@ export function dreamArchivePath(root, employeeId, memoryStateHash) {
   // archive files are keyed by the hash of the store they snapshot; strip the sha256: prefix
   const hex = String(memoryStateHash ?? "").replace(/^sha256:/, "");
   return resolveStatePath(
-    join(dreamDir(root, employeeId), "archives", `${safeSegment(hex, "memoryStateHash")}.json`),
+    join(
+      dreamDir(root, employeeId),
+      "archives",
+      `${safeSegment(hex, "memoryStateHash")}.json`
+    ),
     root
   );
 }

@@ -42,7 +42,11 @@ const DELIVERABLE = [
 const DREAM_REVIEW = {
   summary: "复盘：官方来源可靠。",
   new_memory_candidates: [
-    { category: "reliable_sources", text: "https://www.volcengine.com/product/ark", confidence: "high" },
+    {
+      category: "reliable_sources",
+      text: "https://www.volcengine.com/product/ark",
+      confidence: "high",
+    },
   ],
   new_playbook_candidates: [],
   confidence: "high",
@@ -51,20 +55,24 @@ const DREAM_REVIEW = {
 
 function runOnce(root, modelUrl, legacyFlag) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(RUNTIME_ENTRY ? process.execPath : "node", [RUNTIME_ENTRY, AGENT_ID, "--task", TASK_ID], {
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        CREW_TUI: "ratatui",
-        CREW_MOCK: "0",
-        CREW_LEGACY_LEARNING: legacyFlag,
-        CREWCLAW_ROOT: root,
-        ZENMUX_API_KEY: "test",
-        ZENMUX_BASE_URL: modelUrl,
-        TAVILY_API_KEY: "test",
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const child = spawn(
+      RUNTIME_ENTRY ? process.execPath : "node",
+      [RUNTIME_ENTRY, AGENT_ID, "--task", TASK_ID],
+      {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          CREW_TUI: "ratatui",
+          CREW_MOCK: "0",
+          CREW_LEGACY_LEARNING: legacyFlag,
+          CREWCLAW_ROOT: root,
+          ZENMUX_API_KEY: "test",
+          ZENMUX_BASE_URL: modelUrl,
+          TAVILY_API_KEY: "test",
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      }
+    );
     const decoder = new StringDecoder("utf8");
     const events = [];
     let buffer = "";
@@ -86,7 +94,11 @@ function runOnce(root, modelUrl, legacyFlag) {
         child.stdin.write(
           `${JSON.stringify({
             type: "approval.resolve",
-            data: { id: event.data.id, kind: "deliverable_acceptance", decision: "accept" },
+            data: {
+              id: event.data.id,
+              kind: "deliverable_acceptance",
+              decision: "accept",
+            },
           })}\n`
         );
       }
@@ -118,14 +130,19 @@ function runOnce(root, modelUrl, legacyFlag) {
   });
 }
 
-const model = await startMockModel([{ content: DELIVERABLE }], { dreamResponse: DREAM_REVIEW });
+const model = await startMockModel([{ content: DELIVERABLE }], {
+  dreamResponse: DREAM_REVIEW,
+});
 try {
   // flag OFF: no active-memory write, approval chain intact, reflection still written.
   const off = mkdtempSync(join(tmpdir(), "crew-legacy-off-"));
   try {
     const result = await runOnce(off, model.url, "0");
     const types = result.events.map(e => e.type);
-    assert.ok(types.includes("approval.requested"), "approval chain still runs with legacy off");
+    assert.ok(
+      types.includes("approval.requested"),
+      "approval chain still runs with legacy off"
+    );
     assert.ok(
       types.includes("approval.accepted") || types.includes("task.completed"),
       `accept settled with legacy off\n${result.stderr}`
@@ -133,7 +150,11 @@ try {
 
     const mem = loadMemory(off, AGENT_ID);
     const items = mem.ok ? mem.items : [];
-    assert.equal(items.length, 0, "legacy_learning=0 must write ZERO active memory");
+    assert.equal(
+      items.length,
+      0,
+      "legacy_learning=0 must write ZERO active memory"
+    );
 
     // The new pipeline is always on: an immutable reflection lands regardless of the legacy flag.
     const reflectDir = join(off, ".crewclaw", "reflections", AGENT_ID);

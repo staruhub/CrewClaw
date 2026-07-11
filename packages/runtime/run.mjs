@@ -388,13 +388,10 @@ async function callModel({
   }
 }
 
-async function callDreamModel(
-  input,
-  { baseUrl, apiKey, model, onUsage } = {}
-) {
+async function callDreamModel(input, { baseUrl, apiKey, model, onUsage } = {}) {
   const system =
     "你是 CrewClaw 的真实任务复盘器。仅返回一个 JSON 对象，且只能包含：" +
-    'summary,new_memory_candidates,new_playbook_candidates,confidence,needs_user_review。' +
+    "summary,new_memory_candidates,new_playbook_candidates,confidence,needs_user_review。" +
     "memory candidate 只能含 category,text,confidence；playbook candidate 只能含 title,steps。" +
     "不得输出代码围栏、解释、密钥、令牌、用户私密资料或未经任务证据支持的事实；" +
     "所有候选必须 needs_user_review=true，证据不足则返回空数组。";
@@ -1243,8 +1240,16 @@ async function interactiveChat({
   resume,
   mock = false,
 }) {
-  let { model, temperature, system, skills, displayName, title, avatar, dreamPolicy } =
-    profile;
+  let {
+    model,
+    temperature,
+    system,
+    skills,
+    displayName,
+    title,
+    avatar,
+    dreamPolicy,
+  } = profile;
   let name = displayName || titleizeId(agentId);
   let currentAgentId = agentId;
   const cyan = s => `\x1b[36m${s}\x1b[0m`;
@@ -2273,7 +2278,9 @@ function completeAcceptedTaskModeDelivery({
     });
     writeReflection(WORKSPACE_ROOT, reflection);
   } catch (error) {
-    taskSink?.emitRaw("debug.line", { line: `reflect skipped: ${error?.message ?? error}` });
+    taskSink?.emitRaw("debug.line", {
+      line: `reflect skipped: ${error?.message ?? error}`,
+    });
   }
 
   const removed = removePendingTaskApproval(WORKSPACE_ROOT, pending.taskRunId);
@@ -3425,7 +3432,9 @@ async function runTaskMode({
   // 不可变 Reflect 工作日志。确定性、零模型成本、幂等（重放同 id 内容一致=no-op）。
   try {
     const reflection = buildReflection(run, {
-      evidenceIds: evidence.ok ? evidence.cards.map(c => c.id).filter(Boolean) : [],
+      evidenceIds: evidence.ok
+        ? evidence.cards.map(c => c.id).filter(Boolean)
+        : [],
       legacyCommitted: run.memory_commit?.committed === true,
       createdAt: new Date().toISOString(),
     });

@@ -54,7 +54,9 @@ test("Node event registry contains the cross-runtime lifecycle events", () => {
 });
 
 test("dream/v1 freezes exactly nine events", () => {
-  const dreamEvents = Object.values(EVENTS).filter(type => type.startsWith("dream."));
+  const dreamEvents = Object.values(EVENTS).filter(type =>
+    type.startsWith("dream.")
+  );
   assert.deepEqual(dreamEvents.sort(), [
     "dream.activated",
     "dream.approved",
@@ -111,12 +113,12 @@ test("critical payload validators enforce canonical correlation fields", () => {
     ],
     [
       EVENTS.PROTOCOL_READY,
-      { protocol: "crewclaw.task-event/v1", event_families: ["core/v1", "dream/v1"] },
+      {
+        protocol: "crewclaw.task-event/v1",
+        event_families: ["core/v1", "dream/v1"],
+      },
     ],
-    [
-      EVENTS.DREAM_RECOMMENDED,
-      { dream_id: "dream-1", employee_id: "whale" },
-    ],
+    [EVENTS.DREAM_RECOMMENDED, { dream_id: "dream-1", employee_id: "whale" }],
   ];
   for (const [type, data] of valid) {
     assert.deepEqual(

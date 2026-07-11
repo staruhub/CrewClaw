@@ -12,7 +12,7 @@ import {
 } from "./memory-hash.mjs";
 import { estimateCost } from "./budget-guard.mjs";
 import { loadMemory } from "./memory-store.mjs";
-import { isTrustedReflection } from "./reflect.mjs";
+import { assertReflectionShape, isTrustedReflection } from "./reflect.mjs";
 import {
   readStateFileGuarded,
   withStateLock,
@@ -34,7 +34,10 @@ export const DEFAULT_DREAM_POLICY = Object.freeze({
     recommendation_score: 0.7,
   }),
   eligibility: Object.freeze({ trusted_input_ratio: 0.9 }),
-  budget: Object.freeze({ memory_budget_tokens: 8_000, max_model_cost_usd: null }),
+  budget: Object.freeze({
+    memory_budget_tokens: 8_000,
+    max_model_cost_usd: null,
+  }),
   cooldown: Object.freeze({ hours: 24 }),
   limits: Object.freeze({ max_batch_tasks: 32 }),
 });
@@ -67,7 +70,8 @@ function mergePolicy(policy = {}) {
 
 function canonicalStringify(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalStringify).join(",")}]`;
+  if (Array.isArray(value))
+    return `[${value.map(canonicalStringify).join(",")}]`;
   return `{${Object.keys(value)
     .sort()
     .map(key => `${JSON.stringify(key)}:${canonicalStringify(value[key])}`)
@@ -79,16 +83,27 @@ function canonicalHash(value) {
   return `sha256:${createHash("sha256").update(canonical).digest("hex")}`;
 }
 
-export function loadReflectionPool(root, employeeId, { maxFiles = 10_000 } = {}) {
+export function loadReflectionPool(
+  root,
+  employeeId,
+  { maxFiles = 10_000 } = {}
+) {
   const dir = reflectionsDir(root, employeeId);
   if (!existsSync(dir)) return { records: [], errors: [] };
   const records = [];
   const errors = [];
-  for (const name of readdirSync(dir).filter(name => name.endsWith(".json")).sort().slice(0, maxFiles)) {
+  for (const name of readdirSync(dir)
+    .filter(name => name.endsWith(".json"))
+    .sort()
+    .slice(0, maxFiles)) {
     try {
       const path = join(dir, name);
-      const record = JSON.parse(readStateFileGuarded(path, { root }).toString("utf8"));
-      if (record?.employee_id !== employeeId) throw new Error("employee mismatch");
+      const record = JSON.parse(
+        readStateFileGuarded(path, { root }).toString("utf8")
+      );
+      assertReflectionShape(record);
+      if (record?.employee_id !== employeeId)
+        throw new Error("employee mismatch");
       records.push(record);
     } catch (error) {
       errors.push({ file: name, reason: error?.message || String(error) });
@@ -98,21 +113,32 @@ export function loadReflectionPool(root, employeeId, { maxFiles = 10_000 } = {})
 }
 
 function duplicateRatio(items) {
-  const active = (items || []).filter(item => item?.status === undefined || item.status === "active");
+  const active = (items || []).filter(
+    item => item?.status === undefined || item.status === "active"
+  );
   if (active.length === 0) return 0;
-  const keys = active.map(item => `${item.category}\u0000${normalizeMemoryText(item.text).toLowerCase()}`);
+  const keys = active.map(
+    item =>
+      `${item.category}\u0000${normalizeMemoryText(item.text).toLowerCase()}`
+  );
   return (keys.length - new Set(keys).size) / keys.length;
 }
 
 function staleRatio(items, nowMs) {
-  const active = (items || []).filter(item => item?.status === undefined || item.status === "active");
+  const active = (items || []).filter(
+    item => item?.status === undefined || item.status === "active"
+  );
   if (active.length === 0) return 0;
-  const stale = active.filter(item => item.valid_until && Date.parse(item.valid_until) <= nowMs).length;
+  const stale = active.filter(
+    item => item.valid_until && Date.parse(item.valid_until) <= nowMs
+  ).length;
   return stale / active.length;
 }
 
 function conflictCount(items) {
-  const active = (items || []).filter(item => item?.status === undefined || item.status === "active");
+  const active = (items || []).filter(
+    item => item?.status === undefined || item.status === "active"
+  );
   const consumed = new Set();
   let conflicts = 0;
   for (let i = 0; i < active.length; i++) {
@@ -158,15 +184,20 @@ function scoreMetrics(metrics, policy) {
     ratio(metrics.stale_ratio, t.stale_ratio),
     ratio(metrics.conflict_count, t.conflict_count)
   );
-  const reuse = Math.max(repeated, ratio(metrics.accepted_tasks, t.min_accepted_tasks));
-  return Math.round(
-    (0.3 * pressure +
-      0.25 * repeated +
-      0.2 * clamp(metrics.trusted_input_ratio) +
-      0.15 * hygiene +
-      0.1 * reuse) *
-      10_000
-  ) / 10_000;
+  const reuse = Math.max(
+    repeated,
+    ratio(metrics.accepted_tasks, t.min_accepted_tasks)
+  );
+  return (
+    Math.round(
+      (0.3 * pressure +
+        0.25 * repeated +
+        0.2 * clamp(metrics.trusted_input_ratio) +
+        0.15 * hygiene +
+        0.1 * reuse) *
+        10_000
+    ) / 10_000
+  );
 }
 
 /** Pure two-gate decision. Manual trigger bypasses soft thresholds/cooldown, never safety gates. */
@@ -184,7 +215,9 @@ export function assessDream({
   now = Date.now(),
 } = {}) {
   const policy = mergePolicy(rawPolicy);
-  const nonLegacy = reflections.filter(record => record?.legacy_committed !== true);
+  const nonLegacy = reflections.filter(
+    record => record?.legacy_committed !== true
+  );
   const trusted = nonLegacy.filter(isTrustedReflection);
   const selected = trusted
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
@@ -192,14 +225,17 @@ export function assessDream({
   const memoryState = computeMemoryStateHash(memoryItems);
   const trustedRatio = nonLegacy.length ? trusted.length / nonLegacy.length : 0;
   const acceptedTasks = new Set(
-    trusted.filter(record => record.outcome === "accepted").map(record => record.task_id)
+    trusted
+      .filter(record => record.outcome === "accepted")
+      .map(record => record.task_id)
   ).size;
   const metrics = {
     accepted_tasks: acceptedTasks,
     trusted_input_ratio: trustedRatio,
     memory_tokens: memoryState.estimated_injection_tokens,
     memory_pressure_ratio:
-      memoryState.estimated_injection_tokens / policy.budget.memory_budget_tokens,
+      memoryState.estimated_injection_tokens /
+      policy.budget.memory_budget_tokens,
     duplicate_ratio: duplicateRatio(memoryItems),
     stale_ratio: staleRatio(memoryItems, Number(now)),
     conflict_count: conflictCount(memoryItems),
@@ -208,7 +244,10 @@ export function assessDream({
   metrics.recommendation_score = scoreMetrics(metrics, policy);
   const estimatedInputTokens =
     memoryState.estimated_injection_tokens +
-    selected.reduce((sum, record) => sum + estimateInjectionTokens(JSON.stringify(record)), 0) +
+    selected.reduce(
+      (sum, record) => sum + estimateInjectionTokens(JSON.stringify(record)),
+      0
+    ) +
     1_000;
   const estimatedOutputTokens = Math.max(
     512,
@@ -235,17 +274,25 @@ export function assessDream({
   if (trusted.length === 0) curationBlockers.push("no_trusted_input");
   if (trustedRatio < policy.eligibility.trusted_input_ratio)
     curationBlockers.push("trusted_input_ratio_low");
-  if (!manualTrigger && cooldownUntil > Number(now)) curationBlockers.push("cooldown_active");
+  if (!manualTrigger && cooldownUntil > Number(now))
+    curationBlockers.push("cooldown_active");
 
   const triggerReasons = [];
   const t = policy.triggers;
-  if (metrics.accepted_tasks >= t.min_accepted_tasks) triggerReasons.push("accepted_tasks");
-  if (metrics.memory_pressure_ratio >= t.memory_pressure_ratio) triggerReasons.push("memory_pressure");
-  if (metrics.duplicate_ratio >= t.duplicate_ratio) triggerReasons.push("duplicate_pressure");
-  if (metrics.stale_ratio >= t.stale_ratio) triggerReasons.push("stale_pressure");
-  if (metrics.conflict_count >= t.conflict_count) triggerReasons.push("conflict_pressure");
-  if (metrics.repeated_pattern_count >= t.repeat_task_count) triggerReasons.push("repeated_pattern");
-  if (metrics.recommendation_score >= t.recommendation_score) triggerReasons.push("recommendation_score");
+  if (metrics.accepted_tasks >= t.min_accepted_tasks)
+    triggerReasons.push("accepted_tasks");
+  if (metrics.memory_pressure_ratio >= t.memory_pressure_ratio)
+    triggerReasons.push("memory_pressure");
+  if (metrics.duplicate_ratio >= t.duplicate_ratio)
+    triggerReasons.push("duplicate_pressure");
+  if (metrics.stale_ratio >= t.stale_ratio)
+    triggerReasons.push("stale_pressure");
+  if (metrics.conflict_count >= t.conflict_count)
+    triggerReasons.push("conflict_pressure");
+  if (metrics.repeated_pattern_count >= t.repeat_task_count)
+    triggerReasons.push("repeated_pattern");
+  if (metrics.recommendation_score >= t.recommendation_score)
+    triggerReasons.push("recommendation_score");
   if (manualTrigger) triggerReasons.push("manual_trigger");
 
   const curationEligible = curationBlockers.length === 0;
@@ -281,17 +328,22 @@ export function assessDream({
     input: {
       reflection_ids: selected.map(record => record.task_id),
       task_run_ids: selected.map(record => record.task_id),
-      evidence_ids: [...new Set(selected.flatMap(record => record.evidence_ids || []))],
-      input_snapshot_hash: canonicalHash(
-        selected
-      ),
+      evidence_ids: [
+        ...new Set(selected.flatMap(record => record.evidence_ids || [])),
+      ],
+      input_snapshot_hash: canonicalHash(selected),
     },
     base_memory_hash: memoryState.memory_state_hash,
     curation: { eligible: curationEligible, blockers: curationBlockers },
-    activation: { eligible: activationBlockers.length === 0, blockers: activationBlockers },
+    activation: {
+      eligible: activationBlockers.length === 0,
+      blockers: activationBlockers,
+    },
     trigger_reasons: triggerReasons,
     recommended,
-    cooldown_until: cooldownUntil ? new Date(cooldownUntil).toISOString() : null,
+    cooldown_until: cooldownUntil
+      ? new Date(cooldownUntil).toISOString()
+      : null,
   };
 }
 
@@ -299,13 +351,14 @@ export function assessDreamFromWorkspace(root, employeeId, options = {}) {
   const pool = loadReflectionPool(root, employeeId);
   const memory = loadMemory(root, employeeId);
   const assessment = assessDream({
-      employeeId,
-      reflections: pool.records,
-      memoryItems: memory.items,
-      ...options,
-    });
+    employeeId,
+    reflections: pool.records,
+    memoryItems: memory.items,
+    ...options,
+  });
   const inputErrors = [...pool.errors];
-  if (memory.error) inputErrors.push({ file: "active-memory", reason: memory.error });
+  if (memory.error)
+    inputErrors.push({ file: "active-memory", reason: memory.error });
   if (inputErrors.length > 0) {
     assessment.curation.eligible = false;
     assessment.curation.blockers = [
@@ -347,13 +400,28 @@ export function persistDreamRecommendation(root, assessment, { dreamId } = {}) {
     `${path}.lock`,
     () => {
       if (existsSync(path)) {
-        const existing = JSON.parse(readStateFileGuarded(path, { root }).toString("utf8"));
-        if (canonicalHash(identity(existing)) !== canonicalHash(identity(job))) {
+        let existing;
+        try {
+          existing = JSON.parse(
+            readStateFileGuarded(path, { root }).toString("utf8")
+          );
+        } catch (error) {
           return {
             ok: false,
             written: false,
             path,
-            reason: "dream recommendation id already exists with different content",
+            reason: `existing dream recommendation is unreadable: ${error?.message || String(error)}`,
+          };
+        }
+        if (
+          canonicalHash(identity(existing)) !== canonicalHash(identity(job))
+        ) {
+          return {
+            ok: false,
+            written: false,
+            path,
+            reason:
+              "dream recommendation id already exists with different content",
           };
         }
         return { ok: true, written: false, path, job: existing };
