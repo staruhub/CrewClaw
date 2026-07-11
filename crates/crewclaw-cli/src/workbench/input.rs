@@ -1,4 +1,4 @@
-use std::{fs, io, path::PathBuf};
+use std::{io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -90,6 +90,7 @@ impl InputBuffer {
     /// - 编辑范围与某占位块 byte 区间**真重叠**（`a < end && b > start`）→ 整块原子吞掉（连同 payload）；
     /// - 纯边界插入（`a==b` 落在块 start/end）不触发吞除；
     /// - 编辑点之后的块按 delta 平移。
+    ///
     /// 返回吞除扩张后的实际左边界，供调用方定位光标。
     fn edit(&mut self, mut a: usize, mut b: usize, s: &str) -> usize {
         self.clear_history_navigation();
@@ -377,7 +378,7 @@ impl InputBuffer {
     fn expanded_text(&self) -> String {
         let mut out = self.text.clone();
         let mut spans: Vec<&InputSpan> = self.spans.iter().collect();
-        spans.sort_by(|a, b| b.start.cmp(&a.start));
+        spans.sort_by_key(|span| std::cmp::Reverse(span.start));
         for span in spans {
             if span.kind == SpanKind::PastedText && span.end <= out.len() {
                 out.replace_range(span.start..span.end, &span.original);
@@ -411,7 +412,9 @@ impl InputBuffer {
         {
             self.history.push(submitted.clone());
             trim_history(&mut self.history);
-            let _ = self.save_history();
+            if let Ok(history) = self.save_history_submission(&submitted) {
+                self.history = history;
+            }
         }
         submitted
     }
@@ -553,30 +556,31 @@ impl InputBuffer {
         let Some(path) = &self.history_path else {
             return Ok(());
         };
-        let contents = match fs::read_to_string(path) {
-            Ok(contents) => contents,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error),
+        let root = history_root(path)?;
+        let contents = match crate::state_store::read_string(root, "prompt-history.jsonl")? {
+            Some(contents) => contents,
+            None => return Ok(()),
         };
-        self.history = contents
-            .lines()
-            .filter_map(|line| serde_json::from_str::<HistoryRecord>(line).ok())
-            .map(|record| record.text)
-            .filter(|text| !text.trim().is_empty())
-            .collect();
+        self.history = parse_history(&contents);
         trim_history(&mut self.history);
         Ok(())
     }
 
-    fn save_history(&self) -> io::Result<()> {
+    fn save_history_submission(&self, submitted: &str) -> io::Result<Vec<String>> {
         let Some(path) = &self.history_path else {
-            return Ok(());
+            return Ok(self.history.clone());
         };
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+        let root = history_root(path)?;
+        let _lock = crate::state_store::acquire_owner_lock(root, "prompt-history.jsonl")?;
+        let mut history = crate::state_store::read_string(root, "prompt-history.jsonl")?
+            .map(|contents| parse_history(&contents))
+            .unwrap_or_default();
+        if history.last().map(String::as_str) != Some(submitted) {
+            history.push(submitted.to_string());
         }
+        trim_history(&mut history);
         let mut output = String::new();
-        for text in &self.history {
+        for text in &history {
             let record = HistoryRecord {
                 text: text.clone(),
                 parts: Vec::new(),
@@ -584,8 +588,42 @@ impl InputBuffer {
             output.push_str(&serde_json::to_string(&record)?);
             output.push('\n');
         }
-        fs::write(path, output)
+        crate::state_store::write_atomic(root, "prompt-history.jsonl", output.as_bytes())?;
+        Ok(history)
     }
+}
+
+fn history_root(path: &std::path::Path) -> io::Result<&std::path::Path> {
+    if path.file_name() != Some(std::ffi::OsStr::new("prompt-history.jsonl")) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "prompt history must use the canonical state filename",
+        ));
+    }
+    let state_dir = path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "prompt history has no parent")
+    })?;
+    if state_dir.file_name() != Some(std::ffi::OsStr::new(".crewclaw")) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "prompt history must be stored below .crewclaw",
+        ));
+    }
+    state_dir.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "prompt history has no workspace root",
+        )
+    })
+}
+
+fn parse_history(contents: &str) -> Vec<String> {
+    contents
+        .lines()
+        .filter_map(|line| serde_json::from_str::<HistoryRecord>(line).ok())
+        .map(|record| record.text)
+        .filter(|text| !text.trim().is_empty())
+        .collect()
 }
 
 fn trim_history(history: &mut Vec<String>) {

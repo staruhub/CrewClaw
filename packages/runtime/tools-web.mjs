@@ -6,6 +6,8 @@
 // no-key fallback. Results are normalized, deduped, cleaned, and formatted for
 // a model to read — never fabricated; on failure we say so and suggest a key.
 
+import { requestPublicText } from "./safe-http.mjs";
+
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
 
@@ -21,7 +23,9 @@ function decodeEntities(s) {
 
 // Strip tags + collapse whitespace + decode entities → clean inline text.
 export function clean(html) {
-  return decodeEntities(String(html).replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+  return decodeEntities(String(html).replace(/<[^>]+>/g, ""))
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function truncate(s, n) {
@@ -29,18 +33,34 @@ function truncate(s, n) {
   return t.length > n ? t.slice(0, n - 1) + "…" : t;
 }
 
-async function httpRequest(url, { method = "GET", headers = {}, body, timeoutMs = 12000 } = {}) {
+async function httpRequest(
+  url,
+  {
+    method = "GET",
+    headers = {},
+    body,
+    timeoutMs = 12000,
+    maxBytes,
+    resolveTarget,
+  } = {}
+) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {
+    const res = await requestPublicText(url, {
       method,
       headers: { "User-Agent": UA, ...headers },
       body,
-      redirect: "follow",
       signal: controller.signal,
+      ...(maxBytes === undefined ? {} : { maxBytes }),
+      ...(resolveTarget === undefined ? {} : { resolveTarget }),
     });
-    return { ok: res.ok, status: res.status, text: await res.text() };
+    return {
+      ok: res.ok === true && res.status >= 200 && res.status < 300,
+      status: res.status || 0,
+      text: res.body || "",
+      code: res.code,
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -57,9 +77,14 @@ async function braveSearch(q, opts = {}) {
   const params = new URLSearchParams({ q, count: String(opts.count || 5) });
   const fresh = braveFreshness(opts.recency);
   if (fresh) params.set("freshness", fresh);
-  const { ok, text } = await httpRequest("https://api.search.brave.com/res/v1/web/search?" + params, {
-    headers: { "X-Subscription-Token": key, Accept: "application/json" },
-  });
+  const { ok, text } = await httpRequest(
+    "https://api.search.brave.com/res/v1/web/search?" + params,
+    {
+      headers: { "X-Subscription-Token": key, Accept: "application/json" },
+      resolveTarget: opts.resolveTarget,
+      maxBytes: opts.maxBytes,
+    }
+  );
   if (!ok) return [];
   let data;
   try {
@@ -67,7 +92,7 @@ async function braveSearch(q, opts = {}) {
   } catch {
     return [];
   }
-  return (data?.web?.results || []).map((r) => ({
+  return (data?.web?.results || []).map(r => ({
     title: clean(r.title),
     url: r.url,
     snippet: clean(r.description || ""),
@@ -81,6 +106,8 @@ async function serperSearch(q, opts = {}) {
     method: "POST",
     headers: { "X-API-KEY": key, "Content-Type": "application/json" },
     body: JSON.stringify({ q, num: opts.count || 5 }),
+    resolveTarget: opts.resolveTarget,
+    maxBytes: opts.maxBytes,
   });
   if (!ok) return [];
   let data;
@@ -89,7 +116,7 @@ async function serperSearch(q, opts = {}) {
   } catch {
     return [];
   }
-  return (data?.organic || []).map((r) => ({
+  return (data?.organic || []).map(r => ({
     title: clean(r.title),
     url: r.link,
     snippet: clean(r.snippet || ""),
@@ -112,17 +139,30 @@ function ddgRealUrl(href) {
 // No-key best-effort (DuckDuckGo lite). Unreliable (rate-limited) — returns []
 // when blocked so the caller degrades gracefully rather than fabricating.
 async function ddgSearch(q, opts = {}) {
-  const { ok, text } = await httpRequest("https://lite.duckduckgo.com/lite/?q=" + encodeURIComponent(q), {
-    headers: { Accept: "text/html" },
-  });
+  const { ok, text } = await httpRequest(
+    "https://lite.duckduckgo.com/lite/?q=" + encodeURIComponent(q),
+    {
+      headers: { Accept: "text/html" },
+      resolveTarget: opts.resolveTarget,
+      maxBytes: opts.maxBytes,
+    }
+  );
   if (!ok) return [];
   const out = [];
-  const linkRe = /<a[^>]+class="result-link"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+  const linkRe =
+    /<a[^>]+class="result-link"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
   let m;
   while ((m = linkRe.exec(text)) && out.length < (opts.count || 5)) {
-    out.push({ title: clean(m[2]), url: ddgRealUrl(m[1]), snippet: "", age: "" });
+    out.push({
+      title: clean(m[2]),
+      url: ddgRealUrl(m[1]),
+      snippet: "",
+      age: "",
+    });
   }
-  const snips = [...text.matchAll(/class="result-snippet"[^>]*>([\s\S]*?)<\/td>/g)].map((x) => clean(x[1]));
+  const snips = [
+    ...text.matchAll(/class="result-snippet"[^>]*>([\s\S]*?)<\/td>/g),
+  ].map(x => clean(x[1]));
   out.forEach((r, i) => {
     if (snips[i]) r.snippet = snips[i];
   });
@@ -132,10 +172,17 @@ async function ddgSearch(q, opts = {}) {
 // Tavily — LLM-native, official free tier (1k/mo, no card), one call returns
 // ranked results (+ optional answer/content). The recommended primary backend.
 async function tavilySearch(q, opts = {}) {
-  const body = { api_key: process.env.TAVILY_API_KEY, query: q, max_results: opts.count || 5, search_depth: "basic" };
+  const body = {
+    api_key: process.env.TAVILY_API_KEY,
+    query: q,
+    max_results: opts.count || 5,
+    search_depth: "basic",
+  };
   const days = { day: 1, week: 7, month: 30, year: 365 }[opts.recency];
   if (days) body.days = days;
-  const base = process.env.TAVILY_BASE_URL || "https://api.tavily.com"; // override = loopback-testable
+  const base = (
+    process.env.TAVILY_BASE_URL || "https://api.tavily.com"
+  ).replace(/\/+$/, "");
   const { ok, text } = await httpRequest(`${base}/search`, {
     method: "POST",
     headers: {
@@ -143,6 +190,8 @@ async function tavilySearch(q, opts = {}) {
       Authorization: `Bearer ${process.env.TAVILY_API_KEY}`, // newer API; api_key in body covers older
     },
     body: JSON.stringify(body),
+    resolveTarget: opts.resolveTarget,
+    maxBytes: opts.maxBytes,
   });
   if (!ok) return [];
   let data;
@@ -151,7 +200,7 @@ async function tavilySearch(q, opts = {}) {
   } catch {
     return [];
   }
-  return (data?.results || []).map((r) => ({
+  return (data?.results || []).map(r => ({
     title: clean(r.title),
     url: r.url,
     snippet: clean(r.content || ""),
@@ -192,9 +241,10 @@ export function dedupe(results) {
 // Model-facing format: a clean numbered list of sources to read further with web_fetch.
 export function formatResults(query, results, backendName) {
   if (!results.length) {
-    const hint = backendName === "ddg"
-      ? "（没搜到结果或被限流。设置 TAVILY_API_KEY（免费 1000/月、免信用卡）即可稳定返回，亦支持 SERPER_API_KEY/BRAVE_API_KEY；或用 web_fetch 直连已知 URL。）"
-      : "（没搜到结果。）";
+    const hint =
+      backendName === "ddg"
+        ? "（没搜到结果或被限流。设置 TAVILY_API_KEY（免费 1000/月、免信用卡）即可稳定返回，亦支持 SERPER_API_KEY/BRAVE_API_KEY；或用 web_fetch 直连已知 URL。）"
+        : "（没搜到结果。）";
     return `「${query}」无搜索结果。${hint}`;
   }
   const lines = results.map((r, i) => {
@@ -212,7 +262,8 @@ export function formatResults(query, results, backendName) {
 // The tool entry point. Returns { results, text, backend }.
 export async function webSearch(query, opts = {}) {
   const q = String(query ?? "").trim();
-  if (!q) return { results: [], text: "（web_search 缺少 query）", backend: "" };
+  if (!q)
+    return { results: [], text: "（web_search 缺少 query）", backend: "" };
   const backend = pickBackend();
   let results = [];
   try {
@@ -221,7 +272,11 @@ export async function webSearch(query, opts = {}) {
     results = [];
   }
   results = dedupe(results).slice(0, opts.count || 5);
-  return { results, text: formatResults(q, results, backend.name), backend: backend.name };
+  return {
+    results,
+    text: formatResults(q, results, backend.name),
+    backend: backend.name,
+  };
 }
 
 // Convert a fetched HTML page to clean markdown: isolate the main article with
@@ -240,9 +295,16 @@ export async function cleanHtml(html, url) {
     } catch {
       /* readability failed → turndown the whole doc */
     }
-    const td = new Turndown({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-" });
+    const td = new Turndown({
+      headingStyle: "atx",
+      codeBlockStyle: "fenced",
+      bulletListMarker: "-",
+    });
     td.remove(["script", "style", "noscript"]);
-    const md = td.turndown(contentHtml).replace(/\n{3,}/g, "\n\n").trim();
+    const md = td
+      .turndown(contentHtml)
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
     return md || null;
   } catch {
     return null;

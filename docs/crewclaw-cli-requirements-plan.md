@@ -9,7 +9,7 @@ The website must explain this flow clearly. Expert cards and terminal previews s
 ## Functional Requirements
 
 1. Any-directory CLI launcher
-   - The local launcher is `pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw`.
+   - The local launcher is `pnpm run crewclaw`.
    - Running `pnpm run crewclaw ...` from `~` is not an acceptable user path because pnpm cannot find a manifest there.
    - Website install/copy surfaces must show the any-directory launcher.
 
@@ -67,16 +67,16 @@ The website must explain this flow clearly. Expert cards and terminal previews s
    - `pnpm run build`
    - `pnpm run test:e2e`
    - `cargo test --manifest-path crates/crewclaw-cli/Cargo.toml`
-   - Manual CLI smoke from `/Users/pongpong`.
+   - Manual CLI smoke from a temporary directory outside the repository.
    - Hermes profile list/info smoke with a temporary profile name.
 8. Kill old related dev servers and start a fresh server at `http://127.0.0.1:3000/`.
 
 ## Acceptance Criteria
 
-- From `/Users/pongpong`, `pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw help` succeeds and shows CrewClaw-branded help.
-- From `/Users/pongpong`, `pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw` opens the CrewClaw picker with a visible ASCII banner before the prompt.
+- From any project directory with `CREWCLAW_ROOT` configured, `pnpm run crewclaw -- help` succeeds and shows CrewClaw-branded help.
+- From any project directory with `CREWCLAW_ROOT` configured, `pnpm run crewclaw` opens the CrewClaw picker with a visible ASCII banner before the prompt.
 - Selecting Code Review Shrimp installs a temporary Hermes profile without writing directly to `~/.hermes`.
 - `--run-first` attempts the first Hermes chat test; otherwise CrewClaw prints the exact command.
-- Website expert cards copy `pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw`.
+- Website expert cards copy `pnpm run crewclaw`.
 - All major homepage controls visibly respond.
 - All listed verification commands pass, or any environmental blocker is documented with exact failing output.

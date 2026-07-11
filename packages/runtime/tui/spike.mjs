@@ -20,11 +20,27 @@ function Spike() {
     "鲸 › 第一条已定稿消息——已经沉进 scrollback，永不重绘。",
   ];
   React.useEffect(() => {
-    const toks = ["正在", "流式", "地", "渲染", "一条", "会", "自动", "换行", "的", "长", "消息", "……"];
+    const toks = [
+      "正在",
+      "流式",
+      "地",
+      "渲染",
+      "一条",
+      "会",
+      "自动",
+      "换行",
+      "的",
+      "长",
+      "消息",
+      "……",
+    ];
     let i = 0;
     const t = setInterval(() => {
-      if (i < toks.length) setLive((s) => s + toks[i++]);
-      else { clearInterval(t); setTimeout(() => done && done(), 60); }
+      if (i < toks.length) setLive(s => s + toks[i++]);
+      else {
+        clearInterval(t);
+        setTimeout(() => done && done(), 60);
+      }
     }, 25);
     return () => clearInterval(t);
   }, []);

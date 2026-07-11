@@ -1,0 +1,123 @@
+[
+  {
+    "name": "versioned terminal with matching ids",
+    "valid": true,
+    "event": {
+      "protocol_version": 1,
+      "type": "task.completed",
+      "ts": 1,
+      "data": { "id": "task-1", "taskRunId": "task-1" }
+    }
+  },
+  {
+    "name": "legacy terminal id remains accepted",
+    "valid": true,
+    "event": {
+      "type": "task.completed",
+      "ts": 2,
+      "data": { "id": "task-1" }
+    }
+  },
+  {
+    "name": "conflicting terminal ids fail closed",
+    "valid": false,
+    "event": {
+      "protocol_version": 1,
+      "type": "task.failed",
+      "ts": 3,
+      "data": {
+        "id": "task-1",
+        "taskRunId": "task-2",
+        "reason": "boom"
+      }
+    }
+  },
+  {
+    "name": "missing timestamp fails closed",
+    "valid": false,
+    "event": {
+      "protocol_version": 1,
+      "type": "token.delta",
+      "data": { "text": "missing ts" }
+    }
+  },
+  {
+    "name": "unsafe timestamp fails closed",
+    "valid": false,
+    "event": {
+      "protocol_version": 1,
+      "type": "token.delta",
+      "ts": 9007199254740992,
+      "data": { "text": "unsafe" }
+    }
+  },
+  {
+    "name": "fractional timestamp fails closed",
+    "valid": false,
+    "event": {
+      "protocol_version": 1,
+      "type": "token.delta",
+      "ts": 1.5,
+      "data": { "text": "fractional" }
+    }
+  },
+  {
+    "name": "integral JSON float matches JavaScript integer semantics",
+    "valid": true,
+    "event": {
+      "protocol_version": 1.0,
+      "type": "token.delta",
+      "ts": 1000.0,
+      "data": { "text": "normalized" }
+    }
+  },
+  {
+    "name": "array data fails closed",
+    "valid": false,
+    "event": {
+      "protocol_version": 1,
+      "type": "token.delta",
+      "ts": 4,
+      "data": []
+    }
+  },
+  {
+    "name": "missing data fails closed",
+    "valid": false,
+    "event": {
+      "protocol_version": 1,
+      "type": "token.delta",
+      "ts": 5
+    }
+  },
+  {
+    "name": "future protocol fails closed",
+    "valid": false,
+    "event": {
+      "protocol_version": 2,
+      "type": "token.delta",
+      "ts": 6,
+      "data": { "text": "future" }
+    }
+  },
+  {
+    "name": "same-version additive event remains valid",
+    "valid": true,
+    "event": {
+      "protocol_version": 1,
+      "type": "future.additive_event",
+      "ts": 7,
+      "data": { "value": 1 }
+    }
+  },
+  {
+    "name": "additive event still requires object data",
+    "valid": false,
+    "event": {
+      "protocol_version": 1,
+      "type": "future.additive_event",
+      "ts": 8,
+      "data": null
+    }
+  }
+]

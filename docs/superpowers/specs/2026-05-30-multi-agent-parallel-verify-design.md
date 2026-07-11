@@ -6,14 +6,14 @@
 
 ## The Crew (6 agents)
 
-| Agent | Emoji | Dimension | Real command |
-|---|---|---|---|
-| build-shrimp | 🦐 | Rust CLI compiles | `cargo build` |
-| type-crab | 🦀 | TypeScript typechecks | `pnpm run check` |
-| lint-octopus | 🐙 | Lint & style (advisory) | `pnpm run lint` |
-| unit-conch | 🐚 | Unit tests | `pnpm test` |
-| e2e-puffer | 🐡 | End-to-end flow | `pnpm run test:e2e` |
-| registry-lobster | 🦞 | Expert registry valid | `pnpm run validate:all-experts` |
+| Agent            | Emoji | Dimension               | Real command                    |
+| ---------------- | ----- | ----------------------- | ------------------------------- |
+| build-shrimp     | 🦐    | Rust CLI compiles       | `cargo build`                   |
+| type-crab        | 🦀    | TypeScript typechecks   | `pnpm run check`                |
+| lint-octopus     | 🐙    | Lint & style (advisory) | `pnpm run lint`                 |
+| unit-conch       | 🐚    | Unit tests              | `pnpm test`                     |
+| e2e-puffer       | 🐡    | End-to-end flow         | `pnpm run test:e2e`             |
+| registry-lobster | 🦞    | Expert registry valid   | `pnpm run validate:all-experts` |
 
 `lint-octopus` is **advisory**: its findings are reported but never fail the overall run. All others are blocking.
 

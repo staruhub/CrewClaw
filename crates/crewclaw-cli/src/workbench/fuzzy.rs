@@ -32,7 +32,7 @@ where
         })
         .collect();
     // Stable sort by descending score keeps original order among equal scores.
-    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    scored.sort_by_key(|item| std::cmp::Reverse(item.1));
     scored.into_iter().map(|(item, _)| item).collect()
 }
 

@@ -1,6 +1,7 @@
 # Stage fallback — live code review (real run, saved 2026-05-30)
 
 Command:
+
 ```
 crew run code-review-shrimp "review packages/runtime/run.mjs for merge readiness"
 ```
@@ -54,4 +55,3 @@ Scope: single new file, reviewed as provided. No test files or call sites were i
 **Merge after fixes.** Resolve B1 (env parsing) and B2 (path traversal) before merge — both cause real failures or read arbitrary files. S1–S6 can land as follow-ups. I am not the merge authority; a human should confirm the env-format assumption and the `agentId` allowlist before approving.
 
 Want me to draft the `agentId` validation and the env-parser fix as concrete patches?
-

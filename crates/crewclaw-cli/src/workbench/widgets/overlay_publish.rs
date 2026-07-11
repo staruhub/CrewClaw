@@ -4,6 +4,7 @@
 //!   - 步骤 1「Manifest 校验」= **真**：从选中 MarketEntry(registry 真值) + HireHealth(doctor 真体检)
 //!     派生逐行校验结论。
 //!   - 步骤 2-4（上岗考试/认证签名/发布上架）引擎无真源 → **每行 `MOCK` 标注** + 完成 banner 标「演示」。
+//!
 //! 4 步:Manifest→考试→签名→上架;Enter 推进,末步 Enter 关;Esc/q 关。
 
 use ratatui::{

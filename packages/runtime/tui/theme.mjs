@@ -5,7 +5,7 @@ export const theme = {
   user: "magenta",
   assistant: "cyan",
   accent: "magenta",
-  rail: "magenta",   // the user-bubble left rail ▎
+  rail: "magenta", // the user-bubble left rail ▎
   dim: "gray",
   ok: "green",
   warn: "yellow",

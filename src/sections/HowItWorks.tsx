@@ -1,53 +1,105 @@
 import { ScrollReveal } from "@/components/ScrollReveal";
-import { localCrewClawCommand } from "@/data/experts";
+import {
+  CREWCLAW_SOURCE_URL,
+  isLocalDevelopment,
+  localCrewClawCommand,
+} from "@/data/experts";
 
-const steps = [
-  {
-    step: "01",
-    title: "Choose An Expert",
-    desc: "Browse the launch crew and pick a certified Hermes profile for review, product work, onboarding, or docs.",
-    preview: "template",
-  },
-  {
-    step: "02",
-    title: "Install With Hermes",
-    desc: "Copy one command. The wrapper calls official Hermes profile installation and keeps local secrets out of the package.",
-    preview: "ai",
-  },
-  {
-    step: "03",
-    title: "Run Repeated Work",
-    desc: "Start with the first task, then reuse the same expert whenever your PRs, PRDs, or docs need another pass.",
-    preview: "launch",
-  },
-];
+const steps = isLocalDevelopment
+  ? [
+      {
+        step: "01",
+        title: "Choose An Expert",
+        desc: "Browse the launch crew and pick a certified Hermes profile for review, product work, onboarding, or docs.",
+        preview: "template",
+      },
+      {
+        step: "02",
+        title: "Install With Hermes",
+        desc: "Copy one local command. The wrapper calls official Hermes profile installation and keeps local secrets out of the package.",
+        preview: "ai",
+      },
+      {
+        step: "03",
+        title: "Run Repeated Work",
+        desc: "Start with the first task, then reuse the same expert whenever your PRs, PRDs, or docs need another pass.",
+        preview: "launch",
+      },
+    ]
+  : [
+      {
+        step: "01",
+        title: "Explore The Crew",
+        desc: "Review the certified profiles, declared tools, permissions, and expected deliverables before setup.",
+        preview: "template",
+      },
+      {
+        step: "02",
+        title: "Use Local Setup",
+        desc: "Open the public source repository and follow its setup guide. No unpublished package command is presented as installable.",
+        preview: "ai",
+      },
+      {
+        step: "03",
+        title: "Run Repeated Work",
+        desc: "Once the local checkout is ready, reuse the same expert whenever recurring work needs another pass.",
+        preview: "launch",
+      },
+    ];
 
-const cliDocs = [
-  {
-    label: "Open",
-    title: "Start CrewClaw",
-    command: localCrewClawCommand,
-    desc: "Works from any directory and opens the expert picker.",
-  },
-  {
-    label: "Choose",
-    title: "Pick an employee",
-    command: "Choose an expert number or slug: 1",
-    desc: "Available experts install immediately; Coming Soon profiles stay blocked.",
-  },
-  {
-    label: "First Run",
-    title: "Test the profile",
-    command: `${localCrewClawCommand} hire code-review-shrimp --run-first`,
-    desc: "Runs the first Hermes chat test after installation.",
-  },
-  {
-    label: "Help",
-    title: "Guide agents",
-    command: `${localCrewClawCommand} help`,
-    desc: "Shows commands, safety checks, and the agent instruction to use CrewClaw first.",
-  },
-];
+const cliDocs = isLocalDevelopment
+  ? [
+      {
+        label: "Open",
+        title: "Start CrewClaw",
+        command: localCrewClawCommand,
+        desc: "Works from any directory and opens the expert picker.",
+      },
+      {
+        label: "Choose",
+        title: "Pick an employee",
+        command: "Choose an expert number or slug: 1",
+        desc: "Available experts install immediately; Coming Soon profiles stay blocked.",
+      },
+      {
+        label: "First Run",
+        title: "Test the profile",
+        command: `${localCrewClawCommand} hire code-review-shrimp --run-first`,
+        desc: "Runs the first Hermes chat test after installation.",
+      },
+      {
+        label: "Help",
+        title: "Guide agents",
+        command: `${localCrewClawCommand} help`,
+        desc: "Shows commands, safety checks, and the agent instruction to use CrewClaw first.",
+      },
+    ]
+  : [
+      {
+        label: "Source",
+        title: "View source",
+        command: CREWCLAW_SOURCE_URL,
+        desc: "Inspect the current code, employee packages, and verification gates.",
+      },
+      {
+        label: "Setup",
+        title: "Local setup",
+        command: "Follow README.md from a local checkout",
+        desc: "Install pinned dependencies and run CrewClaw from the checked-out repository.",
+      },
+      {
+        label: "Distribution",
+        title: "Package pending",
+        command: "No public package command is advertised",
+        desc: "The install control stays disabled until a published artifact passes a packaged smoke test.",
+      },
+      {
+        label: "Trust",
+        title: "Review before run",
+        command: "Inspect permissions and source first",
+        desc: "The local setup path remains explicit while public distribution is pending.",
+      },
+    ];
 
 function TemplatePreview() {
   return (
@@ -56,11 +108,13 @@ function TemplatePreview() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(220,111,62,0.16),transparent_42%)]" />
       <div className="relative p-6 text-sm text-white">Template</div>
       <div className="absolute inset-x-6 bottom-8 grid grid-cols-4 gap-2">
-        {[0, 1, 2, 3].map((item) => (
+        {[0, 1, 2, 3].map(item => (
           <div
             key={item}
             className={`h-[96px] border bg-white/[0.025] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${
-              item === 2 ? "border-[#8C3E27] bg-white/[0.045]" : "border-white/8"
+              item === 2
+                ? "border-[#8C3E27] bg-white/[0.045]"
+                : "border-white/8"
             }`}
           >
             <div className="mt-16 mx-2 h-1 bg-white/8" />
@@ -98,7 +152,9 @@ function LaunchPreview() {
   return (
     <div className="relative h-full overflow-hidden bg-[#181715]">
       <div className="absolute inset-x-0 top-0 h-16 bg-[linear-gradient(90deg,rgba(255,255,255,0.18),rgba(235,101,50,0.5)_58%,rgba(255,255,255,0.035))] blur-2xl" />
-      <div className="absolute left-[-6px] top-[58px] font-sans text-[50px] tracking-[-0.06em] text-white/[0.045]">LAUNCH SCALE</div>
+      <div className="absolute left-[-6px] top-[58px] font-sans text-[50px] tracking-[-0.06em] text-white/[0.045]">
+        LAUNCH SCALE
+      </div>
       <div className="absolute left-4 top-[86px] h-16 w-20 border-l border-white/7" />
       <div className="absolute right-[28px] top-[48px] h-[78px] w-[132px] border border-white/16 bg-[#242220]/92 shadow-[18px_20px_50px_rgba(0,0,0,0.35)]" />
       <div className="absolute right-[44px] top-[66px] h-[78px] w-[132px] border border-white/14 bg-[#242220]/95 shadow-[14px_18px_42px_rgba(0,0,0,0.35)]" />
@@ -169,13 +225,19 @@ export function HowItWorks() {
             <div className="grid grid-cols-1 gap-0 md:grid-cols-[280px_1fr]">
               <div className="border-b border-white/10 p-6 md:border-b-0 md:border-r md:p-8">
                 <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-crew-copper/80">
-                  CrewClaw CLI Docs
+                  {isLocalDevelopment
+                    ? "CrewClaw CLI Docs"
+                    : "CrewClaw Source Docs"}
                 </p>
                 <h3 className="mt-4 font-sans text-[28px] font-light leading-tight text-crew-heading">
-                  Command-line hiring path
+                  {isLocalDevelopment
+                    ? "Command-line hiring path"
+                    : "Source-based setup path"}
                 </h3>
                 <p className="mt-4 text-sm leading-7 text-white/52">
-                  Copy the launcher, choose an expert, then let Hermes install the isolated profile.
+                  {isLocalDevelopment
+                    ? "Copy the launcher, choose an expert, then let Hermes install the isolated profile."
+                    : "View the repository, follow the local setup guide, and inspect the profile before running it."}
                 </p>
               </div>
 
@@ -190,11 +252,15 @@ export function HowItWorks() {
                     <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-white/38">
                       {item.label}
                     </p>
-                    <h4 className="mt-3 font-sans text-[20px] leading-tight text-crew-heading">{item.title}</h4>
+                    <h4 className="mt-3 font-sans text-[20px] leading-tight text-crew-heading">
+                      {item.title}
+                    </h4>
                     <code className="mt-4 block break-words rounded-[8px] border border-white/8 bg-black/24 p-3 font-mono text-[12px] leading-6 text-white/72">
                       {item.command}
                     </code>
-                    <p className="mt-3 text-sm leading-6 text-crew-body">{item.desc}</p>
+                    <p className="mt-3 text-sm leading-6 text-crew-body">
+                      {item.desc}
+                    </p>
                   </div>
                 ))}
               </div>

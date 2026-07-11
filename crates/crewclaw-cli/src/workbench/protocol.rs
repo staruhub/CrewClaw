@@ -1,9 +1,106 @@
 use std::sync::OnceLock;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 static UNKNOWN_DATA: OnceLock<Value> = OnceLock::new();
+
+pub const TASK_EVENT_PROTOCOL_VERSION: u64 = 1;
+
+#[derive(Debug, Deserialize)]
+struct CanonicalTaskPayload {
+    id: Option<String>,
+    #[serde(rename = "taskRunId")]
+    task_run_id: Option<String>,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CanonicalOutcomePayload {
+    #[serde(rename = "taskRunId")]
+    task_run_id: Option<String>,
+    valid: Option<bool>,
+    deliverable: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CanonicalArtifactPayload {
+    id: Option<String>,
+    artifact_id: Option<String>,
+    #[serde(rename = "taskRunId")]
+    task_run_id: Option<String>,
+    path: Option<String>,
+    patch: Option<Value>,
+    ok: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CanonicalApprovalPayload {
+    id: Option<String>,
+    #[serde(rename = "taskRunId")]
+    task_run_id: Option<String>,
+    kind: Option<String>,
+    decision: Option<String>,
+}
+
+fn decode_payload<T: DeserializeOwned>(event_type: &str, data: &Value) -> Result<T, String> {
+    serde_json::from_value(data.clone())
+        .map_err(|error| format!("invalid {event_type} payload: {error}"))
+}
+
+fn require_non_empty(value: Option<&str>, field: &str) -> Result<(), String> {
+    if value.is_some_and(|value| !value.trim().is_empty()) {
+        Ok(())
+    } else {
+        Err(format!("{field} must be a non-empty string"))
+    }
+}
+
+fn require_task_reference(payload: &CanonicalTaskPayload, data: &Value) -> Result<(), String> {
+    if data.get("id").is_some() {
+        require_non_empty(data.get("id").and_then(Value::as_str), "data.id")?;
+    }
+    if data.get("taskRunId").is_some() {
+        require_non_empty(
+            data.get("taskRunId").and_then(Value::as_str),
+            "data.taskRunId",
+        )?;
+    }
+    if payload
+        .id
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty())
+    {
+        return Err("data.id must be a non-empty string".to_string());
+    }
+    if payload
+        .task_run_id
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty())
+    {
+        return Err("data.taskRunId must be a non-empty string".to_string());
+    }
+    match (payload.id.as_deref(), payload.task_run_id.as_deref()) {
+        (None, None) => Err("data.id or data.taskRunId must be a non-empty string".to_string()),
+        (Some(id), Some(task_run_id)) if id != task_run_id => {
+            Err("data.id must equal data.taskRunId when both are present".to_string())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn validate_approval_payload(
+    payload: &CanonicalApprovalPayload,
+    expected_kind: &str,
+) -> Result<(), String> {
+    require_non_empty(payload.id.as_deref(), "data.id")?;
+    require_non_empty(payload.task_run_id.as_deref(), "data.taskRunId")?;
+    require_non_empty(payload.kind.as_deref(), "data.kind")?;
+    if payload.kind.as_deref() != Some(expected_kind) {
+        return Err(format!("data.kind must be {expected_kind}"));
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "type")]
@@ -127,6 +224,13 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "artifact.exported")]
+    ArtifactExported {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "evidence.created")]
     EvidenceCreated {
         #[serde(default)]
@@ -228,6 +332,20 @@ pub enum TaskEvent {
     },
     #[serde(rename = "task.blocked")]
     TaskBlocked {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "task.failed")]
+    TaskFailed {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "task.revision_needed")]
+    TaskRevisionNeeded {
         #[serde(default)]
         ts: u64,
         #[serde(default)]
@@ -415,6 +533,7 @@ impl TaskEvent {
             "artifact.selected" => Self::ArtifactSelected { ts, data },
             "artifact.deleted" => Self::ArtifactDeleted { ts, data },
             "artifact.revealed" => Self::ArtifactRevealed { ts, data },
+            "artifact.exported" => Self::ArtifactExported { ts, data },
             "evidence.created" => Self::EvidenceCreated { ts, data },
             "approval.required" => Self::ApprovalRequired { ts, data },
             "approval.requested" => Self::ApprovalRequested { ts, data },
@@ -430,6 +549,8 @@ impl TaskEvent {
             "task.completed" => Self::TaskCompleted { ts, data },
             "task.rejected" => Self::TaskRejected { ts, data },
             "task.blocked" => Self::TaskBlocked { ts, data },
+            "task.failed" => Self::TaskFailed { ts, data },
+            "task.revision_needed" => Self::TaskRevisionNeeded { ts, data },
             "task.upgraded_from_chat" => Self::TaskUpgradedFromChat { ts, data },
             "skill.launched" => Self::SkillLaunched { ts, data },
             "tool.preflight_checked" => Self::ToolPreflightChecked { ts, data },
@@ -444,6 +565,132 @@ impl TaskEvent {
             "outcome.checked" => Self::OutcomeChecked { ts, data },
             "debug.line" => Self::DebugLine { ts, data },
             _ => Self::Unknown,
+        }
+    }
+
+    /// Validate the canonical payload for state-changing, correlated TaskEvents.
+    ///
+    /// The enum intentionally keeps `Value` for additive protocol evolution; this typed boundary
+    /// prevents critical task/artifact/approval state from being reduced from ambiguous fields.
+    pub fn validate_payload(&self) -> Result<(), String> {
+        let event_type = self.event_type();
+        let data = self.data();
+        match self {
+            Self::TaskStarted { .. } => {
+                let payload = decode_payload::<CanonicalTaskPayload>(event_type, data)?;
+                require_non_empty(payload.id.as_deref(), "data.id")
+            }
+            Self::TaskModeChanged { .. } => {
+                require_non_empty(
+                    data.get("taskRunId").and_then(Value::as_str),
+                    "data.taskRunId",
+                )?;
+                require_non_empty(data.get("mode").and_then(Value::as_str), "data.mode")
+            }
+            Self::TaskUpgradedFromChat { .. } => require_non_empty(
+                data.get("taskRunId").and_then(Value::as_str),
+                "data.taskRunId",
+            ),
+            Self::TaskCompleted { .. } => {
+                let payload = decode_payload::<CanonicalTaskPayload>(event_type, data)?;
+                require_task_reference(&payload, data)
+            }
+            Self::TaskRejected { .. }
+            | Self::TaskBlocked { .. }
+            | Self::TaskFailed { .. }
+            | Self::TaskRevisionNeeded { .. } => {
+                let payload = decode_payload::<CanonicalTaskPayload>(event_type, data)?;
+                require_task_reference(&payload, data)?;
+                require_non_empty(payload.reason.as_deref(), "data.reason")
+            }
+            Self::OutcomeChecked { .. } => {
+                let payload = decode_payload::<CanonicalOutcomePayload>(event_type, data)?;
+                require_non_empty(payload.task_run_id.as_deref(), "data.taskRunId")?;
+                let valid = payload
+                    .valid
+                    .ok_or_else(|| "data.valid must be a boolean".to_string())?;
+                if valid {
+                    require_non_empty(payload.deliverable.as_deref(), "data.deliverable")?;
+                }
+                Ok(())
+            }
+            Self::ArtifactCreated { .. } => {
+                let payload = decode_payload::<CanonicalArtifactPayload>(event_type, data)?;
+                require_non_empty(payload.id.as_deref(), "data.id")?;
+                require_non_empty(payload.task_run_id.as_deref(), "data.taskRunId")?;
+                require_non_empty(payload.path.as_deref(), "data.path")
+            }
+            Self::ArtifactUpdated { .. } => {
+                let payload = decode_payload::<CanonicalArtifactPayload>(event_type, data)?;
+                require_non_empty(payload.id.as_deref(), "data.id")?;
+                require_non_empty(payload.task_run_id.as_deref(), "data.taskRunId")?;
+                if payload.patch.as_ref().and_then(Value::as_object).is_some() {
+                    Ok(())
+                } else {
+                    Err("data.patch must be an object".to_string())
+                }
+            }
+            Self::ArtifactSelected { .. } => {
+                let payload = decode_payload::<CanonicalArtifactPayload>(event_type, data)?;
+                require_non_empty(payload.artifact_id.as_deref(), "data.artifact_id")?;
+                require_non_empty(payload.task_run_id.as_deref(), "data.taskRunId")
+            }
+            Self::ArtifactDeleted { .. } => {
+                let payload = decode_payload::<CanonicalArtifactPayload>(event_type, data)?;
+                require_non_empty(payload.artifact_id.as_deref(), "data.artifact_id")?;
+                require_non_empty(payload.task_run_id.as_deref(), "data.taskRunId")?;
+                payload
+                    .ok
+                    .ok_or_else(|| "data.ok must be a boolean".to_string())
+                    .map(|_| ())
+            }
+            Self::ArtifactRevealed { .. } => {
+                let payload = decode_payload::<CanonicalArtifactPayload>(event_type, data)?;
+                require_non_empty(payload.artifact_id.as_deref(), "data.artifact_id")?;
+                require_non_empty(payload.task_run_id.as_deref(), "data.taskRunId")?;
+                payload
+                    .ok
+                    .ok_or_else(|| "data.ok must be a boolean".to_string())
+                    .map(|_| ())
+            }
+            Self::ArtifactExported { .. } => {
+                let payload = decode_payload::<CanonicalArtifactPayload>(event_type, data)?;
+                require_non_empty(payload.artifact_id.as_deref(), "data.artifact_id")?;
+                require_non_empty(payload.task_run_id.as_deref(), "data.taskRunId")?;
+                let ok = payload
+                    .ok
+                    .ok_or_else(|| "data.ok must be a boolean".to_string())?;
+                if ok {
+                    require_non_empty(payload.path.as_deref(), "data.path")?;
+                }
+                Ok(())
+            }
+            Self::ApprovalRequired { .. } | Self::ApprovalResolved { .. } => {
+                let payload = decode_payload::<CanonicalApprovalPayload>(event_type, data)?;
+                validate_approval_payload(&payload, "tool_authorization")?;
+                if matches!(self, Self::ApprovalResolved { .. })
+                    && !matches!(payload.decision.as_deref(), Some("allow" | "deny"))
+                {
+                    return Err("data.decision must be allow or deny".to_string());
+                }
+                Ok(())
+            }
+            Self::ApprovalRequested { .. }
+            | Self::ApprovalAccepted { .. }
+            | Self::ApprovalRejected { .. } => {
+                let payload = decode_payload::<CanonicalApprovalPayload>(event_type, data)?;
+                validate_approval_payload(&payload, "deliverable_acceptance")?;
+                if matches!(self, Self::ApprovalRejected { .. })
+                    && payload
+                        .decision
+                        .as_deref()
+                        .is_some_and(|value| value != "reject")
+                {
+                    return Err("data.decision must be reject when present".to_string());
+                }
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
 
@@ -466,6 +713,7 @@ impl TaskEvent {
             Self::ArtifactSelected { .. } => "artifact.selected",
             Self::ArtifactDeleted { .. } => "artifact.deleted",
             Self::ArtifactRevealed { .. } => "artifact.revealed",
+            Self::ArtifactExported { .. } => "artifact.exported",
             Self::EvidenceCreated { .. } => "evidence.created",
             Self::ApprovalRequired { .. } => "approval.required",
             Self::ApprovalRequested { .. } => "approval.requested",
@@ -481,6 +729,8 @@ impl TaskEvent {
             Self::TaskCompleted { .. } => "task.completed",
             Self::TaskRejected { .. } => "task.rejected",
             Self::TaskBlocked { .. } => "task.blocked",
+            Self::TaskFailed { .. } => "task.failed",
+            Self::TaskRevisionNeeded { .. } => "task.revision_needed",
             Self::TaskUpgradedFromChat { .. } => "task.upgraded_from_chat",
             Self::SkillLaunched { .. } => "skill.launched",
             Self::ToolPreflightChecked { .. } => "tool.preflight_checked",
@@ -517,6 +767,7 @@ impl TaskEvent {
             | Self::ArtifactSelected { data, .. }
             | Self::ArtifactDeleted { data, .. }
             | Self::ArtifactRevealed { data, .. }
+            | Self::ArtifactExported { data, .. }
             | Self::EvidenceCreated { data, .. }
             | Self::ApprovalRequired { data, .. }
             | Self::ApprovalRequested { data, .. }
@@ -532,6 +783,8 @@ impl TaskEvent {
             | Self::TaskCompleted { data, .. }
             | Self::TaskRejected { data, .. }
             | Self::TaskBlocked { data, .. }
+            | Self::TaskFailed { data, .. }
+            | Self::TaskRevisionNeeded { data, .. }
             | Self::TaskUpgradedFromChat { data, .. }
             | Self::SkillLaunched { data, .. }
             | Self::ToolPreflightChecked { data, .. }
@@ -570,6 +823,7 @@ impl TaskEvent {
             | Self::ArtifactSelected { ts, .. }
             | Self::ArtifactDeleted { ts, .. }
             | Self::ArtifactRevealed { ts, .. }
+            | Self::ArtifactExported { ts, .. }
             | Self::EvidenceCreated { ts, .. }
             | Self::ApprovalRequired { ts, .. }
             | Self::ApprovalRequested { ts, .. }
@@ -585,6 +839,8 @@ impl TaskEvent {
             | Self::TaskCompleted { ts, .. }
             | Self::TaskRejected { ts, .. }
             | Self::TaskBlocked { ts, .. }
+            | Self::TaskFailed { ts, .. }
+            | Self::TaskRevisionNeeded { ts, .. }
             | Self::TaskUpgradedFromChat { ts, .. }
             | Self::SkillLaunched { ts, .. }
             | Self::ToolPreflightChecked { ts, .. }
@@ -607,6 +863,108 @@ impl TaskEvent {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn artifact_exported_is_a_first_class_task_event() {
+        let data =
+            json!({"artifact_id":"a1","taskRunId":"t1","path":"/tmp/export/a1.md","ok":true});
+        let event = TaskEvent::from_parts("artifact.exported", 42, data.clone());
+
+        assert_eq!(event.event_type(), "artifact.exported");
+        assert_eq!(event.ts(), 42);
+        assert_eq!(event.data(), &data);
+
+        let decoded: TaskEvent = serde_json::from_value(json!({
+            "type":"artifact.exported",
+            "ts":42,
+            "data":data
+        }))
+        .expect("artifact.exported wire event");
+        assert_eq!(decoded.event_type(), "artifact.exported");
+    }
+
+    #[test]
+    fn critical_payload_validation_requires_canonical_correlation() {
+        let valid = [
+            TaskEvent::from_parts("task.started", 1, json!({"id":"task-1"})),
+            TaskEvent::from_parts(
+                "task.mode_changed",
+                1,
+                json!({"taskRunId":"task-1","mode":"Task"}),
+            ),
+            TaskEvent::from_parts("task.upgraded_from_chat", 1, json!({"taskRunId":"task-1"})),
+            TaskEvent::from_parts("task.completed", 2, json!({"taskRunId":"task-1"})),
+            TaskEvent::from_parts(
+                "task.failed",
+                3,
+                json!({"id":"task-1","reason":"runtime crashed"}),
+            ),
+            TaskEvent::from_parts(
+                "outcome.checked",
+                4,
+                json!({"taskRunId":"task-1","valid":true,"deliverable":"/x/report.md"}),
+            ),
+            TaskEvent::from_parts(
+                "artifact.created",
+                5,
+                json!({"id":"a1","taskRunId":"task-1","path":"/x/report.md"}),
+            ),
+            TaskEvent::from_parts(
+                "artifact.exported",
+                5,
+                json!({"artifact_id":"a1","taskRunId":"task-1","ok":false}),
+            ),
+            TaskEvent::from_parts(
+                "approval.requested",
+                6,
+                json!({"id":"ap1","taskRunId":"task-1","kind":"deliverable_acceptance"}),
+            ),
+        ];
+        for event in valid {
+            event
+                .validate_payload()
+                .unwrap_or_else(|error| panic!("{}: {error}", event.event_type()));
+        }
+
+        assert!(
+            TaskEvent::from_parts("task.completed", 1, json!({}))
+                .validate_payload()
+                .unwrap_err()
+                .contains("data.id or data.taskRunId")
+        );
+        assert!(
+            TaskEvent::from_parts(
+                "task.failed",
+                1,
+                json!({"id":"task-1","taskRunId":"task-2","reason":"boom"}),
+            )
+            .validate_payload()
+            .unwrap_err()
+            .contains("data.id must equal data.taskRunId")
+        );
+        assert!(
+            TaskEvent::from_parts(
+                "approval.accepted",
+                1,
+                json!({"id":"ap1","taskRunId":"task-1","kind":"tool_authorization"}),
+            )
+            .validate_payload()
+            .unwrap_err()
+            .contains("deliverable_acceptance")
+        );
+    }
+
+    #[test]
+    fn failure_and_revision_are_distinct_additive_events() {
+        assert_eq!(
+            TaskEvent::from_parts("task.failed", 1, json!({})).event_type(),
+            "task.failed"
+        );
+        assert_eq!(
+            TaskEvent::from_parts("task.revision_needed", 1, json!({})).event_type(),
+            "task.revision_needed"
+        );
+    }
 
     #[test]
     fn user_action_serializes_structured_workbench_commands() {

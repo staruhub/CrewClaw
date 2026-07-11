@@ -9,38 +9,58 @@
 // never dumped after the prose.
 export function createChatStore(initial = {}) {
   let state = {
-    messages: [],   // committed: { role:'user', text } | { role:'assistant', parts:[...] }
-    live: null,     // in-flight assistant turn: { parts:[...] } | null
+    messages: [], // committed: { role:'user', text } | { role:'assistant', parts:[...] }
+    live: null, // in-flight assistant turn: { parts:[...] } | null
     status: "idle", // 'idle' | 'thinking' | 'streaming' | 'tool' | 'error'
     usage: { promptTok: 0, completionTok: 0, lastPromptTok: 0 },
     ...initial,
   };
   const subs = new Set();
-  const emit = () => { for (const fn of subs) fn(state); };
-  const set = (patch) => { state = { ...state, ...patch }; emit(); };
+  const emit = () => {
+    for (const fn of subs) fn(state);
+  };
+  const set = patch => {
+    state = { ...state, ...patch };
+    emit();
+  };
 
   // append a text delta to the trailing text part, or start a new one if the last part
   // is a tool (so tool parts stay interleaved in execution order)
   const withDelta = (parts, d) => {
     const last = parts[parts.length - 1];
-    if (last && last.type === "text") return [...parts.slice(0, -1), { type: "text", text: last.text + d }];
+    if (last && last.type === "text")
+      return [...parts.slice(0, -1), { type: "text", text: last.text + d }];
     return [...parts, { type: "text", text: d }];
   };
-  const hasContent = (parts) => parts.some((p) => (p.type === "text" && p.text.trim()) || p.type === "tool");
+  const hasContent = parts =>
+    parts.some(p => (p.type === "text" && p.text.trim()) || p.type === "tool");
 
   return {
     get: () => state,
-    subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
+    subscribe(fn) {
+      subs.add(fn);
+      return () => subs.delete(fn);
+    },
 
-    pushUser(text) { set({ messages: [...state.messages, { role: "user", text }] }); },
-    beginTurn() { set({ live: { parts: [] }, status: "thinking" }); },
+    pushUser(text) {
+      set({ messages: [...state.messages, { role: "user", text }] });
+    },
+    beginTurn() {
+      set({ live: { parts: [] }, status: "thinking" });
+    },
     appendDelta(d) {
       if (!state.live) return;
-      set({ live: { parts: withDelta(state.live.parts, d) }, status: "streaming" });
+      set({
+        live: { parts: withDelta(state.live.parts, d) },
+        status: "streaming",
+      });
     },
     addTool(inv) {
       const live = state.live || { parts: [] };
-      set({ live: { parts: [...live.parts, { type: "tool", tool: inv }] }, status: "tool" });
+      set({
+        live: { parts: [...live.parts, { type: "tool", tool: inv }] },
+        status: "tool",
+      });
     },
     addUsage(u) {
       if (!u) return;
@@ -55,15 +75,29 @@ export function createChatStore(initial = {}) {
     // turn finishes: move the ordered parts into committed history (Ink <Static> commits
     // it to scrollback and never repaints it again)
     commitTurn() {
-      if (!state.live) { set({ status: "idle" }); return; }
+      if (!state.live) {
+        set({ status: "idle" });
+        return;
+      }
       const parts = state.live.parts;
-      const committed = hasContent(parts) ? [...state.messages, { role: "assistant", parts }] : state.messages;
+      const committed = hasContent(parts)
+        ? [...state.messages, { role: "assistant", parts }]
+        : state.messages;
       set({ messages: committed, live: null, status: "idle" });
     },
-    setStatus(status) { set({ status }); },
+    setStatus(status) {
+      set({ status });
+    },
     setError() {
       if (state.live) {
-        set({ messages: [...state.messages, { role: "assistant", parts: state.live.parts, errored: true }], live: null, status: "error" });
+        set({
+          messages: [
+            ...state.messages,
+            { role: "assistant", parts: state.live.parts, errored: true },
+          ],
+          live: null,
+          status: "error",
+        });
       } else {
         set({ status: "error" });
       }

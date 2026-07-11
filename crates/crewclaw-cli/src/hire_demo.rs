@@ -86,10 +86,7 @@ fn steps_for(card: &AgentCard) -> Vec<Step> {
 /// any known agent into the demo while unknown agents fall through to the real
 /// Hermes hire path.
 pub fn has_ceremony(root: &Path, target: &str) -> bool {
-    match find_card(root, target) {
-        Ok(_) => true,
-        Err(_) => false,
-    }
+    find_card(root, target).is_ok()
 }
 
 /// Play the onboarding ceremony for `target`. `--ascii` drops emoji/color.

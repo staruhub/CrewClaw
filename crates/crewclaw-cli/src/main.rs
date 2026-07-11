@@ -1,7 +1,9 @@
+#![cfg_attr(test, allow(clippy::field_reassign_with_default))]
+
 use crossterm::tty::IsTty;
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -12,6 +14,7 @@ mod doctor;
 mod hire_demo;
 mod manifest;
 mod standup;
+mod state_store;
 mod team;
 mod verify;
 mod workbench;
@@ -328,7 +331,7 @@ fn run_inspect(root: &Path, registry: &Registry, target: &str) -> Result<i32, St
         );
         return Ok(1);
     };
-    let manifest = match manifest::read_manifest(root, local_source) {
+    let manifest = match manifest::read_manifest(root, &expert.name, local_source) {
         Ok(manifest) => manifest,
         Err(error) => {
             eprintln!("Error: {error}");
@@ -404,7 +407,7 @@ fn run_hire(
         return Ok(code);
     }
 
-    let mut employees = team::read_team(root)?;
+    let employees = team::read_team(root)?;
     if let Some(employee) = team::active_employee(&employees, &expert.name) {
         println!(
             "Already hired: {} is active as {} (AC-HIRE-004).",
@@ -420,21 +423,17 @@ fn run_hire(
     };
 
     if code == 0 {
-        persist_hire(root, expert, &mut employees)?;
+        persist_hire(root, expert)?;
         append_activity(root, "hire", &expert.name)?;
     }
     Ok(code)
 }
 
-fn persist_hire(
-    root: &Path,
-    expert: &Expert,
-    employees: &mut Vec<team::WorkspaceEmployee>,
-) -> Result<(), String> {
+fn persist_hire(root: &Path, expert: &Expert) -> Result<(), String> {
     let permissions = expert
         .local_source
         .as_deref()
-        .and_then(|local_source| manifest::read_manifest(root, local_source).ok())
+        .and_then(|local_source| manifest::read_manifest(root, &expert.name, local_source).ok())
         .map(|manifest| manifest.permissions)
         .unwrap_or_else(|| {
             expert
@@ -445,8 +444,17 @@ fn persist_hire(
                 .collect()
         });
     let version = expert.version.as_deref().unwrap_or("unknown");
-    let record = team::add_active_employee(employees, &expert.name, version, permissions);
-    team::write_team(root, employees)?;
+    let record = team::mutate_team(root, |employees| {
+        if let Some(existing) = team::active_employee(employees, &expert.name) {
+            return Ok(existing.clone());
+        }
+        Ok(team::add_active_employee(
+            employees,
+            &expert.name,
+            version,
+            permissions,
+        ))
+    })?;
     println!("Your new AI employee has joined the crew.");
     println!("Team state: {}", team::team_path(root).display());
     println!("workspace_employee_id: {}", record.workspace_employee_id);
@@ -463,19 +471,28 @@ fn run_fire(
         eprintln!("Error: Unknown expert: {target}");
         return Ok(1);
     };
-    let mut employees = team::read_team(root)?;
-    let Some(employee) = team::active_employee_mut(&mut employees, &expert.name) else {
+    let employees = team::read_team(root)?;
+    if team::active_employee(&employees, &expert.name).is_none() {
         eprintln!("Error: {} is not active in this crew.", expert.name);
         return Ok(1);
-    };
+    }
 
     println!(
         "Impact: {} will be marked fired; history remains in .crewclaw/team.json.",
         expert.name
     );
-    employee.status = team::WorkspaceEmployeeStatus::Fired;
-    employee.fired_at = Some(team::now_iso8601());
-    team::write_team(root, &employees)?;
+    let fired = team::mutate_team(root, |employees| {
+        let Some(employee) = team::active_employee_mut(employees, &expert.name) else {
+            return Ok(false);
+        };
+        employee.status = team::WorkspaceEmployeeStatus::Fired;
+        employee.fired_at = Some(team::now_iso8601());
+        Ok(true)
+    })?;
+    if !fired {
+        eprintln!("Error: {} is no longer active in this crew.", expert.name);
+        return Ok(1);
+    }
     append_activity(root, "fire", &expert.name)?;
 
     if hire_demo::has_ceremony(root, &expert.name) {
@@ -498,7 +515,7 @@ fn run_employee_doctor(root: &Path, registry: &Registry, target: &str) -> Result
         .local_source
         .as_deref()
         .ok_or_else(|| format!("{} has no local employee package yet.", expert.display_name))
-        .and_then(|local_source| manifest::read_manifest(root, local_source));
+        .and_then(|local_source| manifest::read_manifest(root, &expert.name, local_source));
     let employees = team::read_team(root)?;
     let report = doctor::build_report(expert, manifest, &employees);
     doctor::print_report(expert, &report);
@@ -524,9 +541,8 @@ fn reject_unhireable(expert: &Expert, root: &Path) -> Option<i32> {
         );
         return Some(1);
     }
-    let source = root.join(local_source);
-    if !source.exists() {
-        eprintln!("Error: Expert source not found: {}", source.display());
+    if let Err(error) = manifest::resolve_local_source(root, &expert.name, local_source) {
+        eprintln!("Error: {error}");
         return Some(1);
     }
     None
@@ -592,11 +608,13 @@ fn hire_expert(
         return Ok(1);
     }
 
-    let source = root.join(local_source);
-    if !source.exists() {
-        eprintln!("Error: Expert source not found: {}", source.display());
-        return Ok(1);
-    }
+    let source = match manifest::resolve_local_source(root, &expert.name, local_source) {
+        Ok(source) => source,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return Ok(1);
+        }
+    };
 
     println!("Hiring {}", expert.display_name);
     println!("Requires Hermes {}", expert.requires.hermes);
@@ -757,10 +775,10 @@ fn run_agent_live(args: &[String], root: &Path) -> Result<i32, String> {
     node_args.extend(forward);
 
     let code = run_node_live(&node_args, root);
-    if code == 0 {
-        if let Some(employee) = run_employee.as_deref() {
-            append_activity(root, "run", employee)?;
-        }
+    if code == 0
+        && let Some(employee) = run_employee.as_deref()
+    {
+        append_activity(root, "run", employee)?;
     }
     Ok(code)
 }
@@ -878,14 +896,14 @@ fn run_update(
     target: Option<&str>,
     args: &[String],
 ) -> Result<i32, String> {
-    if let Some(target) = target {
-        if find_expert(registry, target).is_none() {
-            eprintln!("Error: Unknown expert: {target}");
-            return Ok(1);
-        }
+    if let Some(target) = target
+        && find_expert(registry, target).is_none()
+    {
+        eprintln!("Error: Unknown expert: {target}");
+        return Ok(1);
     }
 
-    let mut employees = team::read_team(root)?;
+    let employees = team::read_team(root)?;
     let updates = available_updates(registry, &employees, target);
     if updates.is_empty() {
         if let Some(target) = target {
@@ -905,8 +923,10 @@ fn run_update(
     }
 
     if has_flag(args, "--apply") {
-        let changed = apply_updates(&mut employees, &updates);
-        team::write_team(root, &employees)?;
+        let changed = team::mutate_team(root, |employees| {
+            let current_updates = available_updates(registry, employees, target);
+            Ok(apply_updates(employees, &current_updates))
+        })?;
         println!("Updated {changed} employee record(s) in .crewclaw/team.json.");
     } else {
         println!("Run crew update --apply to update .crewclaw/team.json after reviewing changes.");
@@ -967,6 +987,9 @@ fn run_logs(root: &Path, target: Option<&str>) -> Result<i32, String> {
 }
 
 fn append_activity(root: &Path, action: &str, employee: &str) -> Result<(), String> {
+    let path = activity_path(root);
+    let _lock = state_store::acquire_owner_lock(root, "activity.json")
+        .map_err(|error| format!("Failed to lock {}: {error}", path.display()))?;
     let mut entries = read_activity(root, None)?;
     entries.push(ActivityEntry {
         ts: team::now_iso8601(),
@@ -978,11 +1001,11 @@ fn append_activity(root: &Path, action: &str, employee: &str) -> Result<(), Stri
 
 fn read_activity(root: &Path, target: Option<&str>) -> Result<Vec<ActivityEntry>, String> {
     let path = activity_path(root);
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let content = fs::read_to_string(&path)
+    let content = state_store::read_string(root, "activity.json")
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+    let Some(content) = content else {
+        return Ok(Vec::new());
+    };
     let entries = serde_json::from_str::<Vec<ActivityEntry>>(&content)
         .map_err(|error| format!("Failed to parse {}: {error}", path.display()))?;
     Ok(entries
@@ -993,13 +1016,9 @@ fn read_activity(root: &Path, target: Option<&str>) -> Result<Vec<ActivityEntry>
 
 fn write_activity(root: &Path, entries: &[ActivityEntry]) -> Result<(), String> {
     let path = activity_path(root);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
-    }
     let content = serde_json::to_string_pretty(entries)
         .map_err(|error| format!("Failed to serialize activity: {error}"))?;
-    fs::write(&path, format!("{content}\n"))
+    state_store::write_atomic(root, "activity.json", format!("{content}\n").as_bytes())
         .map_err(|error| format!("Failed to write {}: {error}", path.display()))
 }
 
@@ -1126,8 +1145,21 @@ pub(crate) fn read_registry(root: &Path) -> Result<Registry, String> {
     let path = root.join("registry/experts.json");
     let content = fs::read_to_string(&path)
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
-    serde_json::from_str(&content)
-        .map_err(|error| format!("Failed to parse {}: {error}", path.display()))
+    let registry: Registry = serde_json::from_str(&content)
+        .map_err(|error| format!("Failed to parse {}: {error}", path.display()))?;
+    validate_registry(&registry)?;
+    Ok(registry)
+}
+
+fn validate_registry(registry: &Registry) -> Result<(), String> {
+    for expert in &registry.experts {
+        manifest::validate_registry_local_source(
+            &expert.name,
+            &expert.status,
+            expert.local_source.as_deref(),
+        )?;
+    }
+    Ok(())
 }
 
 fn find_expert<'a>(registry: &'a Registry, value: &str) -> Option<&'a Expert> {
@@ -1189,7 +1221,11 @@ fn make_archive(source: &Path, archive_name: &str, root: &Path) -> Result<PathBu
 }
 
 fn run_command(command: &str, args: &[String], root: &Path) -> CommandResult {
-    match Command::new(command).args(args).current_dir(root).output() {
+    match Command::new(resolve_command_path(command))
+        .args(args)
+        .current_dir(root)
+        .output()
+    {
         Ok(output) => CommandResult {
             code: output.status.code().unwrap_or(1),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -1201,6 +1237,45 @@ fn run_command(command: &str, args: &[String], root: &Path) -> CommandResult {
             stderr: error.to_string(),
         },
     }
+}
+
+/// Resolve npm-style `.cmd` shims as well as native executables on Windows. `Command::new`
+/// only appends `.exe` there; without this lookup a normal npm-installed `hermes.cmd` is reported
+/// as missing even though an interactive shell can run it.
+fn resolve_command_path(command: &str) -> OsString {
+    #[cfg(windows)]
+    {
+        // Prefer the OS-shipped bsdtar: an MSYS/Git-Bash GNU tar earlier on PATH parses the `:` in
+        // `C:\...` (and canonicalized `\\?\C:\...`) as a remote host and fails on native Windows
+        // paths. bsdtar (Windows 10+, System32) handles both forms natively.
+        if command == "tar" {
+            if let Some(system_root) = env::var_os("SystemRoot") {
+                let bsdtar = Path::new(&system_root).join("System32").join("tar.exe");
+                if bsdtar.is_file() {
+                    return bsdtar.into_os_string();
+                }
+            }
+        }
+        let command_path = Path::new(command);
+        if command_path.extension().is_none() {
+            let path = env::var_os("PATH").unwrap_or_default();
+            let extensions =
+                env::var_os("PATHEXT").unwrap_or_else(|| OsString::from(".COM;.EXE;.BAT;.CMD"));
+            for directory in env::split_paths(&path) {
+                for extension in extensions.to_string_lossy().split(';') {
+                    let extension = extension.trim();
+                    if extension.is_empty() {
+                        continue;
+                    }
+                    let candidate = directory.join(format!("{command}{extension}"));
+                    if candidate.is_file() {
+                        return candidate.into_os_string();
+                    }
+                }
+            }
+        }
+    }
+    OsString::from(command)
 }
 
 fn positionals(args: &[String]) -> Vec<String> {
@@ -1269,8 +1344,21 @@ fn first_run_command(profile_name: &str, task: &str) -> String {
     format!("hermes -p {profile_name} chat -q {}", quote_shell(task))
 }
 
+#[cfg(windows)]
+fn quote_command_argument(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+#[cfg(not(windows))]
+fn quote_command_argument(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
 fn local_command(root: &Path) -> String {
-    format!("pnpm --silent -C {} run crewclaw", root.display())
+    format!(
+        "pnpm --silent -C {} run crewclaw",
+        quote_command_argument(&root.to_string_lossy())
+    )
 }
 
 fn log_command_output(label: &str, output: &str) {
@@ -1323,6 +1411,21 @@ mod tests {
         assert_eq!(
             command,
             "hermes -p shrimp chat -q \"say \\\"hi\\\" and \\$HOME\""
+        );
+    }
+
+    #[test]
+    fn quotes_local_command_root_with_spaces() {
+        let command = local_command(Path::new("workspace with spaces"));
+        #[cfg(windows)]
+        assert_eq!(
+            command,
+            "pnpm --silent -C \"workspace with spaces\" run crewclaw"
+        );
+        #[cfg(not(windows))]
+        assert_eq!(
+            command,
+            "pnpm --silent -C 'workspace with spaces' run crewclaw"
         );
     }
 
@@ -1445,6 +1548,41 @@ mod tests {
         }
     }
 
+    #[test]
+    fn validates_registry_local_source_before_consumers_use_it() {
+        let valid = Registry {
+            experts: vec![expert_with_version("code-review-shrimp", "0.1.0")],
+        };
+        assert!(validate_registry(&valid).is_ok());
+
+        for local_source in [
+            "../../outside",
+            "/tmp/outside",
+            r"C:\outside",
+            "experts/product-prd-crab",
+        ] {
+            let mut expert = expert_with_version("code-review-shrimp", "0.1.0");
+            expert.local_source = Some(local_source.to_string());
+            assert!(
+                validate_registry(&Registry {
+                    experts: vec![expert]
+                })
+                .is_err(),
+                "accepted unsafe local_source: {local_source}"
+            );
+        }
+
+        let mut coming_soon = expert_with_version("docs-octopus", "0.1.0");
+        coming_soon.status = "coming-soon".to_string();
+        coming_soon.local_source = Some("experts/docs-octopus".to_string());
+        assert!(
+            validate_registry(&Registry {
+                experts: vec![coming_soon]
+            })
+            .is_err()
+        );
+    }
+
     fn active_employee(name: &str, version: &str) -> team::WorkspaceEmployee {
         team::WorkspaceEmployee {
             workspace_employee_id: format!("{name}-1"),
@@ -1504,6 +1642,32 @@ mod tests {
         assert_eq!(entries[0].action, "hire");
         assert_eq!(entries[0].employee, "code-review-shrimp");
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn concurrent_activity_appends_do_not_lose_entries() {
+        let root = std::sync::Arc::new(unique_test_root("activity-concurrency"));
+        let workers = 6;
+        let rounds = 10;
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(workers));
+        let mut joins = Vec::new();
+        for worker in 0..workers {
+            let root = std::sync::Arc::clone(&root);
+            let barrier = std::sync::Arc::clone(&barrier);
+            joins.push(std::thread::spawn(move || {
+                barrier.wait();
+                for round in 0..rounds {
+                    append_activity(&root, "run", &format!("employee-{worker}-{round}"))
+                        .expect("serialized activity append");
+                }
+            }));
+        }
+        for join in joins {
+            join.join().expect("worker");
+        }
+        let entries = read_activity(&root, None).expect("final activity");
+        assert_eq!(entries.len(), workers * rounds);
+        let _ = std::fs::remove_dir_all(root.as_ref());
     }
 
     fn unique_test_root(name: &str) -> PathBuf {

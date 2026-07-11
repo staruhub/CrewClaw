@@ -4,8 +4,12 @@ import { statusSymbol } from "./status";
 export function ToolAudit({ tools }: { tools: ToolInvocation[] }) {
   return (
     <section className="border border-white/10 bg-white/[0.025] p-5">
-      <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">Tools</p>
-      <h2 className="mt-1 text-base font-semibold text-crew-heading">工具与权限</h2>
+      <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
+        Tools
+      </p>
+      <h2 className="mt-1 text-base font-semibold text-crew-heading">
+        工具与权限
+      </h2>
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[520px] text-left text-sm">
           <thead className="border-b border-white/10 text-xs uppercase tracking-[0.14em] text-crew-muted">
@@ -19,9 +23,13 @@ export function ToolAudit({ tools }: { tools: ToolInvocation[] }) {
           <tbody className="divide-y divide-white/10">
             {tools.map((tool, index) => (
               <tr key={`${tool.tool_name}-${index}`}>
-                <td className="py-3 font-mono text-crew-heading">{tool.tool_name}</td>
+                <td className="py-3 font-mono text-crew-heading">
+                  {tool.tool_name}
+                </td>
                 <td className="py-3 text-crew-body">{tool.input_summary}</td>
-                <td className="py-3 font-mono text-crew-muted">{tool.permission_level ?? "L0"}</td>
+                <td className="py-3 font-mono text-crew-muted">
+                  {tool.permission_level ?? "L0"}
+                </td>
                 <td className="py-3 font-mono text-crew-body">
                   {statusSymbol(tool.status)} {tool.status} · {tool.decision}
                 </td>

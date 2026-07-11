@@ -6,7 +6,7 @@ export type TrpcContext = {
 };
 
 export async function createContext(
-  opts: FetchCreateContextFnOptions,
+  opts: FetchCreateContextFnOptions
 ): Promise<TrpcContext> {
   return { req: opts.req, resHeaders: opts.resHeaders };
 }

@@ -1,5 +1,6 @@
 import { SectionHeader } from "@/components/SectionHeader";
 import { ScrollReveal } from "@/components/ScrollReveal";
+import { isLocalDevelopment } from "@/data/experts";
 import { useState } from "react";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
 
@@ -18,7 +19,9 @@ const faqs = [
   },
   {
     q: "How do I get started?",
-    a: "Install Hermes, copy the CrewClaw CLI command from the expert card, choose an available employee, then run the first Hermes test command CrewClaw prints after installation.",
+    a: isLocalDevelopment
+      ? "Install Hermes, copy the CrewClaw CLI command from the expert card, choose an available employee, then run the first Hermes test command CrewClaw prints after installation."
+      : "Open the public source repository and follow its local setup guide. One-command package installation will only be advertised after that distribution path is published and verified.",
   },
   {
     q: "How do you handle secrets and permissions?",
@@ -46,7 +49,9 @@ export function FAQ() {
                 <div className="pr-4">
                   <span
                     className={`block font-sans text-[21px] leading-[1.22] transition-colors md:text-[23px] ${
-                      open === index ? "text-crew-heading" : "text-white/86 group-hover:text-crew-heading"
+                      open === index
+                        ? "text-crew-heading"
+                        : "text-white/86 group-hover:text-crew-heading"
                     }`}
                   >
                     {faq.q}
@@ -58,7 +63,11 @@ export function FAQ() {
                   )}
                 </div>
                 <span className="mt-1 shrink-0 text-white/40 transition-colors group-hover:text-crew-copper">
-                  {open === index ? <ArrowUpRight size={18} /> : <ChevronRight size={18} />}
+                  {open === index ? (
+                    <ArrowUpRight size={18} />
+                  ) : (
+                    <ChevronRight size={18} />
+                  )}
                 </span>
               </button>
             </div>

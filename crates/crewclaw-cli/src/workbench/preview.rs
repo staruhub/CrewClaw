@@ -20,38 +20,6 @@ pub(crate) fn compact_markdown_summary(text: &str, max_chars: usize) -> String {
     summary
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compact_markdown_summary_removes_common_markup() {
-        assert_eq!(
-            compact_markdown_summary("# **ROI** `draft`", 20),
-            "ROI draft"
-        );
-    }
-
-    #[test]
-    fn read_artifact_preview_caps_file_contents() {
-        let path = std::env::temp_dir().join(format!(
-            "crewclaw-preview-helper-{}-caps.md",
-            std::process::id()
-        ));
-        std::fs::write(&path, "first\nsecond\nthird").expect("write temp artifact");
-
-        let preview =
-            read_artifact_preview(&path.to_string_lossy(), 2, 100).expect("read artifact preview");
-
-        assert_eq!(
-            preview,
-            "first\nsecond\n… (truncated, open the file to read all)"
-        );
-
-        let _ = std::fs::remove_file(path);
-    }
-}
-
 pub(crate) fn read_artifact_preview(
     path: &str,
     max_lines: usize,
@@ -100,4 +68,36 @@ pub(crate) fn read_artifact_preview(
     }
 
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_markdown_summary_removes_common_markup() {
+        assert_eq!(
+            compact_markdown_summary("# **ROI** `draft`", 20),
+            "ROI draft"
+        );
+    }
+
+    #[test]
+    fn read_artifact_preview_caps_file_contents() {
+        let path = std::env::temp_dir().join(format!(
+            "crewclaw-preview-helper-{}-caps.md",
+            std::process::id()
+        ));
+        std::fs::write(&path, "first\nsecond\nthird").expect("write temp artifact");
+
+        let preview =
+            read_artifact_preview(&path.to_string_lossy(), 2, 100).expect("read artifact preview");
+
+        assert_eq!(
+            preview,
+            "first\nsecond\n… (truncated, open the file to read all)"
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
 }

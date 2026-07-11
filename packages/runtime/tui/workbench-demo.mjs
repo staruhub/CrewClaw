@@ -12,26 +12,67 @@ import { getToolTruth } from "../tool-truth.mjs";
 import { getMemoryTruth } from "../memory-harness.mjs";
 
 const html = htm.bind(React.createElement);
-const stub = (t) => String(t).split("\n").map((l) => "   " + l);
+const stub = t =>
+  String(t)
+    .split("\n")
+    .map(l => "   " + l);
 const TOOLS = getToolTruth();
 const MEMORY = getMemoryTruth();
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 let done;
 function Demo() {
   const [state, setState] = React.useState(null);
   React.useEffect(() => {
-    const run = createTaskRun({ employee: { name: "鲸", role: "落地顾问" }, mode: "Trial" }, setState);
+    const run = createTaskRun(
+      { employee: { name: "鲸", role: "落地顾问" }, mode: "Trial" },
+      setState
+    );
     (async () => {
-      run.start("调研火山 Seed 2.1", "Trial"); await sleep(140);
-      run.emit(EVENTS.PLAN_CREATED, { id: "p", steps: ["官方源优先", "抽字段", "组装报告"] }); await sleep(140);
-      run.sink.onInvocation({ toolName: "web_search", action: "已跳过", line: '🔎 "Seed 2.1"', status: "blocked", code: "missing_key" }); await sleep(140);
-      run.sink.onInvocation({ toolName: "web_fetch", action: "读取官方文档", line: "🌐 ark.volcengine (412 字)", status: "success" }); await sleep(140);
-      run.emit(EVENTS.EVIDENCE_CREATED, { id: "e1", fact: "上下文 256k", source: "official", confidence: 0.8 }); await sleep(120);
-      for (const ch of "根据官方文档，Seed 2.1 上下文 256k、定价 [需核实]，建议先小流量接入。") { run.sink.onDelta(ch); await sleep(7); }
-      run.emit(EVENTS.ARTIFACT_CREATED, { id: "a1", name: "seed-2.1-research.md", type: "report", status: "draft", checks: ["≥2 来源"] }); await sleep(120);
+      run.start("调研火山 Seed 2.1", "Trial");
+      await sleep(140);
+      run.emit(EVENTS.PLAN_CREATED, {
+        id: "p",
+        steps: ["官方源优先", "抽字段", "组装报告"],
+      });
+      await sleep(140);
+      run.sink.onInvocation({
+        toolName: "web_search",
+        action: "已跳过",
+        line: '🔎 "Seed 2.1"',
+        status: "blocked",
+        code: "missing_key",
+      });
+      await sleep(140);
+      run.sink.onInvocation({
+        toolName: "web_fetch",
+        action: "读取官方文档",
+        line: "🌐 ark.volcengine (412 字)",
+        status: "success",
+      });
+      await sleep(140);
+      run.emit(EVENTS.EVIDENCE_CREATED, {
+        id: "e1",
+        fact: "上下文 256k",
+        source: "official",
+        confidence: 0.8,
+      });
+      await sleep(120);
+      for (const ch of "根据官方文档，Seed 2.1 上下文 256k、定价 [需核实]，建议先小流量接入。") {
+        run.sink.onDelta(ch);
+        await sleep(7);
+      }
+      run.emit(EVENTS.ARTIFACT_CREATED, {
+        id: "a1",
+        name: "seed-2.1-research.md",
+        type: "report",
+        status: "draft",
+        checks: ["≥2 来源"],
+      });
+      await sleep(120);
       run.sink.onUsage({ prompt_tokens: 1800, completion_tokens: 240 });
-      run.complete(); await sleep(160);
+      run.complete();
+      await sleep(160);
       done && done();
     })();
   }, []);

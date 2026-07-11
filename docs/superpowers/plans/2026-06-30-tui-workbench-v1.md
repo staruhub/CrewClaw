@@ -23,6 +23,7 @@
 ## Task 1: Lock Spec and Plan Artifacts
 
 **Files:**
+
 - Create: `docs/superpowers/specs/2026-06-30-tui-workbench-v1-design.md`
 - Create: `docs/superpowers/plans/2026-06-30-tui-workbench-v1.md`
 
@@ -47,6 +48,7 @@ Expected: no matches.
 ## Task 2: Verify Existing Workbench State Coverage
 
 **Files:**
+
 - Test: `crates/crewclaw-cli/src/workbench/state.rs`
 - Test: `crates/crewclaw-cli/src/workbench/ui.rs`
 - Test: `crates/crewclaw-cli/src/workbench/mod.rs`
@@ -84,6 +86,7 @@ If the test run shows no direct coverage for a requirement, add a failing test b
 ## Task 3: Add Missing Regression Tests Before Code Changes
 
 **Files:**
+
 - Test: `crates/crewclaw-cli/src/workbench/ui.rs`
 - Test: `crates/crewclaw-cli/src/workbench/state.rs`
 - Test: `crates/crewclaw-cli/src/workbench/mod.rs`
@@ -131,6 +134,7 @@ Expected before implementation: fail if transcript output is missing required fi
 ## Task 4: Implement Only the Gaps
 
 **Files:**
+
 - Modify: `crates/crewclaw-cli/src/workbench/state.rs`
 - Modify: `crates/crewclaw-cli/src/workbench/ui.rs`
 - Modify: `crates/crewclaw-cli/src/workbench/mod.rs`
@@ -161,6 +165,7 @@ Expected: all workbench tests pass.
 ## Task 4A: Enforce No Artifact, No Done
 
 **Files:**
+
 - Test: `crates/crewclaw-cli/src/workbench/state.rs`
 - Test: `crates/crewclaw-cli/src/workbench/ui.rs`
 - Modify: `crates/crewclaw-cli/src/workbench/state.rs`
@@ -212,6 +217,7 @@ Expected: both pass.
 ## Task 4B: Complete Keyboard Cancel and Paste Input
 
 **Files:**
+
 - Test: `crates/crewclaw-cli/src/workbench/mod.rs`
 - Modify: `crates/crewclaw-cli/src/workbench/mod.rs`
 - Modify: `docs/superpowers/specs/2026-06-30-tui-workbench-v1-design.md`
@@ -255,6 +261,7 @@ Add Ctrl+G to TUI-003 and add TUI-013 for bracketed paste lifecycle and focused-
 ## Task 4C: Make `crew chat` Enter Workbench by Default on TTY
 
 **Files:**
+
 - Test: `crates/crewclaw-cli/src/main.rs`
 - Modify: `crates/crewclaw-cli/src/main.rs`
 - Modify: `docs/superpowers/specs/2026-06-30-tui-workbench-v1-design.md`
@@ -289,6 +296,7 @@ Document `--plain`, `--tui`, and `--ratatui` in CLI help and clarify that curren
 ## Task 4D: Make Focused Input Cursor-aware
 
 **Files:**
+
 - Test: `crates/crewclaw-cli/src/workbench/mod.rs`
 - Test: `crates/crewclaw-cli/src/workbench/ui.rs`
 - Modify: `crates/crewclaw-cli/src/workbench/mod.rs`
@@ -314,6 +322,7 @@ Add `render_places_cursor_at_cjk_aware_input_position` and render the terminal c
 ## Task 4E: Route Manifest Task Runs Through Workbench
 
 **Files:**
+
 - Test: `crates/crewclaw-cli/src/main.rs`
 - Test: `packages/runtime/__tests__/tui-task-jsonl.test.mjs`
 - Create: `packages/runtime/tui/task-jsonl.mjs`
@@ -342,7 +351,7 @@ Create `packages/runtime/tui/task-jsonl.mjs` and wire `runTaskMode` so `CREW_TUI
 Run:
 
 ```bash
-pnpm exec vitest run packages/runtime/__tests__/tui-task-jsonl.test.mjs
+node packages/runtime/__tests__/tui-task-jsonl.test.mjs
 ```
 
 Expected: test passes once the local pnpm dependency environment is available.
@@ -350,6 +359,7 @@ Expected: test passes once the local pnpm dependency environment is available.
 ## Task 4F: Add Focused Input History
 
 **Files:**
+
 - Test: `crates/crewclaw-cli/src/workbench/mod.rs`
 - Modify: `crates/crewclaw-cli/src/workbench/mod.rs`
 - Modify: `docs/superpowers/specs/2026-06-30-tui-workbench-v1-design.md`
@@ -381,6 +391,7 @@ Expected: both input history tests pass.
 ## Task 4G: Add Multiline Focused Input
 
 **Files:**
+
 - Test: `crates/crewclaw-cli/src/workbench/mod.rs`
 - Test: `crates/crewclaw-cli/src/workbench/ui.rs`
 - Modify: `crates/crewclaw-cli/src/workbench/mod.rs`
@@ -414,6 +425,7 @@ Expected: both multiline tests pass.
 ## Task 4H: Capture Runtime stderr Into Inspect
 
 **Files:**
+
 - Test: `crates/crewclaw-cli/src/workbench/mod.rs`
 - Modify: `crates/crewclaw-cli/src/workbench/mod.rs`
 - Modify: `docs/superpowers/specs/2026-06-30-tui-workbench-v1-design.md`
@@ -443,6 +455,7 @@ Expected: stderr debug reader test passes.
 ## Task 5: Full Verification
 
 **Files:**
+
 - Verify only; no production edits expected.
 
 - [ ] **Step 1: Run Rust tests**

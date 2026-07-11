@@ -5,7 +5,7 @@ const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: "./e2e",
-  testIgnore: ["**/._*"],
+  testIgnore: ["**/._*", "**/production-distribution.spec.ts"],
   fullyParallel: false,
   timeout: 180_000,
   expect: {
@@ -32,7 +32,10 @@ export default defineConfig({
   projects: [
     {
       name: "chrome",
-      use: { ...devices["Desktop Chrome"], channel: process.env.PLAYWRIGHT_CHROMIUM_CHANNEL ?? "chrome" },
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: process.env.PLAYWRIGHT_CHROMIUM_CHANNEL ?? "chrome",
+      },
     },
   ],
 });

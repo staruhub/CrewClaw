@@ -1232,6 +1232,7 @@ const USER_GUTTER: &str = "▏";
 /// - 用户：`▏ 文本`，续行 `▏ …` 保持左轨；块前空一行
 /// - 助手：直接排版（含 M2 ANSI 定妆），无「员工」头；块前空一行
 /// - 工具行 / quick.utility 徽标：沿用既有渲染，按宽折行
+///
 /// 测试专用简化签名（生产代码直接调 `layout_lines_impl`；这层薄封装只服务 `mod tests` 的
 /// 简单调用点，不进 release 二进制——避免 `cargo build` 误报死代码）。
 #[cfg(test)]
@@ -1361,10 +1362,10 @@ fn layout_lines_impl(
                         lines.push(timeline_line(entry));
                     }
                     // v0.11 M3：任务头终态带 TaskMeta 且本任务用过工具 → 分隔线 + TRAE 式活动计数条。
-                    if let Some(meta) = entry.task_meta.as_ref() {
-                        if meta.counts.total() > 0 {
-                            lines.extend(task_meta_lines(meta, width));
-                        }
+                    if let Some(meta) = entry.task_meta.as_ref()
+                        && meta.counts.total() > 0
+                    {
+                        lines.extend(task_meta_lines(meta, width));
                     }
                 }
             }
@@ -1412,10 +1413,10 @@ fn task_meta_lines(meta: &super::state::TaskMeta, width: usize) -> Vec<Line<'sta
 /// 作为消息流首内容，随对话上滚。
 fn banner_lines(state: &AppState, width: usize) -> Vec<Line<'static>> {
     // v0.11 M2：员工在 + 宽度够 → 像素员工卡（accent 描边 + 像素头像 + 名/角色/模型/工号）。
-    if let Some(emp) = state.employee.as_ref() {
-        if width >= EMP_CARD_INNER + 4 {
-            return employee_card_lines(emp, width);
-        }
+    if let Some(emp) = state.employee.as_ref()
+        && width >= EMP_CARD_INNER + 4
+    {
+        return employee_card_lines(emp, width);
     }
     // 无员工或窄屏：通用 block banner（<44 退化为一行标题）。
     let mut out: Vec<Line<'static>> = Vec::new();
@@ -2866,15 +2867,12 @@ mod tests {
         );
     }
 
-    /// v0.16 W6.1：EVAL 屏 KPI 瓦片改真实 bg1 边框网格(2 行×3 列)+ trend 行;
-    /// MOCK 徽标 + REPUTATION 侧栏保留。
+    /// EVAL 无持久化记录时必须显示空态，不能回落示例分数/信誉。
     #[test]
-    fn eval_renders_kpi_tiles_and_mock_badge() {
+    fn eval_renders_honest_empty_state_without_static_scores() {
         // 断言依赖全局 DARK 主题色——上共享锁,避免和别的改主题测试(如 settings 的 l 循环)互踩。
         let _guard = THEME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         config::set_theme(config::Theme::DARK);
-        // v0.17 P2 C1：6 格 KPI 瓦片改真值（employee_state() 的员工 kpi_cumulative 是honest零——
-        // 从未跑过任务，瓦片必须显示"—"而不是伪造的非零数字）；月度条形/上岗考试仍是 MOCK。
         let state = employee_state();
         let mut ui = UiState::default();
         ui.screen = Screen::Eval;
@@ -2883,17 +2881,17 @@ mod tests {
         let out = screen(&t);
         let compact = out.replace(' ', "");
         assert!(
-            compact.contains("示例数据"),
-            "MOCK badge still marks the monthly/exam section"
+            compact.contains("暂无真实月度任务记录"),
+            "no persisted TaskRun data has an explicit empty state"
+        );
+        assert!(compact.contains("累计KPI"), "kpi tiles remain present");
+        assert!(
+            compact.contains("认证与任务状态"),
+            "real-state sidebar present"
         );
         assert!(
-            compact.contains("累计KPI"),
-            "kpi tiles carry their own 真实 label, not the MOCK one"
-        );
-        assert!(out.contains("REPUTATION"), "reputation sidebar present");
-        assert!(
-            compact.contains("MOCK"),
-            "reputation sidebar marks itself MOCK too (no real reputation source)"
+            !compact.contains("示例数据") && !compact.contains("雇主评分"),
+            "no static eval/reputation demo survives"
         );
         assert!(
             buffer_has_bg(&t, config::Theme::DARK.bg1),
@@ -2943,7 +2941,7 @@ mod tests {
         );
     }
 
-    /// v0.18 B2：EVAL 上岗考试 section 三态——真实评测分/MOCK 跑标注/从未评测占位。
+    /// EVAL 上岗考试核心三态——session 认证分/mock:true 非认证标注/从未评测空态。
     #[test]
     fn eval_exams_render_three_states_real_mock_and_absent() {
         use super::super::protocol::TaskEvent;
@@ -2998,6 +2996,79 @@ mod tests {
         );
     }
 
+    #[test]
+    fn forged_disk_mock_false_is_pending_until_validated_session_ready_wins() {
+        use super::super::protocol::TaskEvent;
+
+        let root = std::env::temp_dir().join(format!(
+            "crewclaw-eval-trust-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).expect("root");
+        let forged = serde_json::json!({
+            "agent_id":"whale","score":100,"verdict":"PASS","pass_threshold":0.8,
+            "model":"attacker/dummy","worker_model":"attacker/worker","judge_model":"attacker/judge",
+            "graded_by":"model","mock":false,"evaluated_at":1_700_000_000_000_u64,
+            "spec_hash":"a".repeat(64),"subject_hash":"b".repeat(64),
+            "execution_context_hash":"c".repeat(64),
+            "per_test":[{"id":"dummy","score":100,"passed":true}]
+        });
+        crate::state_store::write_atomic(
+            &root,
+            "eval/whale.json",
+            &serde_json::to_vec(&forged).expect("json"),
+        )
+        .expect("forged disk record");
+
+        let mut ui = UiState::default();
+        ui.screen = Screen::Eval;
+        ui.persisted_state_active = true;
+        ui.persisted_insights = super::super::insights::load(&root, "whale");
+        assert!(
+            !ui.persisted_insights
+                .eval
+                .as_ref()
+                .expect("stored report")
+                .certified
+        );
+        let mut state = AppState::default();
+        let mut disk_terminal = Terminal::new(TestBackend::new(140, 40)).expect("term");
+        disk_terminal
+            .draw(|frame| render(frame, &state, &ui, ""))
+            .expect("draw disk record");
+        let disk = screen(&disk_terminal).replace(' ', "");
+        assert!(disk.contains("存储记录待验证") && disk.contains("不可认证"));
+        assert!(
+            !disk.contains("已认证"),
+            "dummy 64-hex fields must not promote a disk record"
+        );
+
+        state.reduce(&TaskEvent::from_parts(
+            "session.ready",
+            1,
+            serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m","eval":{
+                "score":91,"verdict":"PASS","model":"trusted/session-model","mock":false,
+                "evaluated_at":1_700_000_000_100_u64,
+                "exams":[{"id":"bound-subject","score":91,"passed":true}]
+            }}}),
+        ));
+        let mut event_terminal = Terminal::new(TestBackend::new(140, 40)).expect("term");
+        event_terminal
+            .draw(|frame| render(frame, &state, &ui, ""))
+            .expect("draw trusted event");
+        let event = screen(&event_terminal).replace(' ', "");
+        assert!(event.contains("已认证") && event.contains("trusted/session-model"));
+        assert!(
+            !event.contains("attacker/dummy"),
+            "persisted refresh data must not override session.ready"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     /// v0.16 W6.1：EVAL 的 KPI 网格 Layout 在窄终端下不panic(退化单栏路径已有,这里补宽栏路径)。
     #[test]
     fn eval_survives_narrow_terminal_without_panic() {
@@ -3009,8 +3080,7 @@ mod tests {
             .expect("draw must not panic at width=30");
     }
 
-    /// v0.16 W6.2：DREAM 宽屏加 MEMORY 记忆浏览器(MOCK)——tabs/列表/DETAIL 全渲染;
-    /// PLAYBOOK DIFF 行改 bg1 底 + 行号。
+    /// DREAM 宽屏 MEMORY/DIFF 只渲染注入的持久化状态。
     #[test]
     fn dream_renders_memory_browser_and_diff_with_bg1() {
         let _guard = THEME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -3018,15 +3088,22 @@ mod tests {
         let state = employee_state();
         let mut ui = UiState::default();
         ui.screen = Screen::Dream;
+        ui.persisted_state_active = true;
+        ui.persisted_insights.dream.worked = vec!["调研模型（已验收）".to_string()];
+        ui.persisted_insights.dream.playbook_add = vec!["+ 先核验官方来源".to_string()];
+        ui.persisted_insights.dream.memories = vec![super::super::state::PersistedMemory {
+            kind: "K".to_string(),
+            category: "project_facts".to_string(),
+            text: "客户要求双格式交付".to_string(),
+            confidence: "high".to_string(),
+            saved_at: Some("2026-07-10T00:00:00Z".to_string()),
+        }];
         let mut t = Terminal::new(TestBackend::new(160, 44)).expect("term");
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out = screen(&t);
         let compact = out.replace(' ', "");
-        assert!(compact.contains("记忆浏览器"), "memory browser panel title");
-        assert!(
-            compact.contains("MOCK"),
-            "memory panel honestly tagged MOCK"
-        );
+        assert!(compact.contains("持久记忆"), "memory browser panel title");
+        assert!(!compact.contains("MOCK"), "no static memory demo label");
         assert!(out.contains("DETAIL"), "detail pane label");
         assert!(
             compact.contains("PLAYBOOKDIFF"),
@@ -3036,10 +3113,9 @@ mod tests {
             buffer_has_bg(&t, config::Theme::DARK.bg1),
             "diff rows use bg1 fill"
         );
-        // 首个记忆条目(全部 tab 下)应可见。
         assert!(
-            compact.contains("华东区营收口径"),
-            "first memory item title shown"
+            compact.contains("客户要求双格式交付"),
+            "real persisted memory item shown"
         );
     }
 
@@ -3099,12 +3175,17 @@ mod tests {
         state.reduce(&ev(
             "artifact.created",
             1_783_400_200_000,
-            serde_json::json!({"id":"a1","name":"report.md","kind":"markdown","path":"/x/report.md","status":"draft","bytes":12_700}),
+            serde_json::json!({"id":"a1","taskRunId":"t1","name":"report.md","kind":"markdown","path":"/x/report.md","status":"draft","bytes":12_700}),
         ));
         state.reduce(&ev(
             "token.delta",
             1_783_400_210_000,
             serde_json::json!({"text":"报告已生成，等待验收。"}),
+        ));
+        state.reduce(&ev(
+            "outcome.checked",
+            1_783_400_215_000,
+            serde_json::json!({"taskRunId":"t1","valid":true,"deliverable":"/x/report.md"}),
         ));
         state.reduce(&ev(
             "task.completed",
@@ -3236,10 +3317,12 @@ mod tests {
         let mut state = AppState::default();
         state.artifacts.push(Artifact {
             id: Some("a1".to_string()),
+            task_id: None,
             name: Some("report.md".to_string()),
             kind: Some("report".to_string()),
             artifact_type: None,
             path: Some(path.to_string_lossy().to_string()),
+            export_path: None,
             status: "draft".to_string(),
             summary: None,
             checks: Vec::new(),
@@ -3279,10 +3362,12 @@ mod tests {
         let mut state = AppState::default();
         state.artifacts.push(Artifact {
             id: Some("a1".to_string()),
+            task_id: None,
             name: Some("first.md".to_string()),
             kind: Some("report".to_string()),
             artifact_type: None,
             path: Some(path.to_string_lossy().to_string()),
+            export_path: None,
             status: "draft".to_string(),
             summary: None,
             checks: Vec::new(),
@@ -3291,10 +3376,12 @@ mod tests {
         });
         state.artifacts.push(Artifact {
             id: Some("a2".to_string()),
+            task_id: None,
             name: Some("second.md".to_string()),
             kind: Some("report".to_string()),
             artifact_type: None,
             path: None,
+            export_path: None,
             status: "draft".to_string(),
             summary: None,
             checks: Vec::new(),
@@ -3498,10 +3585,12 @@ mod tests {
         let mut state = scripted_workbench_state();
         state.artifacts.push(Artifact {
             id: Some("a1".to_string()),
+            task_id: None,
             name: Some("report.md".to_string()),
             kind: Some("report".to_string()),
             artifact_type: None,
             path: Some("nonexistent.md".to_string()),
+            export_path: None,
             status: "draft".to_string(),
             summary: None,
             checks: Vec::new(),
@@ -3851,7 +3940,7 @@ mod tests {
         assert!(out.contains("EVIDENCE"), "evidence box");
         assert!(compact.contains("j/k切换事件"), "detail hint row");
         assert!(
-            out.contains("2:4"),
+            out.contains("2:5"),
             "modeline n:N from real cursor/timeline"
         );
         assert!(compact.contains("╌╌╌"), "dashed separators in EMPLOYEE");
@@ -3948,13 +4037,47 @@ mod tests {
     }
 
     #[test]
-    fn eval_and_dream_screens_are_labeled_mock() {
-        // 两屏仍有无真实数据源的部分（EVAL 的月度条形/考试/信誉；DREAM 的复盘）必须明示 MOCK
-        // （v0.17 P2 C1 后 EVAL 的 KPI 瓦片已真值化，但月度/考试/信誉仍是演示数据）。
-        assert!(render_screen_to_string(Screen::Eval, InputMode::Normal).contains("MOCK"));
-        assert!(render_screen_to_string(Screen::Dream, InputMode::Normal).contains("MOCK"));
-        // EVAL 有 KPI 网格，DREAM 有复盘小节。
-        assert!(render_screen_to_string(Screen::Eval, InputMode::Normal).contains("KPI"));
+    fn eval_and_dream_screens_use_honest_empty_states() {
+        let eval = render_screen_to_string(Screen::Eval, InputMode::Normal);
+        let dream = render_screen_to_string(Screen::Dream, InputMode::Normal);
+        let eval_compact = eval.replace(' ', "");
+        let dream_compact = dream.replace(' ', "");
+        assert!(eval_compact.contains("未评测"));
+        assert!(dream_compact.contains("未复盘"));
+        assert!(!eval_compact.contains("示例数据"));
+        assert!(!dream_compact.contains("MOCK"));
+        assert!(eval_compact.contains("KPI"));
+    }
+
+    #[test]
+    fn eval_and_dream_render_unsafe_persisted_state_as_unverifiable() {
+        let state = employee_state();
+        let mut ui = UiState::default();
+        ui.persisted_state_active = true;
+        ui.persisted_insights.errors = vec![
+            "eval: unsafe link".to_string(),
+            "kpi: corrupt".to_string(),
+            "runs: unsafe link".to_string(),
+            "memory: corrupt".to_string(),
+        ];
+
+        ui.screen = Screen::Eval;
+        let mut eval_terminal = Terminal::new(TestBackend::new(140, 40)).expect("term");
+        eval_terminal
+            .draw(|frame| render(frame, &state, &ui, ""))
+            .expect("draw eval");
+        let eval = screen(&eval_terminal).replace(' ', "");
+        assert!(eval.contains("评测状态不可验证"));
+        assert!(eval.contains("KPI状态不可验证"));
+
+        ui.screen = Screen::Dream;
+        let mut dream_terminal = Terminal::new(TestBackend::new(160, 40)).expect("term");
+        dream_terminal
+            .draw(|frame| render(frame, &state, &ui, ""))
+            .expect("draw dream");
+        let dream = screen(&dream_terminal).replace(' ', "");
+        assert!(dream.contains("复盘状态不可验证"));
+        assert!(dream.contains("记忆状态不可验证"));
     }
 
     #[test]
@@ -3978,7 +4101,7 @@ mod tests {
             "approval modal buttons shown"
         );
         assert!(
-            !out.contains("MOCK"),
+            !out.contains("未复盘"),
             "DREAM body suppressed during approval"
         );
     }
@@ -4254,10 +4377,12 @@ mod tests {
         state.artifacts = vec![
             super::super::state::Artifact {
                 id: Some("a1".to_string()),
+                task_id: None,
                 name: Some("ready.md".to_string()),
                 kind: Some("report".to_string()),
                 artifact_type: None,
                 path: None,
+                export_path: None,
                 status: "ready".to_string(),
                 summary: None,
                 checks: Vec::new(),
@@ -4266,10 +4391,12 @@ mod tests {
             },
             super::super::state::Artifact {
                 id: Some("a2".to_string()),
+                task_id: None,
                 name: Some("review.md".to_string()),
                 kind: Some("report".to_string()),
                 artifact_type: None,
                 path: None,
+                export_path: None,
                 status: "needs_review".to_string(),
                 summary: None,
                 checks: Vec::new(),
@@ -4278,10 +4405,12 @@ mod tests {
             },
             super::super::state::Artifact {
                 id: Some("a3".to_string()),
+                task_id: None,
                 name: Some("exported.md".to_string()),
                 kind: Some("report".to_string()),
                 artifact_type: None,
                 path: None,
+                export_path: None,
                 status: "exported".to_string(),
                 summary: None,
                 checks: Vec::new(),
@@ -4290,10 +4419,12 @@ mod tests {
             },
             super::super::state::Artifact {
                 id: Some("a4".to_string()),
+                task_id: None,
                 name: Some("rejected.md".to_string()),
                 kind: Some("report".to_string()),
                 artifact_type: None,
                 path: None,
+                export_path: None,
                 status: "rejected".to_string(),
                 summary: None,
                 checks: Vec::new(),
@@ -4393,10 +4524,12 @@ mod tests {
         });
         state.artifacts = vec![super::super::state::Artifact {
             id: Some("a1".to_string()),
+            task_id: None,
             name: Some("deliverable.md".to_string()),
             kind: Some("markdown".to_string()),
             artifact_type: None,
             path: Some(path.to_string_lossy().into_owned()),
+            export_path: None,
             status: "ready".to_string(),
             summary: Some("fallback summary".to_string()),
             checks: Vec::new(),
@@ -4668,10 +4801,12 @@ mod tests {
         let mut state = AppState::default();
         state.artifacts.push(super::super::state::Artifact {
             id: Some("a1".to_string()),
+            task_id: None,
             name: Some("DRAWER_ONLY.md".to_string()),
             kind: Some("markdown".to_string()),
             artifact_type: None,
             path: None,
+            export_path: None,
             status: "ready".to_string(),
             summary: None,
             checks: Vec::new(),

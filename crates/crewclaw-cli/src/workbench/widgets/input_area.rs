@@ -22,6 +22,10 @@ pub(crate) fn height_for_input(input: &str, terminal_height: u16) -> u16 {
     desired.clamp(3, max_height)
 }
 
+// The renderer needs the frame/area plus six independent pieces of input state. Grouping those
+// values into a temporary struct would only move this stable widget boundary without simplifying
+// its callers.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render(
     frame: &mut Frame<'_>,
     area: Rect,

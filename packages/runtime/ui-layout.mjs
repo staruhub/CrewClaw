@@ -43,7 +43,9 @@ function hardBreak(word, width) {
 // Word-wrap PLAIN text to a display width. Returns string[] (>=1 line).
 export function wrapText(text, width) {
   const w = Math.max(1, Math.floor(width) || 1);
-  const words = String(text).split(/\s+/).filter((x) => x.length > 0);
+  const words = String(text)
+    .split(/\s+/)
+    .filter(x => x.length > 0);
   if (!words.length) return [""];
   const lines = [];
   let line = "";
@@ -100,6 +102,6 @@ export function gutterBlock(text) {
 export function reindent(block, prefix = GUTTER) {
   return String(block)
     .split("\n")
-    .map((l) => prefix + l)
+    .map(l => prefix + l)
     .join("\n");
 }

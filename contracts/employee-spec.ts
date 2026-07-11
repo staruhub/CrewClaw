@@ -13,8 +13,18 @@ const StringArraySchema = z.array(NonEmptyStringSchema);
 // How much an employee needs a tool, and what it is allowed to do with it. These enums are the
 // contract the engine will enforce (Phase 3 tool_needs wiring); keep them closed so a typo in a
 // spec fails validation instead of silently granting nothing.
-const ToolNecessitySchema = z.enum(["required", "conditional", "non_default", "disabled"]);
-const ToolPermissionSchema = z.enum(["readonly", "write", "requires_authorization", "disabled"]);
+const ToolNecessitySchema = z.enum([
+  "required",
+  "conditional",
+  "non_default",
+  "disabled",
+]);
+const ToolPermissionSchema = z.enum([
+  "readonly",
+  "write",
+  "requires_authorization",
+  "disabled",
+]);
 
 const ToolNeedSchema = z
   .object({
@@ -79,7 +89,7 @@ export const EmployeeSpecSchema = z
             type: NonEmptyStringSchema,
             name: NonEmptyStringSchema,
           })
-          .strict(),
+          .strict()
       )
       .min(1),
     tool_needs: z.record(NonEmptyStringSchema, ToolNeedSchema),
@@ -124,7 +134,7 @@ export const EmployeeSpecSchema = z
           level: NonEmptyStringSchema,
           strategy: NonEmptyStringSchema,
         })
-        .strict(),
+        .strict()
     ),
     // Ecosystem extension blocks — meaningful today but not load-bearing for validation or the
     // eval runner; passthrough keeps author freedom while the standard stabilizes.

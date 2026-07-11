@@ -16,95 +16,171 @@ import { costFor } from "../ui-topbar.mjs";
 
 const html = htm.bind(React.createElement);
 const isTTY = !!process.stdin.isTTY;
-const TOOLS = getToolTruth();    // fine-grained per-capability truth (§9), computed once
-const MEMORY = getMemoryTruth();  // Memory Truth (§9.8)
+const TOOLS = getToolTruth(); // fine-grained per-capability truth (§9), computed once
+const MEMORY = getMemoryTruth(); // Memory Truth (§9.8)
 
 // AppState status → StatusHeader label key
-const STATUS_MAP = { idle: "idle", running: "streaming", awaiting_approval: "tool", done: "idle", rejected: "error", error: "error" };
+const STATUS_MAP = {
+  idle: "idle",
+  running: "streaming",
+  awaiting_approval: "tool",
+  done: "idle",
+  rejected: "error",
+  error: "error",
+};
 
 // Coalesce the store's bursty emits to ~30fps so React doesn't reconcile per token.
 function useStore(store) {
-  const subscribe = React.useCallback((cb) => {
-    let t = null;
-    const onChange = () => { if (t) return; t = setTimeout(() => { t = null; cb(); }, 33); };
-    const off = store.subscribe(onChange);
-    return () => { if (t) clearTimeout(t); off(); };
-  }, [store]);
+  const subscribe = React.useCallback(
+    cb => {
+      let t = null;
+      const onChange = () => {
+        if (t) return;
+        t = setTimeout(() => {
+          t = null;
+          cb();
+        }, 33);
+      };
+      const off = store.subscribe(onChange);
+      return () => {
+        if (t) clearTimeout(t);
+        off();
+      };
+    },
+    [store]
+  );
   return React.useSyncExternalStore(subscribe, () => store.get());
 }
 
-export function ChatApp({ store, runTurn, runQuickUtility, agentName, renderLines, submitRef, meta = {} }) {
+export function ChatApp({
+  store,
+  runTurn,
+  runQuickUtility,
+  agentName,
+  renderLines,
+  submitRef,
+  meta = {},
+}) {
   const state = useStore(store);
   const { exit } = useApp();
   const [input, setInput] = React.useState("");
   const busy = !!state.live;
 
-  const submit = React.useCallback(async (text) => {
-    if (!text || !text.trim()) return;
-    store.pushUser(text);
-    const run = store.startTurn({ title: text, mode: meta.mode });
-    try {
-      // §6 Intent/Scope Router decides what to do: upgrade to TaskRun / quick utility /
-      // memory / matched PendingAction / decline — then runs the model turn if appropriate.
-      await routeTurn(text, {
-        emit: (type, data) => run.emit(type, data),
-        runModelTurn: (msg) => runTurn(msg, run.sink),
-        runQuickUtility: runQuickUtility ? (msg) => runQuickUtility(msg, run.sink) : undefined, // §10.2 light path
-        pendingActions: store.get().sessionPendingActions, // last task's actions — "1" matches accept (§6.4)
-        employeeScope: meta.employeeScope,
-        env: process.env,
-        role: meta.role,
-        taskRunId: `chat-${Date.now()}`,
-        root: process.env.CREWCLAW_ROOT || process.cwd(),
-      });
-      store.commitTurn();
-    } catch (e) {
-      store.failTurn(String((e && e.message) || e));
-    }
-  }, [store, runTurn, meta]);
+  const submit = React.useCallback(
+    async text => {
+      if (!text || !text.trim()) return;
+      store.pushUser(text);
+      const run = store.startTurn({ title: text, mode: meta.mode });
+      try {
+        // §6 Intent/Scope Router decides what to do: upgrade to TaskRun / quick utility /
+        // memory / matched PendingAction / decline — then runs the model turn if appropriate.
+        await routeTurn(text, {
+          emit: (type, data) => run.emit(type, data),
+          runModelTurn: msg => runTurn(msg, run.sink),
+          runQuickUtility: runQuickUtility
+            ? msg => runQuickUtility(msg, run.sink)
+            : undefined, // §10.2 light path
+          pendingActions: store.get().sessionPendingActions, // last task's actions — "1" matches accept (§6.4)
+          employeeScope: meta.employeeScope,
+          env: process.env,
+          role: meta.role,
+          taskRunId: `chat-${Date.now()}`,
+          root: process.env.CREWCLAW_ROOT || process.cwd(),
+        });
+        store.commitTurn();
+      } catch (e) {
+        store.failTurn(String((e && e.message) || e));
+      }
+    },
+    [store, runTurn, meta]
+  );
 
-  React.useEffect(() => { if (submitRef) submitRef.current = submit; }, [submit, submitRef]);
+  React.useEffect(() => {
+    if (submitRef) submitRef.current = submit;
+  }, [submit, submitRef]);
 
-  useInput((ch, key) => {
-    if (key.ctrl && ch === "c") { exit(); return; }
-    // L2 approval modal: while the agent awaits a decision, a/d (or y/n) decide; swallow the
-    // rest so the human gate can't be typed past (§14.3 — replaces the old auto-yes).
-    if (state.live && state.live.approval) {
-      if (ch === "a" || ch === "y") store.resolveApproval("allow");
-      else if (ch === "d" || ch === "n") store.resolveApproval("deny");
-      return;
-    }
-    if (busy) return; // ignore typing mid-turn
-    if (key.return) { const t = input; setInput(""); submit(t); return; }
-    if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
-    if (ch && !key.ctrl && !key.meta) setInput((s) => s + ch);
-  }, { isActive: isTTY });
+  useInput(
+    (ch, key) => {
+      if (key.ctrl && ch === "c") {
+        exit();
+        return;
+      }
+      // L2 approval modal: while the agent awaits a decision, a/d (or y/n) decide; swallow the
+      // rest so the human gate can't be typed past (§14.3 — replaces the old auto-yes).
+      if (state.live && state.live.approval) {
+        if (ch === "a" || ch === "y") store.resolveApproval("allow");
+        else if (ch === "d" || ch === "n") store.resolveApproval("deny");
+        return;
+      }
+      if (busy) return; // ignore typing mid-turn
+      if (key.return) {
+        const t = input;
+        setInput("");
+        submit(t);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setInput(s => s.slice(0, -1));
+        return;
+      }
+      if (ch && !key.ctrl && !key.meta) setInput(s => s + ch);
+    },
+    { isActive: isTTY }
+  );
 
-  const liveUsage = (state.live && state.live.usage) || { promptTok: 0, completionTok: 0 };
+  const liveUsage = (state.live && state.live.usage) || {
+    promptTok: 0,
+    completionTok: 0,
+  };
   const promptTok = state.sessionUsage.promptTok + (liveUsage.promptTok || 0);
-  const completionTok = state.sessionUsage.completionTok + (liveUsage.completionTok || 0);
+  const completionTok =
+    state.sessionUsage.completionTok + (liveUsage.completionTok || 0);
   const tokens = promptTok + completionTok;
   // Context Budget (§10): session tokens vs soft(50k)/hard(90k) → header shows used/hard + warns
-  const budgetState = addUsage(newBudget(), { promptTokens: promptTok, completionTokens: completionTok });
-  const budget = { used: tokens, soft: budgetState.soft, hard: budgetState.hard, status: budgetStatus(budgetState).status };
-  const rawCost = meta.model ? costFor(meta.model, promptTok, completionTok) : 0;
-  const costText = typeof rawCost === "string" ? rawCost : "$" + (Number(rawCost) || 0).toFixed(2);
-  const headerStatus = STATUS_MAP[state.live ? state.live.status : "idle"] || "idle";
+  const budgetState = addUsage(newBudget(), {
+    promptTokens: promptTok,
+    completionTokens: completionTok,
+  });
+  const budget = {
+    used: tokens,
+    soft: budgetState.soft,
+    hard: budgetState.hard,
+    status: budgetStatus(budgetState).status,
+  };
+  const rawCost = meta.model
+    ? costFor(meta.model, promptTok, completionTok)
+    : 0;
+  const costText =
+    typeof rawCost === "string"
+      ? rawCost
+      : "$" + (Number(rawCost) || 0).toFixed(2);
+  const headerStatus =
+    STATUS_MAP[state.live ? state.live.status : "idle"] || "idle";
 
   return html`
     <${Box} flexDirection="column">
       <${Static} items=${state.turns}>
-        ${(t, i) => t.role === "user"
-          ? html`<${UserMessage} key=${i} text=${t.text} />`
-          : html`<${TurnView} key=${i} state=${t.app} name=${agentName} renderLines=${renderLines} />`}
+        ${(t, i) =>
+          t.role === "user"
+            ? html`<${UserMessage} key=${i} text=${t.text} />`
+            : html`<${TurnView}
+                key=${i}
+                state=${t.app}
+                name=${agentName}
+                renderLines=${renderLines}
+              />`}
       </>
       ${state.live ? html`<${TurnView} state=${state.live} name=${agentName} renderLines=${renderLines} caret=${true} />` : null}
-      ${state.live && state.live.approval ? html`
+      ${
+        state.live && state.live.approval
+          ? html`
         <${Box} marginTop=${1} borderStyle="round" borderColor="yellow" paddingX=${1} flexDirection="column">
           <${Text} color="yellow" bold>⚠ 需要授权${state.live.approval.tool ? " · " + state.live.approval.tool : ""}</>
           <${Text}>${state.live.approval.reason || "敏感操作,请确认"}</>
           <${Text} dimColor>[a] 允许执行    [d] 拒绝</>
-        </>` : null}
+        </>`
+          : null
+      }
       <${Box} marginTop=${1} flexDirection="column">
         <${StatusHeader} name=${agentName} role=${meta.role} mode=${meta.mode || "Chat"} status=${headerStatus} tokens=${tokens} costText=${costText} toolTruth=${TOOLS} memory=${MEMORY} budget=${budget} />
         <${Box}>
@@ -119,13 +195,30 @@ export function ChatApp({ store, runTurn, runQuickUtility, agentName, renderLine
 
 // Mount the chat UI. Returns { store, submit, unmount, waitUntilExit }. `submit` lets a
 // non-TTY harness drive a turn without keyboard input (used by the demo/tests).
-export function mountChat({ runTurn, runQuickUtility, agentName = "鲸", renderLines = (t) => String(t).split("\n"), initialTurns = [], meta = {} }) {
+export function mountChat({
+  runTurn,
+  runQuickUtility,
+  agentName = "鲸",
+  renderLines = t => String(t).split("\n"),
+  initialTurns = [],
+  meta = {},
+}) {
   const store = createWorkbenchStore(meta, initialTurns);
   const submitRef = { current: null };
-  const app = render(html`<${ChatApp} store=${store} runTurn=${runTurn} runQuickUtility=${runQuickUtility} agentName=${agentName} renderLines=${renderLines} submitRef=${submitRef} meta=${meta} />`);
+  const app = render(
+    html`<${ChatApp}
+      store=${store}
+      runTurn=${runTurn}
+      runQuickUtility=${runQuickUtility}
+      agentName=${agentName}
+      renderLines=${renderLines}
+      submitRef=${submitRef}
+      meta=${meta}
+    />`
+  );
   return {
     store,
-    submit: (t) => submitRef.current && submitRef.current(t),
+    submit: t => submitRef.current && submitRef.current(t),
     unmount: app.unmount,
     waitUntilExit: app.waitUntilExit,
   };

@@ -1,5 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import {
+  readStateFileGuarded,
+  resolveStatePath,
+  withStateLock,
+  writeJsonAtomic,
+} from "./state-lock.mjs";
 
 function runsDir(root) {
   return join(root, ".crewclaw", "runs");
@@ -10,7 +16,10 @@ function sanitizeId(id) {
 }
 
 function evidenceFile(root, taskRunId) {
-  return join(runsDir(root), `${sanitizeId(taskRunId)}.evidence.json`);
+  return resolveStatePath(
+    join(runsDir(root), `${sanitizeId(taskRunId)}.evidence.json`),
+    root
+  );
 }
 
 export function verifySourceType(url) {
@@ -21,7 +30,8 @@ export function verifySourceType(url) {
     return "unknown";
   }
 
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "unknown";
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+    return "unknown";
 
   const host = parsed.hostname.toLowerCase();
   const path = parsed.pathname.toLowerCase();
@@ -36,7 +46,11 @@ export function verifySourceType(url) {
     return "search";
   }
 
-  if (host.includes("docs.") || /^\/docs(?:\/|$)/.test(path) || /^\/documentation(?:\/|$)/.test(path)) {
+  if (
+    host.includes("docs.") ||
+    /^\/docs(?:\/|$)/.test(path) ||
+    /^\/documentation(?:\/|$)/.test(path)
+  ) {
     return "docs";
   }
 
@@ -66,7 +80,13 @@ export function verifySourceType(url) {
   return "official";
 }
 
-export function newEvidenceCard({ field, value, sourceUrl, confidence, snippet } = {}) {
+export function newEvidenceCard({
+  field,
+  value,
+  sourceUrl,
+  confidence,
+  snippet,
+} = {}) {
   return {
     field,
     value,
@@ -80,16 +100,29 @@ export function newEvidenceCard({ field, value, sourceUrl, confidence, snippet }
 
 export function addEvidence(root, taskRunId, card) {
   try {
-    mkdirSync(runsDir(root), { recursive: true });
     const f = evidenceFile(root, taskRunId);
-    const cards = existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : [];
-    const list = Array.isArray(cards) ? cards : [];
-    const duplicate = list.some((item) => item?.field === card?.field && item?.source_url === card?.source_url);
+    return withStateLock(
+      `${f}.lock`,
+      () => {
+        const cards = existsSync(f)
+          ? JSON.parse(readStateFileGuarded(f, { root }).toString("utf8"))
+          : [];
+        if (!Array.isArray(cards)) {
+          throw new Error("evidence state must be a JSON array");
+        }
+        const list = cards;
+        const duplicate = list.some(
+          item =>
+            item?.field === card?.field && item?.source_url === card?.source_url
+        );
 
-    if (!duplicate) list.push(card);
+        if (!duplicate) list.push(card);
 
-    writeFileSync(f, JSON.stringify(list, null, 2), "utf8");
-    return { ok: true, count: list.length };
+        writeJsonAtomic(f, list, { root });
+        return { ok: true, count: list.length };
+      },
+      { root }
+    );
   } catch (error) {
     return { ok: false, error: error?.message ?? String(error) };
   }
@@ -98,9 +131,20 @@ export function addEvidence(root, taskRunId, card) {
 export function loadEvidence(root, taskRunId) {
   try {
     const f = evidenceFile(root, taskRunId);
-    if (!existsSync(f)) return { ok: true, cards: [] };
-    const cards = JSON.parse(readFileSync(f, "utf8"));
-    return { ok: true, cards: Array.isArray(cards) ? cards : [] };
+    return withStateLock(
+      `${f}.lock`,
+      () => {
+        if (!existsSync(f)) return { ok: true, cards: [] };
+        const cards = JSON.parse(
+          readStateFileGuarded(f, { root }).toString("utf8")
+        );
+        if (!Array.isArray(cards)) {
+          throw new Error("evidence state must be a JSON array");
+        }
+        return { ok: true, cards };
+      },
+      { root }
+    );
   } catch (error) {
     return { ok: false, error: error?.message ?? String(error) };
   }

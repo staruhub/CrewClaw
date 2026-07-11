@@ -1,55 +1,52 @@
-// __tests__/run-all.mjs — runtime test runner.
-//
-// The runtime suite is authored as plain node scripts (import 'node:assert/strict',
-// assert + throw, print "…passed" on success) rather than vitest describe/it. The repo's
-// vitest.config.mjs only includes *.test.ts, so `pnpm test` silently SKIPPED all of these
-// (a green run that exercised nothing). This runner spawns each *.test.mjs in its own node
-// process, tallies pass/fail, and exits non-zero if any fail — so `pnpm test:runtime` is a
-// real gate. (PRD v0.6.1 M0.)
-//
-// CREW_MOCK=1 keeps any test that reaches the model deterministic and key-free.
+// Deterministic runtime gate. Every *.test.mjs and every *-smoke.mjs is included unless a test is
+// explicitly classified as machine-dependent in runtime-test-manifest.mjs. Portable deterministic
+// e2e scripts are listed there too, so changing a suffix cannot silently turn a test green.
 
 import { readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
+import {
+  DETERMINISTIC_E2E,
+  LIVE_TESTS,
+  validateRuntimeTestInventory,
+} from "./runtime-test-manifest.mjs";
+import { runRuntimeScripts } from "./runtime-test-runner.mjs";
 
-// Known pre-existing failure unrelated to the v0.6 runtime behavior: the minimal yaml.mjs
-// round-trips (dump→load) lose the deeply-nested permissions.tiers block, so this compile
-// assertion fails. Tracked separately; skipped here so the gate reflects live behavior.
-const SKIP = new Set(["hermes-adapter.test.mjs"]);
-
-const files = readdirSync(HERE)
-  .filter((f) => f.endsWith(".test.mjs"))
+const here = dirname(fileURLToPath(import.meta.url));
+const inventory = readdirSync(here)
+  .filter(file => file.endsWith(".mjs"))
+  .sort();
+const liveNames = new Set(LIVE_TESTS.map(test => test.file));
+const files = [
+  ...inventory.filter(
+    file =>
+      (file.endsWith(".test.mjs") || file.endsWith("-smoke.mjs")) &&
+      !liveNames.has(file)
+  ),
+  ...DETERMINISTIC_E2E,
+]
+  .filter((file, index, all) => all.indexOf(file) === index)
   .sort();
 
-let pass = 0;
-let fail = 0;
-const failed = [];
-const skipped = [];
+validateRuntimeTestInventory(inventory, files);
 
-for (const f of files) {
-  if (SKIP.has(f)) { skipped.push(f); continue; }
-  const res = spawnSync(process.execPath, [join(HERE, f)], {
-    env: { ...process.env, CREW_MOCK: "1" },
-    encoding: "utf8",
-    timeout: 120000,
-  });
-  if (res.status === 0) {
-    pass++;
-  } else {
-    fail++;
-    failed.push({ f, out: (res.stdout || "") + (res.stderr || "") });
-  }
-}
+console.log(
+  `Runtime deterministic gate: ${files.length} scripts; ${LIVE_TESTS.length} machine/live scripts are NOT executed here.`
+);
+console.log("Live prerequisites: pnpm run test:runtime:live:list");
 
-for (const { f, out } of failed) {
-  console.log(`\x1b[31m✗ ${f}\x1b[0m`);
-  const tail = out.trim().split("\n").slice(-6).join("\n");
-  console.log(tail.replace(/^/gm, "    "));
-}
-if (skipped.length) console.log(`\x1b[2mskipped: ${skipped.join(", ")}\x1b[0m`);
-console.log(`\nRuntime tests: ${pass} passed, ${fail} failed${skipped.length ? `, ${skipped.length} skipped` : ""} (of ${files.length}).`);
-process.exit(fail === 0 ? 0 : 1);
+const result = runRuntimeScripts(files, {
+  directory: here,
+  env: { ...process.env, CREW_MOCK: "1" },
+  envForFile(file, baseEnv) {
+    if (!DETERMINISTIC_E2E.includes(file)) return baseEnv;
+    // These scripts own their deterministic mock server or contain no model call. CREW_MOCK would
+    // replace their scenario response and make the test assert against unrelated canned output.
+    const isolated = { ...baseEnv };
+    delete isolated.CREW_MOCK;
+    return isolated;
+  },
+  label: "Runtime deterministic tests",
+});
+process.exit(result.ok ? 0 : 1);

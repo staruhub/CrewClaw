@@ -69,13 +69,13 @@
     @apply border-white/10;
   }
   .gradient-text {
-    background: linear-gradient(135deg, #C87941, #D4853A, #E8A87C);
+    background: linear-gradient(135deg, #c87941, #d4853a, #e8a87c);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
   .rainbow-bar {
-    background: linear-gradient(90deg, #C87941, #D4853A, #E8A87C, #8B6F4E);
+    background: linear-gradient(90deg, #c87941, #d4853a, #e8a87c, #8b6f4e);
   }
   .glass {
     background: rgba(10, 9, 8, 0.85);
@@ -83,6 +83,8 @@
     -webkit-backdrop-filter: blur(16px);
   }
   .glow-copper {
-    box-shadow: 0 0 40px rgba(200, 121, 65, 0.12), 0 0 80px rgba(200, 121, 65, 0.06);
+    box-shadow:
+      0 0 40px rgba(200, 121, 65, 0.12),
+      0 0 80px rgba(200, 121, 65, 0.06);
   }
 }

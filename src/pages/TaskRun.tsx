@@ -19,7 +19,10 @@ export default function TaskRun() {
       <main className="min-h-screen bg-crew-bg px-4 py-10 text-crew-heading sm:px-6">
         <section className="mx-auto max-w-3xl">
           <p className="text-crew-body">找不到这次任务运行（{id}）。</p>
-          <Link to="/team" className="mt-4 inline-block text-crew-copper hover:text-crew-bronze">
+          <Link
+            to="/team"
+            className="mt-4 inline-block text-crew-copper hover:text-crew-bronze"
+          >
             ← 返回团队
           </Link>
         </section>

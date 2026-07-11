@@ -94,10 +94,12 @@ function normalizeText(value: string) {
 }
 
 function normalizeList(values: string[]) {
-  return values.map((value) => value.trim()).filter(Boolean);
+  return values.map(value => value.trim()).filter(Boolean);
 }
 
-function normalizeManifest(manifest: SubmissionManifestFields): SubmissionManifestFields {
+function normalizeManifest(
+  manifest: SubmissionManifestFields
+): SubmissionManifestFields {
   return {
     id: normalizeText(manifest.id),
     name: normalizeText(manifest.name),
@@ -118,7 +120,7 @@ function normalizeManifest(manifest: SubmissionManifestFields): SubmissionManife
 }
 
 export function findHighRiskPermissions(permissions: string[]) {
-  return normalizeList(permissions).filter((permission) => {
+  return normalizeList(permissions).filter(permission => {
     const value = permission.toLowerCase();
 
     return (
@@ -157,7 +159,9 @@ export function validateSubmissionManifest(manifest: SubmissionManifestFields) {
   };
 }
 
-function toContractManifest(manifest: SubmissionManifestFields): EmployeeManifest {
+function toContractManifest(
+  manifest: SubmissionManifestFields
+): EmployeeManifest {
   const safe = normalizeManifest(manifest);
 
   return {
@@ -185,13 +189,23 @@ function toContractManifest(manifest: SubmissionManifestFields): EmployeeManifes
     requires: {
       hermes: ">=0.1.0",
       runtime: "local",
-      env: safe.install_requirements.length > 0 ? safe.install_requirements : ["none"],
+      env:
+        safe.install_requirements.length > 0
+          ? safe.install_requirements
+          : ["none"],
     },
     examples: {
-      inputs: safe.input_examples.length > 0 ? safe.input_examples : ["Draft input example"],
-      outputs: safe.output_examples.length > 0 ? safe.output_examples : ["Draft output example"],
+      inputs:
+        safe.input_examples.length > 0
+          ? safe.input_examples
+          : ["Draft input example"],
+      outputs:
+        safe.output_examples.length > 0
+          ? safe.output_examples
+          : ["Draft output example"],
     },
-    limitations: safe.limitations.length > 0 ? safe.limitations : ["Draft limitation"],
+    limitations:
+      safe.limitations.length > 0 ? safe.limitations : ["Draft limitation"],
     sla: {
       response_time: "best-effort",
       availability: "local-demo",
@@ -203,12 +217,15 @@ function toContractManifest(manifest: SubmissionManifestFields): EmployeeManifes
       trial_period: "7d",
     },
     safety_notes: findHighRiskPermissions(safe.permissions).map(
-      (permission) => `High-risk permission requires operator review: ${permission}`,
+      permission =>
+        `High-risk permission requires operator review: ${permission}`
     ),
   };
 }
 
-function createSubmission(manifest?: Partial<SubmissionManifestFields>): CreatorSubmission {
+function createSubmission(
+  manifest?: Partial<SubmissionManifestFields>
+): CreatorSubmission {
   const timestamp = nowIso();
   const nextManifest = normalizeManifest({
     ...EMPTY_MANIFEST_FIELDS,
@@ -259,7 +276,9 @@ function readStoredSubmissions(): CreatorSubmission[] {
 
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.map((item) => hydrateSubmission(item)) : [];
+    return Array.isArray(parsed)
+      ? parsed.map(item => hydrateSubmission(item))
+      : [];
   } catch {
     return [];
   }
@@ -267,12 +286,15 @@ function readStoredSubmissions(): CreatorSubmission[] {
 
 function writeStoredSubmissions(submissions: CreatorSubmission[]) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(SUBMISSIONS_STORAGE_KEY, JSON.stringify(submissions));
+  window.localStorage.setItem(
+    SUBMISSIONS_STORAGE_KEY,
+    JSON.stringify(submissions)
+  );
 }
 
 export function useSubmissions() {
   const [submissions, setSubmissions] = useState<CreatorSubmission[]>(() =>
-    readStoredSubmissions(),
+    readStoredSubmissions()
   );
 
   useEffect(() => {
@@ -282,24 +304,32 @@ export function useSubmissions() {
   const list = useCallback(() => submissions, [submissions]);
 
   const get = useCallback(
-    (id: string) => submissions.find((submission) => submission.submission_id === id),
-    [submissions],
+    (id: string) =>
+      submissions.find(submission => submission.submission_id === id),
+    [submissions]
   );
 
-  const createDraft = useCallback((manifest?: Partial<SubmissionManifestFields>) => {
-    const draft = createSubmission(manifest);
-    setSubmissions((current) => [draft, ...current]);
-    return draft;
-  }, []);
+  const createDraft = useCallback(
+    (manifest?: Partial<SubmissionManifestFields>) => {
+      const draft = createSubmission(manifest);
+      setSubmissions(current => [draft, ...current]);
+      return draft;
+    },
+    []
+  );
 
   const updateDraft = useCallback(
-    (id: string, patch: Partial<SubmissionManifestFields>): SubmissionActionResult => {
+    (
+      id: string,
+      patch: Partial<SubmissionManifestFields>
+    ): SubmissionActionResult => {
       let updatedSubmission: CreatorSubmission | undefined;
 
-      setSubmissions((current) =>
-        current.map((submission) => {
+      setSubmissions(current =>
+        current.map(submission => {
           if (submission.submission_id !== id) return submission;
-          if (submission.status !== "draft" && submission.status !== "rejected") return submission;
+          if (submission.status !== "draft" && submission.status !== "rejected")
+            return submission;
 
           const manifest = normalizeManifest({
             ...submission.manifest,
@@ -309,8 +339,11 @@ export function useSubmissions() {
             ...submission,
             manifest,
             contract_manifest: toContractManifest(manifest),
-            high_risk_permissions: findHighRiskPermissions(manifest.permissions),
-            status: submission.status === "rejected" ? "draft" : submission.status,
+            high_risk_permissions: findHighRiskPermissions(
+              manifest.permissions
+            ),
+            status:
+              submission.status === "rejected" ? "draft" : submission.status,
             verified: false,
             disabled: false,
             updated_at: nowIso(),
@@ -320,7 +353,7 @@ export function useSubmissions() {
           };
 
           return updatedSubmission;
-        }),
+        })
       );
 
       if (!updatedSubmission) {
@@ -336,79 +369,89 @@ export function useSubmissions() {
         submission: updatedSubmission,
       };
     },
-    [],
+    []
   );
 
   const submit = useCallback(
-    (id: string, patch?: Partial<SubmissionManifestFields>): SubmissionActionResult => {
-    let result: SubmissionActionResult = {
-      ok: false,
-      message: "Submission not found.",
-    };
+    (
+      id: string,
+      patch?: Partial<SubmissionManifestFields>
+    ): SubmissionActionResult => {
+      let result: SubmissionActionResult = {
+        ok: false,
+        message: "Submission not found.",
+      };
 
-    setSubmissions((current) =>
-      current.map((submission) => {
-        if (submission.submission_id !== id) return submission;
+      setSubmissions(current =>
+        current.map(submission => {
+          if (submission.submission_id !== id) return submission;
 
-        if (submission.status !== "draft" && submission.status !== "rejected") {
-          result = {
-            ok: false,
-            message: "Only draft or rejected employees can be submitted.",
-            submission,
+          if (
+            submission.status !== "draft" &&
+            submission.status !== "rejected"
+          ) {
+            result = {
+              ok: false,
+              message: "Only draft or rejected employees can be submitted.",
+              submission,
+            };
+            return submission;
+          }
+
+          const manifest = patch
+            ? normalizeManifest({
+                ...submission.manifest,
+                ...patch,
+              })
+            : submission.manifest;
+          const validation = validateSubmissionManifest(manifest);
+          if (!validation.ok) {
+            result = {
+              ok: false,
+              message: "Required manifest fields are missing.",
+              submission: {
+                ...submission,
+                manifest: validation.manifest,
+                contract_manifest: toContractManifest(validation.manifest),
+                high_risk_permissions: findHighRiskPermissions(
+                  validation.manifest.permissions
+                ),
+              },
+              missingFields: validation.missingFields,
+            };
+            return submission;
+          }
+
+          const timestamp = nowIso();
+          const submitted: CreatorSubmission = {
+            ...submission,
+            manifest: validation.manifest,
+            contract_manifest: toContractManifest(validation.manifest),
+            status: "submitted",
+            verified: false,
+            disabled: false,
+            high_risk_permissions: findHighRiskPermissions(
+              validation.manifest.permissions
+            ),
+            updated_at: timestamp,
+            submitted_at: timestamp,
+            reviewed_at: null,
+            disabled_at: null,
+            rejection_reason: null,
           };
-          return submission;
-        }
 
-        const manifest = patch
-          ? normalizeManifest({
-              ...submission.manifest,
-              ...patch,
-            })
-          : submission.manifest;
-        const validation = validateSubmissionManifest(manifest);
-        if (!validation.ok) {
           result = {
-            ok: false,
-            message: "Required manifest fields are missing.",
-            submission: {
-              ...submission,
-              manifest: validation.manifest,
-              contract_manifest: toContractManifest(validation.manifest),
-              high_risk_permissions: findHighRiskPermissions(validation.manifest.permissions),
-            },
-            missingFields: validation.missingFields,
+            ok: true,
+            message: "Employee submitted for review.",
+            submission: submitted,
           };
-          return submission;
-        }
+          return submitted;
+        })
+      );
 
-        const timestamp = nowIso();
-        const submitted: CreatorSubmission = {
-          ...submission,
-          manifest: validation.manifest,
-          contract_manifest: toContractManifest(validation.manifest),
-          status: "submitted",
-          verified: false,
-          disabled: false,
-          high_risk_permissions: findHighRiskPermissions(validation.manifest.permissions),
-          updated_at: timestamp,
-          submitted_at: timestamp,
-          reviewed_at: null,
-          disabled_at: null,
-          rejection_reason: null,
-        };
-
-        result = {
-          ok: true,
-          message: "Employee submitted for review.",
-          submission: submitted,
-        };
-        return submitted;
-      }),
-    );
-
-    return result;
+      return result;
     },
-    [],
+    []
   );
 
   const approve = useCallback((id: string): SubmissionActionResult => {
@@ -417,8 +460,8 @@ export function useSubmissions() {
       message: "Submission not found.",
     };
 
-    setSubmissions((current) =>
-      current.map((submission) => {
+    setSubmissions(current =>
+      current.map(submission => {
         if (submission.submission_id !== id) return submission;
         if (submission.status !== "submitted") {
           result = {
@@ -447,53 +490,56 @@ export function useSubmissions() {
           submission: approved,
         };
         return approved;
-      }),
+      })
     );
 
     return result;
   }, []);
 
-  const reject = useCallback((id: string, reason = "Rejected by platform review.") => {
-    let result: SubmissionActionResult = {
-      ok: false,
-      message: "Submission not found.",
-    };
+  const reject = useCallback(
+    (id: string, reason = "Rejected by platform review.") => {
+      let result: SubmissionActionResult = {
+        ok: false,
+        message: "Submission not found.",
+      };
 
-    setSubmissions((current) =>
-      current.map((submission) => {
-        if (submission.submission_id !== id) return submission;
-        if (submission.status !== "submitted") {
-          result = {
-            ok: false,
-            message: "Only pending submissions can be rejected.",
-            submission,
+      setSubmissions(current =>
+        current.map(submission => {
+          if (submission.submission_id !== id) return submission;
+          if (submission.status !== "submitted") {
+            result = {
+              ok: false,
+              message: "Only pending submissions can be rejected.",
+              submission,
+            };
+            return submission;
+          }
+
+          const timestamp = nowIso();
+          const rejected: CreatorSubmission = {
+            ...submission,
+            status: "rejected",
+            verified: false,
+            disabled: false,
+            updated_at: timestamp,
+            reviewed_at: timestamp,
+            disabled_at: null,
+            rejection_reason: reason.trim() || "Rejected by platform review.",
           };
-          return submission;
-        }
 
-        const timestamp = nowIso();
-        const rejected: CreatorSubmission = {
-          ...submission,
-          status: "rejected",
-          verified: false,
-          disabled: false,
-          updated_at: timestamp,
-          reviewed_at: timestamp,
-          disabled_at: null,
-          rejection_reason: reason.trim() || "Rejected by platform review.",
-        };
+          result = {
+            ok: true,
+            message: "Employee returned to creator with review notes.",
+            submission: rejected,
+          };
+          return rejected;
+        })
+      );
 
-        result = {
-          ok: true,
-          message: "Employee returned to creator with review notes.",
-          submission: rejected,
-        };
-        return rejected;
-      }),
-    );
-
-    return result;
-  }, []);
+      return result;
+    },
+    []
+  );
 
   const disable = useCallback((id: string): SubmissionActionResult => {
     let result: SubmissionActionResult = {
@@ -501,8 +547,8 @@ export function useSubmissions() {
       message: "Submission not found.",
     };
 
-    setSubmissions((current) =>
-      current.map((submission) => {
+    setSubmissions(current =>
+      current.map(submission => {
         if (submission.submission_id !== id) return submission;
         if (submission.status !== "published") {
           result = {
@@ -528,7 +574,7 @@ export function useSubmissions() {
           submission: disabled,
         };
         return disabled;
-      }),
+      })
     );
 
     return result;
@@ -545,6 +591,6 @@ export function useSubmissions() {
       reject,
       disable,
     }),
-    [approve, createDraft, disable, get, list, reject, submit, updateDraft],
+    [approve, createDraft, disable, get, list, reject, submit, updateDraft]
   );
 }

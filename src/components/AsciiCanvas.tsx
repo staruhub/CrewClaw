@@ -8,7 +8,20 @@ const MOBILE_FRAME_MS = 1000 / 12;
 const DESKTOP_FRAME_MS = 1000 / 28;
 
 const AMBIENT_CHARS = [" ", " ", ".", ":", "-", "~"];
-const SIGNAL_CHARS = ["<", ">", "/", "\\", "{", "}", "(", ")", ";", "=", "+", "*"];
+const SIGNAL_CHARS = [
+  "<",
+  ">",
+  "/",
+  "\\",
+  "{",
+  "}",
+  "(",
+  ")",
+  ";",
+  "=",
+  "+",
+  "*",
+];
 const NODE_CHARS = ["@", "#", "%", "*", "+", "="];
 
 const sourceNodes: Node[] = [
@@ -76,20 +89,35 @@ function distanceToSegment(px: number, py: number, from: Point, to: Point) {
   return Math.hypot(px - closestX, py - closestY);
 }
 
-function pointInfluence(px: number, py: number, point: Point, radiusX: number, radiusY: number) {
+function pointInfluence(
+  px: number,
+  py: number,
+  point: Point,
+  radiusX: number,
+  radiusY: number
+) {
   const dx = (point.x - px) / radiusX;
   const dy = (point.y - py) / radiusY;
   return clamp(1 - Math.sqrt(dx * dx + dy * dy));
 }
 
-function pathInfluence(px: number, py: number, from: Point, to: Point, phase: number, pulseOffset: number) {
-  const rail = 1 - smoothstep(0.002, 0.018, distanceToSegment(px, py, from, to));
+function pathInfluence(
+  px: number,
+  py: number,
+  from: Point,
+  to: Point,
+  phase: number,
+  pulseOffset: number
+) {
+  const rail =
+    1 - smoothstep(0.002, 0.018, distanceToSegment(px, py, from, to));
   const pulseT = (phase + pulseOffset) % 1;
   const pulse = {
     x: from.x + (to.x - from.x) * pulseT,
     y: from.y + (to.y - from.y) * pulseT,
   };
-  const pulseGlow = 1 - smoothstep(0.012, 0.06, Math.hypot(px - pulse.x, py - pulse.y));
+  const pulseGlow =
+    1 - smoothstep(0.012, 0.06, Math.hypot(px - pulse.x, py - pulse.y));
   return clamp(rail * 0.34 + pulseGlow * 0.9);
 }
 
@@ -103,17 +131,29 @@ function drawGlow(
   y: number,
   radius: number,
   color: [number, number, number],
-  alpha: number,
+  alpha: number
 ) {
   const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
-  gradient.addColorStop(0, `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`);
-  gradient.addColorStop(0.52, `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha * 0.18})`);
+  gradient.addColorStop(
+    0,
+    `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`
+  );
+  gradient.addColorStop(
+    0.52,
+    `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha * 0.18})`
+  );
   gradient.addColorStop(1, `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0)`);
   ctx.fillStyle = gradient;
   ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
 }
 
-function drawGhostLabel(ctx: CanvasRenderingContext2D, width: number, height: number, node: Node, alpha: number) {
+function drawGhostLabel(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  node: Node,
+  alpha: number
+) {
   if (alpha <= 0.01) return;
 
   ctx.save();
@@ -165,7 +205,11 @@ export function AsciiCanvas({ className = "" }: { className?: string }) {
 
     const handleMove = (event: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
-      mouseRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top, active: true };
+      mouseRef.current = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+        active: true,
+      };
     };
 
     const handleLeave = () => {
@@ -198,9 +242,30 @@ export function AsciiCanvas({ className = "" }: { className?: string }) {
       ctx.fillStyle = "#090807";
       ctx.fillRect(0, 0, width, height);
 
-      drawGlow(ctx, width * 0.36, height * 0.34, width * (mobile ? 0.4 : 0.22), [200, 121, 65], 0.05 + gather * 0.08);
-      drawGlow(ctx, width * 0.62, height * 0.42, width * (mobile ? 0.44 : 0.26), [132, 111, 78], 0.04 + split * 0.07);
-      drawGlow(ctx, width * 0.78, height * 0.4, width * (mobile ? 0.34 : 0.18), [232, 168, 124], 0.04 + verify * 0.09);
+      drawGlow(
+        ctx,
+        width * 0.36,
+        height * 0.34,
+        width * (mobile ? 0.4 : 0.22),
+        [200, 121, 65],
+        0.05 + gather * 0.08
+      );
+      drawGlow(
+        ctx,
+        width * 0.62,
+        height * 0.42,
+        width * (mobile ? 0.44 : 0.26),
+        [132, 111, 78],
+        0.04 + split * 0.07
+      );
+      drawGlow(
+        ctx,
+        width * 0.78,
+        height * 0.4,
+        width * (mobile ? 0.34 : 0.18),
+        [232, 168, 124],
+        0.04 + verify * 0.09
+      );
 
       const cols = Math.ceil(width / charW);
       const rows = Math.ceil(height / charH);
@@ -214,30 +279,66 @@ export function AsciiCanvas({ className = "" }: { className?: string }) {
 
           const vectorX = noise(nx * 3.4 + 11, ny * 3.4 + 5, now * 0.2) - 0.5;
           const vectorY = noise(nx * 3.4 + 29, ny * 3.4 + 17, now * 0.2) - 0.5;
-          const layerA = noise(nx * 7.2 + vectorX * 1.8 + now * 0.12, ny * 7.2 + vectorY * 1.8, now * 0.7);
-          const layerB = noise(nx * 13.8 + 50, ny * 13.8 + 20 + now * 0.08, now * 0.95);
+          const layerA = noise(
+            nx * 7.2 + vectorX * 1.8 + now * 0.12,
+            ny * 7.2 + vectorY * 1.8,
+            now * 0.7
+          );
+          const layerB = noise(
+            nx * 13.8 + 50,
+            ny * 13.8 + 20 + now * 0.08,
+            now * 0.95
+          );
           let brightness = layerA * 0.28 + layerB * 0.16;
 
           let signal = 0;
           sourceNodes.forEach((source, index) => {
-            signal += pathInfluence(nx, ny, source, planner, flowPhase, index * 0.13) * gather;
+            signal +=
+              pathInfluence(nx, ny, source, planner, flowPhase, index * 0.13) *
+              gather;
           });
           agents.forEach((agent, index) => {
-            signal += pathInfluence(nx, ny, planner, agent, flowPhase, index * 0.19) * split;
-            signal += pathInfluence(nx, ny, agent, verifier, flowPhase, index * 0.21) * verify;
+            signal +=
+              pathInfluence(nx, ny, planner, agent, flowPhase, index * 0.19) *
+              split;
+            signal +=
+              pathInfluence(nx, ny, agent, verifier, flowPhase, index * 0.21) *
+              verify;
           });
-          signal += pathInfluence(nx, ny, verifier, result, flowPhase, 0.33) * verify;
+          signal +=
+            pathInfluence(nx, ny, verifier, result, flowPhase, 0.33) * verify;
           signal *= 1 - dissolve * 0.72;
 
           const nodeGlow =
-            pointInfluence(nx, ny, planner, 0.05, 0.08) * (0.28 + gather * 0.9) +
-            pointInfluence(nx, ny, verifier, 0.05, 0.08) * (0.22 + verify * 0.95) +
+            pointInfluence(nx, ny, planner, 0.05, 0.08) *
+              (0.28 + gather * 0.9) +
+            pointInfluence(nx, ny, verifier, 0.05, 0.08) *
+              (0.22 + verify * 0.95) +
             pointInfluence(nx, ny, result, 0.045, 0.07) * verify * 0.8 +
-            agents.reduce((total, agent) => total + pointInfluence(nx, ny, agent, 0.045, 0.07) * split * 0.78, 0);
+            agents.reduce(
+              (total, agent) =>
+                total +
+                pointInfluence(nx, ny, agent, 0.045, 0.07) * split * 0.78,
+              0
+            );
 
           const readableMask =
-            pointInfluence(nx, ny, { x: 0.5, y: centerMaskY }, 0.34, mobile ? 0.14 : 0.13) * 0.7 +
-            pointInfluence(nx, ny, { x: 0.5, y: mobile ? 0.51 : 0.55 }, 0.34, 0.13) * 0.54;
+            pointInfluence(
+              nx,
+              ny,
+              { x: 0.5, y: centerMaskY },
+              0.34,
+              mobile ? 0.14 : 0.13
+            ) *
+              0.7 +
+            pointInfluence(
+              nx,
+              ny,
+              { x: 0.5, y: mobile ? 0.51 : 0.55 },
+              0.34,
+              0.13
+            ) *
+              0.54;
           const edgeVignette =
             smoothstep(0.04, 0.22, nx) *
             smoothstep(0.04, 0.22, ny) *
@@ -272,7 +373,10 @@ export function AsciiCanvas({ className = "" }: { className?: string }) {
             alpha = Math.max(alpha, 0.34 + nodeGlow * 0.38);
           }
 
-          const randomSeed = pseudoRandom(col * 0.7 + now * 0.58, row * 0.9 + now * 0.31);
+          const randomSeed = pseudoRandom(
+            col * 0.7 + now * 0.58,
+            row * 0.9 + now * 0.31
+          );
           ctx.fillStyle = color;
           ctx.globalAlpha = clamp(alpha, 0.1, 0.86);
           ctx.fillText(pickChar(chars, randomSeed), px, py);
@@ -281,7 +385,9 @@ export function AsciiCanvas({ className = "" }: { className?: string }) {
 
       ctx.globalAlpha = 1;
       drawGhostLabel(ctx, width, height, planner, 0.02 + gather * 0.08);
-      agents.forEach((agent) => drawGhostLabel(ctx, width, height, agent, 0.015 + split * 0.06));
+      agents.forEach(agent =>
+        drawGhostLabel(ctx, width, height, agent, 0.015 + split * 0.06)
+      );
       drawGhostLabel(ctx, width, height, verifier, 0.02 + verify * 0.08);
       drawGhostLabel(ctx, width, height, result, 0.012 + verify * 0.05);
     };

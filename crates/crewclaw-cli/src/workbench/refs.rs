@@ -21,15 +21,15 @@ pub(crate) fn reference_candidates(state: &AppState, query: &str) -> Vec<Referen
         });
     }
 
-    if let Some(task) = &state.task {
-        if let Some(id) = task.id.as_deref() {
-            candidates.push(ReferenceCandidate {
-                kind: "task".to_string(),
-                id: id.to_string(),
-                label: task.title.clone(),
-                token: format!("@task:{id}"),
-            });
-        }
+    if let Some(task) = &state.task
+        && let Some(id) = task.id.as_deref()
+    {
+        candidates.push(ReferenceCandidate {
+            kind: "task".to_string(),
+            id: id.to_string(),
+            label: task.title.clone(),
+            token: format!("@task:{id}"),
+        });
     }
 
     if let Some(employee) = &state.employee {
@@ -74,25 +74,24 @@ pub(crate) fn resolve_references(state: &AppState, text: &str) -> Vec<ResolvedRe
             });
         }
     }
-    if let Some(task) = &state.task {
-        if let Some(id) = task.id.as_deref() {
-            if text.contains(&format!("@task:{id}")) || text.contains("@current-task") {
-                refs.push(ResolvedReference {
-                    kind: "task".to_string(),
-                    id: id.to_string(),
-                    label: task.title.clone(),
-                });
-            }
-        }
+    if let Some(task) = &state.task
+        && let Some(id) = task.id.as_deref()
+        && (text.contains(&format!("@task:{id}")) || text.contains("@current-task"))
+    {
+        refs.push(ResolvedReference {
+            kind: "task".to_string(),
+            id: id.to_string(),
+            label: task.title.clone(),
+        });
     }
-    if let Some(employee) = &state.employee {
-        if text.contains(&format!("@{}", employee.name)) || text.contains("@employee") {
-            refs.push(ResolvedReference {
-                kind: "employee".to_string(),
-                id: employee.name.clone(),
-                label: employee.role.clone(),
-            });
-        }
+    if let Some(employee) = &state.employee
+        && (text.contains(&format!("@{}", employee.name)) || text.contains("@employee"))
+    {
+        refs.push(ResolvedReference {
+            kind: "employee".to_string(),
+            id: employee.name.clone(),
+            label: employee.role.clone(),
+        });
     }
     refs
 }

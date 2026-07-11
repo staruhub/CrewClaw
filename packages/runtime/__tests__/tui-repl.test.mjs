@@ -2,26 +2,46 @@
 // turn into agentLoop streaming to the sink + persists; historyToMessages maps model
 // history to display messages. Uses a fake agentLoop honoring the Ink sink contract.
 import assert from "node:assert/strict";
-import { buildRunTurn, buildQuickUtilityTurn, historyToTurns } from "../tui/repl.mjs";
+import {
+  buildRunTurn,
+  buildQuickUtilityTurn,
+  historyToTurns,
+} from "../tui/repl.mjs";
 
 // 1) a turn: pushes user → runs loop streaming to sink → saves
 {
-  const fakeAgentLoop = async ({ messages, renderMd, onDelta, onInvocation, onUsage }) => {
-    assert.equal(renderMd, false, "Ink mode must tell agentLoop not to draw to stdout");
-    onDelta("回答"); onDelta("内容");
+  const fakeAgentLoop = async ({
+    messages,
+    renderMd,
+    onDelta,
+    onInvocation,
+    onUsage,
+  }) => {
+    assert.equal(
+      renderMd,
+      false,
+      "Ink mode must tell agentLoop not to draw to stdout"
+    );
+    onDelta("回答");
+    onDelta("内容");
     onInvocation({ action: "web_search「x」", status: "success" });
     onUsage({ prompt_tokens: 10, completion_tokens: 5 });
     messages.push({ role: "assistant", content: "回答内容" });
   };
   const history = [];
   let saved = 0;
-  const runTurn = buildRunTurn({ agentLoop: fakeAgentLoop, agentLoopDeps: { model: "m" }, history, saveSession: () => saved++ });
+  const runTurn = buildRunTurn({
+    agentLoop: fakeAgentLoop,
+    agentLoopDeps: { model: "m" },
+    history,
+    saveSession: () => saved++,
+  });
 
   const got = { deltas: "", tools: [], usage: null };
   await runTurn("问题", {
-    onDelta: (d) => (got.deltas += d),
-    onInvocation: (i) => got.tools.push(i),
-    onUsage: (u) => (got.usage = u),
+    onDelta: d => (got.deltas += d),
+    onInvocation: i => got.tools.push(i),
+    onUsage: u => (got.usage = u),
   });
 
   assert.equal(history.length, 2, "user + assistant in model history");
@@ -53,14 +73,36 @@ import { buildRunTurn, buildQuickUtilityTurn, historyToTurns } from "../tui/repl
 //    NOT the employee's full system / chat history.
 {
   let captured = null;
-  const fakeAgentLoop = async (opts) => { captured = opts; opts.onDelta?.("28°C 晴"); };
-  const employeeSystem = "你是 AI 落地鲸,企业大模型落地顾问……(很长的员工人设/技能/记忆)";
-  const runQuickUtility = buildQuickUtilityTurn({ agentLoop: fakeAgentLoop, agentLoopDeps: { model: "m", system: employeeSystem } });
-  await runQuickUtility("杭州天气？", { onDelta() {}, onInvocation() {}, onUsage() {} });
+  const fakeAgentLoop = async opts => {
+    captured = opts;
+    opts.onDelta?.("28°C 晴");
+  };
+  const employeeSystem =
+    "你是 AI 落地鲸,企业大模型落地顾问……(很长的员工人设/技能/记忆)";
+  const runQuickUtility = buildQuickUtilityTurn({
+    agentLoop: fakeAgentLoop,
+    agentLoopDeps: { model: "m", system: employeeSystem },
+  });
+  await runQuickUtility("杭州天气？", {
+    onDelta() {},
+    onInvocation() {},
+    onUsage() {},
+  });
 
-  assert.notEqual(captured.system, employeeSystem, "quick utility does NOT use the employee's full system prompt");
-  assert.ok(!/落地鲸|顾问/.test(captured.system), "the light system carries no employee identity");
-  assert.equal(captured.messages.length, 1, "only the one question — no full chat history loaded (§10.2)");
+  assert.notEqual(
+    captured.system,
+    employeeSystem,
+    "quick utility does NOT use the employee's full system prompt"
+  );
+  assert.ok(
+    !/落地鲸|顾问/.test(captured.system),
+    "the light system carries no employee identity"
+  );
+  assert.equal(
+    captured.messages.length,
+    1,
+    "only the one question — no full chat history loaded (§10.2)"
+  );
   assert.equal(captured.messages[0].content, "杭州天气？");
   assert.equal(captured.renderMd, false, "still Ink mode (no stdout draw)");
 }

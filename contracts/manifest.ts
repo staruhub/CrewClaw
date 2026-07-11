@@ -78,7 +78,7 @@ export const EmployeeManifestSchema = z
                 input: z.object({}).passthrough().optional(),
                 output_schema: z.object({}).passthrough().optional(),
               })
-              .passthrough(),
+              .passthrough()
           )
           .optional(),
       })

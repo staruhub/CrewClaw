@@ -1,12 +1,21 @@
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 // Read the registry via fs (not a JSON import) so this stays loader-agnostic under Playwright's
 // ESM runner, which requires an explicit import attribute for JSON modules.
 const registry = JSON.parse(
-  readFileSync(new URL("../registry/experts.json", import.meta.url), "utf8"),
+  readFileSync(new URL("../registry/experts.json", import.meta.url), "utf8")
 ) as { experts: unknown[] };
 
 type CommandResult = {
@@ -19,15 +28,31 @@ type RunOptions = {
   cwd?: string;
   input?: string;
   timeoutMs?: number;
+  env?: NodeJS.ProcessEnv;
 };
 
 const repoRoot = process.cwd();
 
-function run(command: string, args: string[], options: RunOptions = {}): Promise<CommandResult> {
-  return new Promise((resolve) => {
+function quoteShellArgument(value: string) {
+  if (process.platform === "win32") return `"${value.replaceAll('"', '""')}"`;
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function normalizeRecordedCommand(value: string) {
+  return value
+    .replaceAll("\\", "/")
+    .replaceAll(/\/\/\?\/(?=[A-Za-z]:\/)/g, "");
+}
+
+function run(
+  command: string,
+  args: string[],
+  options: RunOptions = {}
+): Promise<CommandResult> {
+  return new Promise(resolve => {
     const child = spawn(command, args, {
       cwd: options.cwd ?? repoRoot,
-      env: { ...process.env, FORCE_COLOR: "0" },
+      env: { ...process.env, FORCE_COLOR: "0", ...options.env },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
@@ -40,64 +65,54 @@ function run(command: string, args: string[], options: RunOptions = {}): Promise
     if (options.input) child.stdin.write(options.input);
     child.stdin.end();
 
-    child.stdout.on("data", (chunk) => {
+    child.stdout.on("data", chunk => {
       stdout += chunk.toString();
     });
-    child.stderr.on("data", (chunk) => {
+    child.stderr.on("data", chunk => {
       stderr += chunk.toString();
     });
-    child.on("error", (error) => {
+    child.on("error", error => {
       clearTimeout(timer);
       resolve({ code: 127, stdout, stderr: error.message });
     });
-    child.on("close", (code) => {
+    child.on("close", code => {
       clearTimeout(timer);
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
 }
 
-async function hermesProfileDetails(profileName: string) {
-  const info = await run("hermes", ["profile", "info", profileName], { timeoutMs: 20_000 });
-  if (info.code === 0) return info;
-  return run("hermes", ["profile", "show", profileName], { timeoutMs: 20_000 });
-}
-
-async function deleteHermesProfile(profileName: string) {
-  const attempts = [
-    ["profile", "delete", profileName, "--yes"],
-    ["profile", "delete", "-y", profileName],
-    ["profile", "delete", profileName, "-y"],
-  ];
-
-  for (const args of attempts) {
-    const result = await run("hermes", args, { timeoutMs: 20_000 });
-    if (result.code === 0) return result;
-  }
-  return { code: 1, stdout: "", stderr: `Could not delete ${profileName}` };
-}
-
 test.describe.configure({ mode: "serial" });
 
-test("homepage exposes CrewClaw CLI docs and clickable flows", async ({ context, page, isMobile }) => {
+test("homepage exposes CrewClaw CLI docs and clickable flows", async ({
+  context,
+  page,
+  isMobile,
+}) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const consoleErrors: string[] = [];
-  page.on("console", (message) => {
+  page.on("console", message => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
 
   await page.goto("/");
 
   expect(await page.title()).toMatch(/CrewClaw/);
-  await expect(page.getByText("Hire ChaoGeek-certified Hermes experts in 60 seconds")).toBeVisible();
+  await expect(
+    page.getByText("Hire ChaoGeek-certified Hermes experts in 60 seconds")
+  ).toBeVisible();
 
   await page.getByRole("button", { name: /view expert crew/i }).click();
   await expect(page.locator("#market")).toBeInViewport();
 
   await page.getByRole("button", { name: /hire your first expert/i }).click();
-  await expect(page.getByRole("dialog", { name: /join the waitlist/i })).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: /join the waitlist/i })
+  ).toBeVisible();
   await page.getByRole("button", { name: /close waitlist/i }).click();
-  await expect(page.getByRole("dialog", { name: /join the waitlist/i })).toBeHidden();
+  await expect(
+    page.getByRole("dialog", { name: /join the waitlist/i })
+  ).toBeHidden();
 
   if (isMobile) {
     await page.getByRole("button", { name: /open navigation menu/i }).click();
@@ -130,11 +145,17 @@ test("homepage exposes CrewClaw CLI docs and clickable flows", async ({ context,
   const shrimp = cards.filter({ hasText: "Code Review Shrimp" });
   await expect(shrimp.getByText("Available")).toBeVisible();
   const command = (await shrimp.locator("code").innerText()).trim();
-  expect(command).toBe(`pnpm --silent -C ${repoRoot} run crewclaw`);
+  expect(command).toBe(
+    `pnpm --silent -C ${quoteShellArgument(repoRoot)} run crewclaw`
+  );
 
   await shrimp.getByRole("button", { name: /copy crewclaw cli/i }).click();
-  await expect(shrimp.getByRole("button", { name: /copied crewclaw cli/i })).toBeVisible();
-  await expect(page.evaluate(() => navigator.clipboard.readText())).resolves.toBe(command);
+  await expect(
+    shrimp.getByRole("button", { name: /copied crewclaw cli/i })
+  ).toBeVisible();
+  await expect(
+    page.evaluate(() => navigator.clipboard.readText())
+  ).resolves.toBe(command);
 
   const docsOctopus = cards.filter({ hasText: "Docs Octopus" });
   await expect(docsOctopus.getByText("Coming Soon")).toBeVisible();
@@ -145,47 +166,103 @@ test("homepage exposes CrewClaw CLI docs and clickable flows", async ({ context,
   expect(consoleErrors).toEqual([]);
 });
 
-test("copied website command hires a temporary Hermes profile end to end", async ({ page }) => {
+test("copied website command hires a temporary Hermes profile end to end", async ({
+  page,
+}) => {
   await page.goto("/");
 
-  const shrimp = page.locator("#market article").filter({ hasText: "Code Review Shrimp" });
+  const shrimp = page
+    .locator("#market article")
+    .filter({ hasText: "Code Review Shrimp" });
   const command = (await shrimp.locator("code").innerText()).trim();
-  const commandParts = command.split(/\s+/);
-  expect(commandParts).toEqual(["pnpm", "--silent", "-C", repoRoot, "run", "crewclaw"]);
+  expect(command).toBe(
+    `pnpm --silent -C ${quoteShellArgument(repoRoot)} run crewclaw`
+  );
 
   const profileName = `crewclaw-e2e-${Date.now()}`;
-  const hermes = await run("hermes", ["--version"], { timeoutMs: 60_000 });
-  // Environment-dependent: requires a real Hermes install. Skip honestly instead of failing on
-  // machines without the binary (code 127 = spawn ENOENT).
-  test.skip(hermes.code === 127, "hermes binary not on PATH — Hermes end-to-end skipped");
-  expect(hermes.code, hermes.stderr || hermes.stdout).toBe(0);
-
-  const profiles = await run("hermes", ["profile", "list"], { timeoutMs: 60_000 });
-  expect(profiles.code, profiles.stderr || profiles.stdout).toBe(0);
-  expect(`${profiles.stdout}\n${profiles.stderr}`).not.toContain(profileName);
+  const root = mkdtempSync(join(tmpdir(), "crewclaw-web-install-"));
+  const bin = join(root, "bin");
+  const callsFile = join(root, "hermes-calls.txt");
+  mkdirSync(bin, { recursive: true });
+  cpSync(join(repoRoot, "registry"), join(root, "registry"), {
+    recursive: true,
+  });
+  cpSync(join(repoRoot, "experts"), join(root, "experts"), {
+    recursive: true,
+  });
+  const hermesPath = join(
+    bin,
+    process.platform === "win32" ? "hermes.cmd" : "hermes"
+  );
+  writeFileSync(
+    hermesPath,
+    process.platform === "win32"
+      ? `@echo off\r\necho %*>>"${callsFile}"\r\necho installed\r\nexit /b 0\r\n`
+      : `#!/bin/sh\nprintf '%s\\n' "$*" >> "${callsFile}"\necho installed\n`
+  );
+  if (process.platform !== "win32") chmodSync(hermesPath, 0o755);
 
   try {
-    const install = await run(commandParts[0], [...commandParts.slice(1), "--name", profileName, "--yes"], {
+    const copiedArgs = [
+      "--silent",
+      "-C",
+      repoRoot,
+      "run",
+      "crewclaw",
+      "hire",
+      "code-review-shrimp",
+      "--name",
+      profileName,
+      "--yes",
+      "--live",
+    ];
+    const commandExecutable =
+      process.platform === "win32" ? process.env.ComSpec || "cmd.exe" : "pnpm";
+    const executableArgs =
+      process.platform === "win32"
+        ? ["/d", "/s", "/c", "pnpm", ...copiedArgs]
+        : copiedArgs;
+    const install = await run(commandExecutable, executableArgs, {
       cwd: homedir(),
-      input: "1\n",
       timeoutMs: 120_000,
+      env: {
+        CREWCLAW_ROOT: root,
+        PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      },
     });
     expect(install.code, install.stderr || install.stdout).toBe(0);
-    expect(`${install.stdout}\n${install.stderr}`).toContain("   _____                         _____ _");
-    expect(`${install.stdout}\n${install.stderr}`).toContain("ChaoGeek AI Agent Hiring Platform");
-    expect(`${install.stdout}\n${install.stderr}`).toContain("Hiring Code Review Shrimp");
-    expect(`${install.stdout}\n${install.stderr}`).not.toContain("CrewClaw: ======");
-    expect(`${install.stdout}\n${install.stderr}`).not.toContain("CrewClaw: Choose");
-    expect(`${install.stdout}\n${install.stderr}`).not.toContain("> @chaogeek/hermes");
-    expect(`${install.stdout}\n${install.stderr}`).toContain("Run this first Hermes test");
+    expect(`${install.stdout}\n${install.stderr}`).toContain(
+      "Hiring Code Review Shrimp"
+    );
+    expect(`${install.stdout}\n${install.stderr}`).not.toContain(
+      "CrewClaw: ======"
+    );
+    expect(`${install.stdout}\n${install.stderr}`).not.toContain(
+      "CrewClaw: Choose"
+    );
+    expect(`${install.stdout}\n${install.stderr}`).not.toContain(
+      "> @chaogeek/hermes"
+    );
+    expect(`${install.stdout}\n${install.stderr}`).toContain(
+      "Run this first Hermes test"
+    );
 
-    const details = await hermesProfileDetails(profileName);
-    expect(details.code, details.stderr || details.stdout).toBe(0);
-    expect(`${details.stdout}\n${details.stderr}`).toMatch(/code-review-shrimp|Code Review Shrimp|SOUL\.md|Skills/i);
+    const calls = normalizeRecordedCommand(readFileSync(callsFile, "utf8"));
+    expect(calls).toContain(
+      `profile install ${root.replaceAll("\\", "/")}/experts/code-review-shrimp --name ${profileName} --alias --yes`
+    );
+    const team = JSON.parse(
+      readFileSync(join(root, ".crewclaw", "team.json"), "utf8")
+    ) as Array<{ employee_id: string; status: string }>;
+    expect(team).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          employee_id: "code-review-shrimp",
+          status: "active",
+        }),
+      ])
+    );
   } finally {
-    await deleteHermesProfile(profileName);
+    rmSync(root, { recursive: true, force: true });
   }
-
-  const afterDelete = await run("hermes", ["profile", "list"], { timeoutMs: 60_000 });
-  expect(`${afterDelete.stdout}\n${afterDelete.stderr}`).not.toContain(profileName);
 });

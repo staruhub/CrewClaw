@@ -2,7 +2,10 @@ import { validateAllExperts, validateExpert } from "./index";
 
 async function main() {
   const [first, second] = process.argv.slice(2);
-  const result = first === "--all" ? await validateAllExperts() : await validateExpert(first ?? second ?? "");
+  const result =
+    first === "--all"
+      ? await validateAllExperts()
+      : await validateExpert(first ?? second ?? "");
   const results = "results" in result ? result.results : [result];
 
   for (const entry of results) {
@@ -14,7 +17,7 @@ async function main() {
   if (!result.ok) process.exit(1);
 }
 
-main().catch((error) => {
+main().catch(error => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });

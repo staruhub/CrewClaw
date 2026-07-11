@@ -1,8 +1,8 @@
 //! v0.12：多屏「数字员工操作系统」的非-WORKBENCH 四屏（对标设计稿 CrewClaw TUI.dc.html）。
 //!
-//! 完成标准分层（用户确认「有真用真，无真明示 mock」）：
+//! 完成标准分层：
 //!   - MARKET / HIRE 读 Rust 侧**真实数据**（registry experts.json / doctor::build_report）。
-//!   - EVAL / DREAM 引擎侧无 KPI/考试/复盘数据源 → 渲染**明确标注 `示例数据 · MOCK` 的静态数据**。
+//!   - EVAL / DREAM 读安全持久化状态；缺失时明确空态，绝不制造演示分数或记忆。
 //!
 //! WORKBENCH 仍由 ui.rs 直接渲染（接 live TaskEvent 流），不在本模块。
 
@@ -31,23 +31,6 @@ pub(crate) fn screen_block(title: &str, subtitle: &str) -> Block<'static> {
         .title(t)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(config::border()))
-}
-
-/// `示例数据 · MOCK` 徽标行——EVAL/DREAM 顶部明示无真实数据源。
-pub(crate) fn mock_badge() -> Line<'static> {
-    Line::from(vec![
-        Span::styled(
-            " 示例数据 · MOCK ",
-            Style::default()
-                .fg(config::bg())
-                .bg(config::orange())
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            "  引擎侧暂无该数据源，以下为演示占位",
-            Style::default().fg(config::dim()),
-        ),
-    ])
 }
 
 /// 小节标题行。

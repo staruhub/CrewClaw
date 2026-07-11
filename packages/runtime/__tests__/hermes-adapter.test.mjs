@@ -4,11 +4,18 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import yaml from "../yaml.mjs";
 import { computeCompatibility } from "../compatibility.mjs";
-import hermesAdapter, { hermesAdapter as namedHermesAdapter } from "../adapters/hermes.mjs";
+import hermesAdapter, {
+  hermesAdapter as namedHermesAdapter,
+} from "../adapters/hermes.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..", "..", "..");
-const whalePackagePath = join(repoRoot, "experts", "ai-adoption-whale", "crewclaw.employee.yaml");
+const whalePackagePath = join(
+  repoRoot,
+  "experts",
+  "ai-adoption-whale",
+  "crewclaw.employee.yaml"
+);
 
 const whale = yaml.load(readFileSync(whalePackagePath, "utf8"));
 
@@ -29,8 +36,14 @@ const compiled = hermesAdapter.compile(whale);
 
 {
   assert.equal(typeof compiled.files["AGENTS.md"], "string");
-  assert.match(compiled.files["AGENTS.md"], new RegExp(whale.role_contract.mission));
-  assert.match(compiled.files["AGENTS.md"], new RegExp(whale.role_contract.title));
+  assert.match(
+    compiled.files["AGENTS.md"],
+    new RegExp(whale.role_contract.mission)
+  );
+  assert.match(
+    compiled.files["AGENTS.md"],
+    new RegExp(whale.role_contract.title)
+  );
 }
 
 {
@@ -46,9 +59,21 @@ const compiled = hermesAdapter.compile(whale);
   // PRD §14.2 safety: approval strictness must RISE with risk, never invert.
   const config = yaml.load(compiled.files["config.yaml"]);
   const tiers = config.permissions.tiers;
-  assert.equal(tiers.P0.requires_approval, "never", "P0 (read public) auto-allows");
-  assert.equal(tiers.P4.requires_approval, "deny", "P4 (high-risk) must default-deny, never auto-allow");
-  assert.notEqual(tiers.P3.requires_approval, "never", "P3 (external side-effects) must not auto-allow");
+  assert.equal(
+    tiers.P0.requires_approval,
+    "never",
+    "P0 (read public) auto-allows"
+  );
+  assert.equal(
+    tiers.P4.requires_approval,
+    "deny",
+    "P4 (high-risk) must default-deny, never auto-allow"
+  );
+  assert.notEqual(
+    tiers.P3.requires_approval,
+    "never",
+    "P3 (external side-effects) must not auto-allow"
+  );
 }
 
 {

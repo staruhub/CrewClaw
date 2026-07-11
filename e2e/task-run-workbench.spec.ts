@@ -4,7 +4,9 @@ test("task run workbench exposes artifact-first panels", async ({ page }) => {
   await page.goto("/task-run/task_1782348262131");
 
   await expect(page).toHaveTitle(/CrewClaw/);
-  await expect(page.getByRole("heading", { name: /调研火山引擎 Seed 2\.1/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /调研火山引擎 Seed 2\.1/ })
+  ).toBeVisible();
   await expect(page.getByText("TaskRun Workbench")).toBeVisible();
 
   await expect(page.getByText("Timeline", { exact: true })).toBeVisible();
@@ -13,13 +15,19 @@ test("task run workbench exposes artifact-first panels", async ({ page }) => {
   await expect(page.getByText("正在阅读 en.wikipedia.org")).toBeVisible();
 
   await expect(page.getByText("Artifacts", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /artifact_1782348310459\.md/ })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /artifact_1782348310459\.md/ })
+  ).toBeVisible();
 
   // Panel labels are uppercase <p> headers; several strings (Tools/Preview) also appear as
   // Inspect <dt> terms, so scope the label assertions to the header paragraphs (exact) and
   // rely on the panel-specific content below them for the real signal.
-  await expect(page.getByText("Preview", { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "artifact_1782348310459.md" })).toBeVisible();
+  await expect(
+    page.getByText("Preview", { exact: true }).first()
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "artifact_1782348310459.md" })
+  ).toBeVisible();
   await expect(page.getByText("（已达工具调用步数上限）")).toBeVisible();
 
   await expect(page.getByText("Checks", { exact: true })).toBeVisible();

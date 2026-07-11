@@ -10,6 +10,8 @@ build/
 # Generated files
 *.tsbuildinfo
 coverage/
+contracts/schema/*.json
+src/data/employees.generated.json
 
 # Package files
 package-lock.json

@@ -5,6 +5,7 @@
 //!   - OUTCOME = status（映射状态字）/events（timeline 长度）/cost（引擎 est_cost）/
 //!     kpi impact（accepted_count 真计数）。
 //!   - ARTIFACTS = 真实产物（bytes→KB + status）；EVIDENCE = 真实证据（source + source_type）。
+//!
 //! 无真源的 budget/progress 不摆（设计稿有,但我们无真值 → 省略,不造）。
 
 use ratatui::{

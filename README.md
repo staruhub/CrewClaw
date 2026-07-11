@@ -1,13 +1,13 @@
 # CrewClaw by ChaoGeek
 
-CrewClaw distributes ChaoGeek-certified Hermes expert profiles. The MVP keeps the existing Vite website and adds a static expert registry, local Hermes profile distributions, a validator, and a Rust CLI wrapper.
+CrewClaw is ChaoGeek's local-first AI Employee Platform: discover, hire, supervise, accept, and evaluate digital employees. The product combines a two-file employee standard, real evaluation runs, a Node TaskEvent runtime, a Ratatui supervision cockpit, a registry-backed storefront, and official Hermes profile distribution.
 
-## MVP Experts
+The current product boundary and roadmap are defined in [`docs/prd_v0.18.md`](docs/prd_v0.18.md). CrewClaw observes, controls, and accepts work; editors, browsers, file managers, and long-running execution belong to OpenWork.
 
-- `code-review-shrimp`: PR review, security scanning, and merge-readiness summaries.
-- `product-prd-crab`: PRD review, edge cases, acceptance criteria, and metrics.
-- `hermes-onboarding-conch`: Coming Soon.
-- `docs-octopus`: Coming Soon.
+## Available Employees
+
+[`registry/experts.json`](registry/experts.json) is the source of truth for availability and metadata.
+Run `pnpm run crewclaw -- list` or open the local storefront instead of maintaining a second list here.
 
 ## Local Commands
 
@@ -20,9 +20,11 @@ pnpm run build
 pnpm run validate:all-experts
 pnpm run test:e2e
 pnpm run test:rust
-pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw
-pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw help
-pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw list
+pnpm run test:runtime
+pnpm run test:conformance
+pnpm run crewclaw
+pnpm run crewclaw -- help
+pnpm run crewclaw -- list
 node packages/cli/bin/chaogeek-hermes.cjs list
 ```
 
@@ -44,7 +46,7 @@ cargo test --manifest-path crates/crewclaw-cli/Cargo.toml
 ## CrewClaw CLI Flow
 
 ```bash
-pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw
+pnpm run crewclaw
 ```
 
 The no-argument command opens the CrewClaw employee picker. Choose an available expert, and the wrapper calls official Hermes profile commands for installation.
@@ -53,10 +55,10 @@ The first screen shows a clean CrewClaw ASCII banner before the expert list, so 
 For direct or automated local runs:
 
 ```bash
-pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw hire code-review-shrimp --yes
-pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw hire product-prd-crab --run-first
-pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw doctor
-pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw validate experts/code-review-shrimp
+pnpm run crewclaw -- hire code-review-shrimp --yes
+pnpm run crewclaw -- hire product-prd-crab --run-first
+pnpm run crewclaw -- doctor
+pnpm run crewclaw -- validate experts/code-review-shrimp
 ```
 
 `hire` prefers a Hermes version that supports `hermes profile install`. When an older local Hermes build lacks that command, the wrapper falls back to creating a temporary `.tar.gz` archive and importing it through `hermes profile import`. After install, CrewClaw either runs the first Hermes test when `--run-first` is passed, or prints the exact `hermes -p <profile> chat -q ...` command to run.
@@ -64,19 +66,19 @@ pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw validate exper
 ## Multi-agent parallel verify (`crewclaw verify`)
 
 ```bash
-pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw verify
+pnpm run crewclaw -- verify
 ```
 
 `crewclaw verify` sends a crew of 6 agents to fan out **in parallel** and confirm the project is runnable, each on its own live spinner lane:
 
-| Agent | Dimension | Command |
-|---|---|---|
-| build-shrimp 🦐 | Rust CLI compiles | `cargo build` |
-| type-crab 🦀 | TypeScript typechecks | `pnpm run check` |
-| lint-octopus 🐙 | Lint & style (advisory) | `pnpm run lint` |
-| unit-conch 🐚 | Unit tests | `pnpm test` |
-| e2e-puffer 🐡 | End-to-end flow | `pnpm run test:e2e` |
-| registry-lobster 🦞 | Expert registry valid | `pnpm run validate:all-experts` |
+| Agent               | Dimension               | Command                         |
+| ------------------- | ----------------------- | ------------------------------- |
+| build-shrimp 🦐     | Rust CLI compiles       | `cargo build`                   |
+| type-crab 🦀        | TypeScript typechecks   | `pnpm run check`                |
+| lint-octopus 🐙     | Lint & style (advisory) | `pnpm run lint`                 |
+| unit-conch 🐚       | Unit tests              | `pnpm test`                     |
+| e2e-puffer 🐡       | End-to-end flow         | `pnpm run test:e2e`             |
+| registry-lobster 🦞 | Expert registry valid   | `pnpm run validate:all-experts` |
 
 By default the run is scripted from `registry/verify-scenario.json` for deterministic, flake-free demos, and closes with a parallel-speedup stat (sequential ≈ 20.3s → parallel ≈ 4.5s, ~4.5× faster). `lint-octopus` is advisory and never fails the run.
 

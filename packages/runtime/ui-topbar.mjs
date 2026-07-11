@@ -24,7 +24,9 @@ export function costFor(model, promptTokens, completionTokens) {
   const pricing = PRICING[model] || DEFAULT_PRICING;
   const prompt = Math.max(0, Number(promptTokens) || 0);
   const completion = Math.max(0, Number(completionTokens) || 0);
-  return (prompt / 1e6 * pricing.inPer1M) + (completion / 1e6 * pricing.outPer1M);
+  return (
+    (prompt / 1e6) * pricing.inPer1M + (completion / 1e6) * pricing.outPer1M
+  );
 }
 
 export function ctxPercent(promptTokens, model) {
@@ -35,7 +37,10 @@ export function ctxPercent(promptTokens, model) {
 }
 
 export function topBar(state = {}, opts = {}) {
-  const width = Math.max(0, Math.trunc(Number(opts.width ?? process.stdout.columns ?? 80) || 80));
+  const width = Math.max(
+    0,
+    Math.trunc(Number(opts.width ?? process.stdout.columns ?? 80) || 80)
+  );
   const color = opts.color !== false;
   const title = String(state.title ?? "");
   const tokens = Number(state.tokens) || 0;

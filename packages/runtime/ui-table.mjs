@@ -7,7 +7,7 @@ function parseCells(line) {
   let s = String(line).trim();
   if (s.startsWith("|")) s = s.slice(1);
   if (s.endsWith("|")) s = s.slice(0, -1);
-  return s.split("|").map((c) => c.trim());
+  return s.split("|").map(c => c.trim());
 }
 
 export function isTableRow(line) {
@@ -16,7 +16,10 @@ export function isTableRow(line) {
 }
 
 function isSeparatorCells(cells) {
-  return cells.length > 0 && cells.every((c) => /^:?-{1,}:?$/.test(c.replace(/\s/g, "")));
+  return (
+    cells.length > 0 &&
+    cells.every(c => /^:?-{1,}:?$/.test(c.replace(/\s/g, "")))
+  );
 }
 
 function truncToWidth(s, w) {
@@ -46,7 +49,7 @@ export function renderTable(lines, { color = true } = {}) {
   let body;
   if (sepIdx >= 0) {
     header = sepIdx > 0 ? cells[sepIdx - 1] : null;
-    aligns = cells[sepIdx].map((c) => {
+    aligns = cells[sepIdx].map(c => {
       const s = c.replace(/\s/g, "");
       const l = s.startsWith(":");
       const r = s.endsWith(":");
@@ -58,11 +61,15 @@ export function renderTable(lines, { color = true } = {}) {
     body = cells.slice(1);
   }
 
-  const ncol = Math.max(header ? header.length : 0, ...body.map((r) => r.length), 1);
+  const ncol = Math.max(
+    header ? header.length : 0,
+    ...body.map(r => r.length),
+    1
+  );
   if (!aligns) aligns = Array(ncol).fill("left");
   while (aligns.length < ncol) aligns.push("left");
 
-  const norm = (r) => {
+  const norm = r => {
     const a = r.slice(0, ncol);
     while (a.length < ncol) a.push("");
     return a;
@@ -80,8 +87,8 @@ export function renderTable(lines, { color = true } = {}) {
     widths[i] = Math.max(1, Math.min(w, MAXW));
   }
 
-  const dim = (s) => (color ? `\x1b[2m${s}\x1b[0m` : s);
-  const bold = (s) => (color ? `\x1b[1m${s}\x1b[0m` : s);
+  const dim = s => (color ? `\x1b[2m${s}\x1b[0m` : s);
+  const bold = s => (color ? `\x1b[1m${s}\x1b[0m` : s);
   const pad = (raw, i) => {
     const s = truncToWidth(raw, widths[i]);
     const space = Math.max(0, widths[i] - visibleLen(s));
@@ -94,15 +101,22 @@ export function renderTable(lines, { color = true } = {}) {
   };
 
   const bar = dim("│");
-  const rowLine = (r, styler) => GUTTER + bar + " " + r.map((c, i) => styler(pad(c, i))).join(" " + bar + " ") + " " + bar;
-  const rule = (l, m, rr) => GUTTER + dim(l + widths.map((w) => "─".repeat(w + 2)).join(m) + rr);
+  const rowLine = (r, styler) =>
+    GUTTER +
+    bar +
+    " " +
+    r.map((c, i) => styler(pad(c, i))).join(" " + bar + " ") +
+    " " +
+    bar;
+  const rule = (l, m, rr) =>
+    GUTTER + dim(l + widths.map(w => "─".repeat(w + 2)).join(m) + rr);
 
   const out = [rule("┌", "┬", "┐")];
   if (h) {
     out.push(rowLine(h, bold));
     out.push(rule("├", "┼", "┤"));
   }
-  for (const r of b) out.push(rowLine(r, (s) => s));
+  for (const r of b) out.push(rowLine(r, s => s));
   out.push(rule("└", "┴", "┘"));
   return out.join("\n");
 }

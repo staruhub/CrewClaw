@@ -8,13 +8,30 @@
 //  3) 只会答当天 → j1 自带 3 天预报（weather[0..2]），明天/后天按预报日诚实作答；
 //     更远（大后天/下周）返回 null 交给模型+工具。条件描述优先 wttr.in 的 lang=zh 中文。
 const CONDITION_ZH = {
-  Sunny: "晴", Clear: "晴", "Partly cloudy": "多云", "Partly Cloudy": "多云", Cloudy: "多云", Overcast: "阴",
-  Mist: "薄雾", Fog: "雾", Freezing: "冰冻", "Patchy rain possible": "局部有雨",
-  "Patchy rain nearby": "局部有雨", "Light rain": "小雨", "Light drizzle": "毛毛雨",
-  "Moderate rain": "中雨", "Heavy rain": "大雨", "Light snow": "小雪", "Moderate snow": "中雪",
-  "Heavy snow": "大雪", "Thundery outbreaks possible": "可能雷阵雨", "Patchy light rain": "零星小雨",
-  "Light rain shower": "小阵雨", "Moderate or heavy rain shower": "中到大阵雨",
-  "Patchy light drizzle": "零星毛毛雨", "Thunderstorm": "雷暴",
+  Sunny: "晴",
+  Clear: "晴",
+  "Partly cloudy": "多云",
+  "Partly Cloudy": "多云",
+  Cloudy: "多云",
+  Overcast: "阴",
+  Mist: "薄雾",
+  Fog: "雾",
+  Freezing: "冰冻",
+  "Patchy rain possible": "局部有雨",
+  "Patchy rain nearby": "局部有雨",
+  "Light rain": "小雨",
+  "Light drizzle": "毛毛雨",
+  "Moderate rain": "中雨",
+  "Heavy rain": "大雨",
+  "Light snow": "小雪",
+  "Moderate snow": "中雪",
+  "Heavy snow": "大雪",
+  "Thundery outbreaks possible": "可能雷阵雨",
+  "Patchy light rain": "零星小雨",
+  "Light rain shower": "小阵雨",
+  "Moderate or heavy rain shower": "中到大阵雨",
+  "Patchy light drizzle": "零星毛毛雨",
+  Thunderstorm: "雷暴",
   "Moderate or heavy rain with thunder": "雷雨",
 };
 
@@ -23,7 +40,10 @@ export function weatherCity(message) {
   const m = String(message || "");
   if (!/天气|weather|气温|温度/i.test(m)) return null;
   const city = m
-    .replace(/今天|明天|后天|现在|当前|的|天气|气温|温度|怎么样|咋样|如何|预报|查一下|查查|查询|看看|帮我|请问|多少度|weather|in /gi, "")
+    .replace(
+      /今天|明天|后天|现在|当前|的|天气|气温|温度|怎么样|咋样|如何|预报|查一下|查查|查询|看看|帮我|请问|多少度|weather|in /gi,
+      ""
+    )
     // 语气词/助词必须剥干净——残留的"呢"曾被 wttr.in 当城市名解析成毛家店（真实事故）。
     .replace(/[呢吧啊嘛哦哈呀哇]/g, "")
     .replace(/[?？。.,，!！、\s]/g, "")
@@ -40,18 +60,24 @@ export function weatherDay(message) {
   return 0;
 }
 
-export async function fetchWeatherCard(city, { fetchImpl = fetch, day = 0 } = {}) {
+export async function fetchWeatherCard(
+  city,
+  { fetchImpl = fetch, day = 0 } = {}
+) {
   if (!city || day === null || day === undefined) return null;
   try {
     // lang=zh 让 wttr.in 直接给中文天气描述（lang_zh 字段），映射表只作回退。
-    const res = await fetchImpl(`https://wttr.in/${encodeURIComponent(city)}?format=j1&lang=zh`, {
-      headers: { "User-Agent": "curl/8" }, // wttr.in serves JSON to curl-like clients
-    });
+    const res = await fetchImpl(
+      `https://wttr.in/${encodeURIComponent(city)}?format=j1&lang=zh`,
+      {
+        headers: { "User-Agent": "curl/8" }, // wttr.in serves JSON to curl-like clients
+      }
+    );
     if (!res || !res.ok) return null;
     const data = await res.json();
-    const zhDesc = (o) => o?.lang_zh?.[0]?.value?.trim() || "";
-    const enDesc = (o) => o?.weatherDesc?.[0]?.value?.trim() || "";
-    const localize = (o) => zhDesc(o) || CONDITION_ZH[enDesc(o)] || enDesc(o);
+    const zhDesc = o => o?.lang_zh?.[0]?.value?.trim() || "";
+    const enDesc = o => o?.weatherDesc?.[0]?.value?.trim() || "";
+    const localize = o => zhDesc(o) || CONDITION_ZH[enDesc(o)] || enDesc(o);
 
     if (day === 0) {
       const cur = data?.current_condition?.[0];
@@ -70,7 +96,8 @@ export async function fetchWeatherCard(city, { fetchImpl = fetch, day = 0 } = {}
     // 预报日：j1 weather[day] 带 date/maxtempC/mintempC 与 hourly；取正午时段作代表状况。
     const fc = data?.weather?.[day];
     if (!fc) return null;
-    const noon = fc.hourly?.[Math.min(4, (fc.hourly?.length || 1) - 1)] || fc.hourly?.[0];
+    const noon =
+      fc.hourly?.[Math.min(4, (fc.hourly?.length || 1) - 1)] || fc.hourly?.[0];
     return {
       city,
       label: day === 1 ? "明天" : "后天",

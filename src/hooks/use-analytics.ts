@@ -43,7 +43,10 @@ export type AnalyticsEvent = {
 };
 
 function isAnalyticsEventName(value: unknown): value is AnalyticsEventName {
-  return typeof value === "string" && ANALYTICS_EVENTS.includes(value as AnalyticsEventName);
+  return (
+    typeof value === "string" &&
+    ANALYTICS_EVENTS.includes(value as AnalyticsEventName)
+  );
 }
 
 function createEventId(event: AnalyticsEventName) {
@@ -73,7 +76,7 @@ export function readAnalyticsEvents(): AnalyticsEvent[] {
         isAnalyticsEventName(item.event) &&
         typeof item.timestamp === "string" &&
         item.props &&
-        typeof item.props === "object",
+        typeof item.props === "object"
     );
   } catch {
     return [];
@@ -103,5 +106,9 @@ export function track(event: AnalyticsEventName, props: AnalyticsProps = {}) {
 export function useAnalytics() {
   // react-hooks requires an inline function expression here (a bare reference defeats the
   // compiler's dependency analysis); behavior is identical — a stable wrapper around track.
-  return useCallback((event: AnalyticsEventName, props: AnalyticsProps = {}) => track(event, props), []);
+  return useCallback(
+    (event: AnalyticsEventName, props: AnalyticsProps = {}) =>
+      track(event, props),
+    []
+  );
 }

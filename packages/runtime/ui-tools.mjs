@@ -17,7 +17,9 @@ function asString(value) {
 
 function truncateLine(line, max = 200) {
   const chars = Array.from(asString(line));
-  return chars.length > max ? chars.slice(0, max - 1).join("") + "…" : chars.join("");
+  return chars.length > max
+    ? chars.slice(0, max - 1).join("") + "…"
+    : chars.join("");
 }
 
 function formatElapsed(elapsedMs) {
@@ -43,7 +45,8 @@ function searchSummary(args = {}) {
 }
 
 function invocationSummary({ name, command, args }) {
-  if (name === "bash") return `$ ${asString(command ?? args?.command)}`.trimEnd();
+  if (name === "bash")
+    return `$ ${asString(command ?? args?.command)}`.trimEnd();
   if (name === "search") return searchSummary(args);
   if (command) return asString(command);
   if (args && Object.keys(args).length) return JSON.stringify(args);
@@ -59,16 +62,20 @@ function outputLines(output, color) {
   const lines = asString(output).split(/\r?\n/);
   if (lines.length === 1 && lines[0] === "") return [];
   const visible = lines.slice(0, 8);
-  const rendered = visible.map((line) => `│ ${paint(color, ANSI.dim, truncateLine(line))}`);
+  const rendered = visible.map(
+    line => `│ ${paint(color, ANSI.dim, truncateLine(line))}`
+  );
   if (lines.length > visible.length) {
-    rendered.push(`│ ${paint(color, ANSI.dim, `… (+${lines.length - visible.length} 行)`)}`);
+    rendered.push(
+      `│ ${paint(color, ANSI.dim, `… (+${lines.length - visible.length} 行)`)}`
+    );
   }
   return rendered;
 }
 
 export function toolCard(
   { name, command, args, output, elapsedMs, ok = true, confirmed } = {},
-  { color = true } = {},
+  { color = true } = {}
 ) {
   const summary = invocationSummary({ name, command, args });
   const status = statusText({ ok, confirmed });
@@ -81,7 +88,10 @@ export function toolCard(
   return lines.join("\n");
 }
 
-export function toolCallHeader({ name, command, args } = {}, { color = true } = {}) {
+export function toolCallHeader(
+  { name, command, args } = {},
+  { color = true } = {}
+) {
   const summary = invocationSummary({ name, command, args });
   const title = paint(color, ANSI.cyan, `🔧 ${asString(name)}`);
   return `╭─ ${title}${summary ? ` ${paint(color, ANSI.dim, summary)}` : ""}`;
@@ -100,7 +110,8 @@ const TOOL_GLYPH = {
 };
 
 function lineSummary({ name, command, args }) {
-  if (name === "bash") return truncateLine(asString(command ?? args?.command), 72);
+  if (name === "bash")
+    return truncateLine(asString(command ?? args?.command), 72);
   if (name === "search") {
     const q = asString(args?.query);
     const p = args?.path ? ` in ${asString(args.path)}` : "";
@@ -108,9 +119,11 @@ function lineSummary({ name, command, args }) {
   }
   if (name === "web_fetch") return asString(args?.url);
   if (name === "web_search") return `"${asString(args?.query)}"`;
-  if (name === "read_file" || name === "edit_file" || name === "write_file") return asString(args?.path);
+  if (name === "read_file" || name === "edit_file" || name === "write_file")
+    return asString(args?.path);
   if (command) return truncateLine(asString(command), 72);
-  if (args && Object.keys(args).length) return truncateLine(JSON.stringify(args), 72);
+  if (args && Object.keys(args).length)
+    return truncateLine(JSON.stringify(args), 72);
   return "";
 }
 
@@ -130,11 +143,12 @@ function resultSummary({ name, output, confirmed }) {
     return mm ? `${mm[1]} 条` : "已搜";
   }
   if (name === "search") {
-    const lines = out.split(/\r?\n/).filter((l) => l.trim());
-    const n = lines.filter((l) => /:\d+:/.test(l)).length || lines.length;
+    const lines = out.split(/\r?\n/).filter(l => l.trim());
+    const n = lines.filter(l => /:\d+:/.test(l)).length || lines.length;
     return n ? `${n} 处匹配` : "无匹配";
   }
-  if (name === "read_file") return isErr ? "失败" : `${out ? out.split(/\r?\n/).length : 0} 行`;
+  if (name === "read_file")
+    return isErr ? "失败" : `${out ? out.split(/\r?\n/).length : 0} 行`;
   if (name === "bash") {
     if (!out || out === "（无输出）") return "无输出";
     return `${out.split(/\r?\n/).length} 行`;
@@ -144,7 +158,10 @@ function resultSummary({ name, output, confirmed }) {
 
 // One dim line per tool call: "<glyph> <summary> (<result>)". Output stays folded
 // (the model still receives full output); only a compact summary is shown.
-export function toolLine({ name, command, args, output, confirmed } = {}, { color = true } = {}) {
+export function toolLine(
+  { name, command, args, output, confirmed } = {},
+  { color = true } = {}
+) {
   const glyph = TOOL_GLYPH[name] || "•";
   const summary = lineSummary({ name, command, args });
   const head = paint(color, ANSI.dim, `${glyph} ${summary}`.trimEnd());

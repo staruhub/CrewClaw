@@ -5,7 +5,10 @@
 //
 // Not bound to Ink. Pure data. makeEvent() leaves `ts` to the emitter (Date.now lives in the
 // runtime, not here) so this module stays pure and unit-testable.
+export const TASK_EVENT_PROTOCOL_VERSION = 1;
+
 export const EVENTS = {
+  SESSION_READY: "session.ready",
   TASK_STARTED: "task.started",
   TASK_MODE_CHANGED: "task.mode_changed",
   PLAN_CREATED: "plan.created",
@@ -13,8 +16,10 @@ export const EVENTS = {
   STEP_STARTED: "step.started",
   STEP_COMPLETED: "step.completed",
   TOOL_REQUESTED: "tool.requested",
+  TOOL_CALLED: "tool.called",
   TOOL_SUCCEEDED: "tool.succeeded",
   TOOL_FAILED: "tool.failed",
+  TOOL_BLOCKED: "tool.blocked",
   ARTIFACT_CREATED: "artifact.created",
   ARTIFACT_UPDATED: "artifact.updated",
   ARTIFACT_SELECTED: "artifact.selected",
@@ -41,6 +46,8 @@ export const EVENTS = {
   TASK_COMPLETED: "task.completed",
   TASK_REJECTED: "task.rejected",
   TASK_BLOCKED: "task.blocked",
+  TASK_FAILED: "task.failed",
+  TASK_REVISION_NEEDED: "task.revision_needed",
   // v0.6 — chat-to-workbench hardening (§5.4)
   TASK_UPGRADED_FROM_CHAT: "task.upgraded_from_chat",
   SKILL_LAUNCHED: "skill.launched",
@@ -64,11 +71,198 @@ export const EVENTS = {
 };
 
 const KNOWN = new Set(Object.values(EVENTS));
-export function isTaskEvent(type) { return KNOWN.has(type); }
+export function isTaskEvent(type) {
+  return KNOWN.has(type);
+}
 
-// A plain, JSONL-ready event: { type, ts, data }. The payload is NAMESPACED under `data` so
-// payload fields (e.g. an artifact's own `type`) can never clobber the envelope `type`/`ts`.
-// `ts` is injected by the emitter (0 if unstamped).
+const NON_EMPTY = "must be a non-empty string";
+
+function requireString(data, key, errors) {
+  if (typeof data?.[key] !== "string" || data[key].trim().length === 0) {
+    errors.push(`data.${key} ${NON_EMPTY}`);
+  }
+}
+
+function requireBoolean(data, key, errors) {
+  if (typeof data?.[key] !== "boolean")
+    errors.push(`data.${key} must be a boolean`);
+}
+
+function requireObject(data, key, errors) {
+  const value = data?.[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push(`data.${key} must be an object`);
+  }
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function requireTaskReference(data, errors) {
+  const hasId = data?.id !== undefined;
+  const hasTaskRunId = data?.taskRunId !== undefined;
+  if (hasId && !isNonEmptyString(data.id)) {
+    errors.push(`data.id ${NON_EMPTY}`);
+  }
+  if (hasTaskRunId && !isNonEmptyString(data.taskRunId)) {
+    errors.push(`data.taskRunId ${NON_EMPTY}`);
+  }
+  if (!hasId && !hasTaskRunId) {
+    errors.push(`data.id or data.taskRunId ${NON_EMPTY}`);
+  }
+  if (
+    isNonEmptyString(data?.id) &&
+    isNonEmptyString(data?.taskRunId) &&
+    data.id !== data.taskRunId
+  ) {
+    errors.push("data.id must equal data.taskRunId when both are present");
+  }
+}
+
+function requireApprovalKind(data, expected, errors) {
+  requireString(data, "kind", errors);
+  if (typeof data?.kind === "string" && data.kind !== expected) {
+    errors.push(`data.kind must be ${expected}`);
+  }
+}
+
+/**
+ * Validate the canonical payload of a known TaskEvent.
+ *
+ * This deliberately covers the state-changing/correlated protocol surface first. Events that
+ * are not listed remain additive and valid; consumers may give them presentation semantics
+ * without coupling protocol evolution to this validator.
+ */
+export function validateTaskEventPayload(type, data) {
+  const errors = [];
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { ok: false, errors: ["data must be an object"] };
+  }
+
+  switch (type) {
+    case EVENTS.TASK_STARTED:
+      requireString(data, "id", errors);
+      break;
+    case EVENTS.TASK_MODE_CHANGED:
+      requireString(data, "taskRunId", errors);
+      requireString(data, "mode", errors);
+      break;
+    case EVENTS.TASK_UPGRADED_FROM_CHAT:
+      requireString(data, "taskRunId", errors);
+      break;
+    case EVENTS.TASK_COMPLETED:
+      requireTaskReference(data, errors);
+      break;
+    case EVENTS.TASK_REJECTED:
+    case EVENTS.TASK_BLOCKED:
+    case EVENTS.TASK_FAILED:
+    case EVENTS.TASK_REVISION_NEEDED:
+      requireTaskReference(data, errors);
+      requireString(data, "reason", errors);
+      break;
+    case EVENTS.OUTCOME_CHECKED:
+      requireString(data, "taskRunId", errors);
+      requireBoolean(data, "valid", errors);
+      if (data.valid === true) requireString(data, "deliverable", errors);
+      break;
+    case EVENTS.ARTIFACT_CREATED:
+      requireString(data, "id", errors);
+      requireString(data, "taskRunId", errors);
+      requireString(data, "path", errors);
+      break;
+    case EVENTS.ARTIFACT_UPDATED:
+      requireString(data, "id", errors);
+      requireString(data, "taskRunId", errors);
+      requireObject(data, "patch", errors);
+      break;
+    case EVENTS.ARTIFACT_SELECTED:
+      requireString(data, "artifact_id", errors);
+      requireString(data, "taskRunId", errors);
+      break;
+    case EVENTS.ARTIFACT_DELETED:
+      requireString(data, "artifact_id", errors);
+      requireString(data, "taskRunId", errors);
+      requireBoolean(data, "ok", errors);
+      break;
+    case EVENTS.ARTIFACT_REVEALED:
+      requireString(data, "artifact_id", errors);
+      requireString(data, "taskRunId", errors);
+      requireBoolean(data, "ok", errors);
+      break;
+    case EVENTS.ARTIFACT_EXPORTED:
+      requireString(data, "artifact_id", errors);
+      requireString(data, "taskRunId", errors);
+      requireBoolean(data, "ok", errors);
+      if (data.ok === true) requireString(data, "path", errors);
+      break;
+    case EVENTS.APPROVAL_REQUIRED:
+      requireString(data, "id", errors);
+      requireString(data, "taskRunId", errors);
+      requireApprovalKind(data, "tool_authorization", errors);
+      break;
+    case EVENTS.APPROVAL_RESOLVED:
+      requireString(data, "id", errors);
+      requireString(data, "taskRunId", errors);
+      requireApprovalKind(data, "tool_authorization", errors);
+      if (!new Set(["allow", "deny"]).has(data.decision)) {
+        errors.push("data.decision must be allow or deny");
+      }
+      break;
+    case EVENTS.APPROVAL_REQUESTED:
+    case EVENTS.APPROVAL_ACCEPTED:
+      requireString(data, "id", errors);
+      requireString(data, "taskRunId", errors);
+      requireApprovalKind(data, "deliverable_acceptance", errors);
+      break;
+    case EVENTS.APPROVAL_REJECTED:
+      requireString(data, "id", errors);
+      requireString(data, "taskRunId", errors);
+      requireApprovalKind(data, "deliverable_acceptance", errors);
+      if (data.decision !== undefined && data.decision !== "reject") {
+        errors.push("data.decision must be reject when present");
+      }
+      break;
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+/** Validate a complete TaskEvent envelope without rejecting additive, same-version event types. */
+export function validateTaskEvent(event) {
+  const errors = [];
+  if (!event || typeof event !== "object" || Array.isArray(event)) {
+    return { ok: false, known: false, errors: ["event must be an object"] };
+  }
+  if (
+    event.protocol_version !== undefined &&
+    event.protocol_version !== TASK_EVENT_PROTOCOL_VERSION
+  ) {
+    errors.push(
+      `protocol_version must be ${TASK_EVENT_PROTOCOL_VERSION} when present`
+    );
+  }
+  if (typeof event.type !== "string" || event.type.length === 0) {
+    errors.push(`type ${NON_EMPTY}`);
+  }
+  if (!Number.isSafeInteger(event.ts) || event.ts < 0) {
+    errors.push("ts must be a non-negative safe integer");
+  }
+  const known = isTaskEvent(event.type);
+  if (known) {
+    errors.push(...validateTaskEventPayload(event.type, event.data).errors);
+  } else if (
+    !event.data ||
+    typeof event.data !== "object" ||
+    Array.isArray(event.data)
+  ) {
+    errors.push("data must be an object");
+  }
+  return { ok: errors.length === 0, known, errors };
+}
+
+// A plain, JSONL-ready event: { protocol_version, type, ts, data }. Missing version is accepted
+// as legacy v1 by Rust; explicit future versions are rejected rather than silently mis-reduced.
 export function makeEvent(type, data = {}, ts = 0) {
-  return { type, ts, data };
+  return { protocol_version: TASK_EVENT_PROTOCOL_VERSION, type, ts, data };
 }

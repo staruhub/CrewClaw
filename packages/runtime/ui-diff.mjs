@@ -24,11 +24,15 @@ function toLines(text) {
 
 function truncateLine(line, max = 200) {
   const chars = Array.from(asString(line));
-  return chars.length > max ? chars.slice(0, max - 1).join("") + "…" : chars.join("");
+  return chars.length > max
+    ? chars.slice(0, max - 1).join("") + "…"
+    : chars.join("");
 }
 
 function lineNo(value, width) {
-  return value == null ? "·".padStart(width, " ") : String(value).padStart(width, " ");
+  return value == null
+    ? "·".padStart(width, " ")
+    : String(value).padStart(width, " ");
 }
 
 function titleLine(path, title, color) {
@@ -74,7 +78,12 @@ function renderDiffLine(part, width, color) {
   const newNo = lineNo(part.newNo, width);
   const prefix = part.type === "add" ? "+ " : part.type === "del" ? "- " : "  ";
   const raw = `${oldNo} ${newNo}  ${prefix}${truncateLine(part.text)}`;
-  const code = part.type === "add" ? ANSI.green : part.type === "del" ? ANSI.red : ANSI.dim;
+  const code =
+    part.type === "add"
+      ? ANSI.green
+      : part.type === "del"
+        ? ANSI.red
+        : ANSI.dim;
   return `│ ${paint(color, code, raw)}`;
 }
 
@@ -98,11 +107,18 @@ export function computeDiff(oldText, newText) {
   let i = 0;
   let j = 0;
   while (i < oldLines.length || j < newLines.length) {
-    if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
+    if (
+      i < oldLines.length &&
+      j < newLines.length &&
+      oldLines[i] === newLines[j]
+    ) {
       diff.push({ type: "ctx", text: oldLines[i], oldNo: i + 1, newNo: j + 1 });
       i++;
       j++;
-    } else if (j >= newLines.length || (i < oldLines.length && lcs[i + 1][j] >= lcs[i][j + 1])) {
+    } else if (
+      j >= newLines.length ||
+      (i < oldLines.length && lcs[i + 1][j] >= lcs[i][j + 1])
+    ) {
       diff.push({ type: "del", text: oldLines[i], oldNo: i + 1, newNo: null });
       i++;
     } else {
@@ -113,12 +129,15 @@ export function computeDiff(oldText, newText) {
   return diff;
 }
 
-export function diffCard({ path, oldText, newText, title } = {}, { color = true, context = 3 } = {}) {
+export function diffCard(
+  { path, oldText, newText, title } = {},
+  { color = true, context = 3 } = {}
+) {
   const diff = computeDiff(oldText, newText);
   const visible = foldContext(diff, context);
   const maxNo = Math.max(
     1,
-    ...diff.flatMap((part) => [part.oldNo || 0, part.newNo || 0]),
+    ...diff.flatMap(part => [part.oldNo || 0, part.newNo || 0])
   );
   const width = Math.max(3, String(maxNo).length);
   const { adds, dels } = summarize(diff);

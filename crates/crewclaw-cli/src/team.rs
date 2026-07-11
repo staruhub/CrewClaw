@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -36,25 +35,36 @@ impl WorkspaceEmployeeStatus {
 
 pub(crate) fn read_team(root: &Path) -> Result<Vec<WorkspaceEmployee>, String> {
     let path = team_path(root);
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let content = fs::read_to_string(&path)
+    let content = crate::state_store::read_string(root, "team.json")
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+    let Some(content) = content else {
+        return Ok(Vec::new());
+    };
     serde_json::from_str(&content)
         .map_err(|error| format!("Failed to parse {}: {error}", path.display()))
 }
 
-pub(crate) fn write_team(root: &Path, employees: &[WorkspaceEmployee]) -> Result<(), String> {
+fn write_team_unlocked(root: &Path, employees: &[WorkspaceEmployee]) -> Result<(), String> {
     let path = team_path(root);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
-    }
     let content = serde_json::to_string_pretty(employees)
         .map_err(|error| format!("Failed to serialize team state: {error}"))?;
-    fs::write(&path, format!("{content}\n"))
+    crate::state_store::write_atomic(root, "team.json", format!("{content}\n").as_bytes())
         .map_err(|error| format!("Failed to write {}: {error}", path.display()))
+}
+
+/// Serialize the complete read-modify-write transaction across processes. The callback always
+/// receives the latest durable roster after the owner lock is acquired.
+pub(crate) fn mutate_team<T>(
+    root: &Path,
+    mutate: impl FnOnce(&mut Vec<WorkspaceEmployee>) -> Result<T, String>,
+) -> Result<T, String> {
+    let path = team_path(root);
+    let _lock = crate::state_store::acquire_owner_lock(root, "team.json")
+        .map_err(|error| format!("Failed to lock {}: {error}", path.display()))?;
+    let mut employees = read_team(root)?;
+    let result = mutate(&mut employees)?;
+    write_team_unlocked(root, &employees)?;
+    Ok(result)
 }
 
 pub(crate) fn active_employee<'a>(
@@ -136,6 +146,9 @@ fn civil_from_days(days_since_unix_epoch: i64) -> (i64, i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
 
     #[test]
     fn status_serializes_lowercase() {
@@ -156,5 +169,51 @@ mod tests {
     fn formats_unix_epoch_as_utc_datetime() {
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(1), (1970, 1, 2));
+    }
+
+    #[test]
+    fn concurrent_roster_mutations_do_not_lose_employees() {
+        let root = Arc::new(std::env::temp_dir().join(format!(
+            "crewclaw-team-concurrency-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        )));
+        std::fs::create_dir(root.as_ref()).expect("workspace root");
+        let workers = 6;
+        let rounds = 10;
+        let barrier = Arc::new(Barrier::new(workers));
+        let mut joins = Vec::new();
+        for worker in 0..workers {
+            let root = Arc::clone(&root);
+            let barrier = Arc::clone(&barrier);
+            joins.push(thread::spawn(move || {
+                barrier.wait();
+                for round in 0..rounds {
+                    let employee_id = format!("worker-{worker}-employee-{round}");
+                    mutate_team(&root, |employees| {
+                        add_active_employee(employees, &employee_id, "1.0.0", Vec::new());
+                        Ok(())
+                    })
+                    .expect("serialized team mutation");
+                }
+            }));
+        }
+        for join in joins {
+            join.join().expect("worker");
+        }
+        let employees = read_team(&root).expect("final roster");
+        assert_eq!(employees.len(), workers * rounds);
+        assert_eq!(
+            employees
+                .iter()
+                .map(|employee| employee.employee_id.as_str())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            workers * rounds
+        );
+        let _ = std::fs::remove_dir_all(root.as_ref());
     }
 }

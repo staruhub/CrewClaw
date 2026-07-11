@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.14.3
-        version: 1.19.14(hono@4.12.23)
+        version: 1.19.14(hono@4.12.29)
       '@hookform/resolvers':
         specifier: ^5.2.2
         version: 5.4.0(react-hook-form@7.76.1(react@19.2.6))
@@ -138,8 +138,8 @@ importers:
         specifier: ^12.38.0
         version: 12.40.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       hono:
-        specifier: ^4.8.3
-        version: 4.12.23
+        specifier: ^4.12.29
+        version: 4.12.29
       htm:
         specifier: ^3.1.1
         version: 3.1.1
@@ -224,7 +224,7 @@ importers:
         version: 9.39.4
       '@hono/vite-dev-server':
         specifier: ^0.19.0
-        version: 0.19.1(hono@4.12.23)
+        version: 0.19.1(hono@4.12.29)
       '@playwright/test':
         specifier: ^1.56.1
         version: 1.60.0
@@ -3529,8 +3529,8 @@ packages:
   hermes-parser@0.25.1:
     resolution: {integrity: sha512-6pEjquH3rqaI6cYAXYPcz9MS4rY6R4ngRgrgfDshRptUZIc3lw0MCIJIGDj9++mfySOuPTHB4nrSW99BCvOPIA==}
 
-  hono@4.12.23:
-    resolution: {integrity: sha512-eIaZ9qDgu7XV0pxOCrg7/WhnQ6Ivm22UcxhXx/A3dcbqbbYgBEkc6e/J/s7j2tS96zoB0S9VBdLwQNCWwUo4LA==}
+  hono@4.12.29:
+    resolution: {integrity: sha512-1hNiRjawYrLq/4m3DQQjPGFg0VZkk4RjQJDff/excI6Dm9BiL75qxGrd7/c6YOxPdq6AscP3LiXhQ6fKFC1Waw==}
     engines: {node: '>=16.9.0'}
 
   htm@3.1.1:
@@ -5921,14 +5921,14 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@hono/node-server@1.19.14(hono@4.12.23)':
+  '@hono/node-server@1.19.14(hono@4.12.29)':
     dependencies:
-      hono: 4.12.23
+      hono: 4.12.29
 
-  '@hono/vite-dev-server@0.19.1(hono@4.12.23)':
+  '@hono/vite-dev-server@0.19.1(hono@4.12.29)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.23)
-      hono: 4.12.23
+      '@hono/node-server': 1.19.14(hono@4.12.29)
+      hono: 4.12.29
       minimatch: 9.0.9
 
   '@hookform/resolvers@5.4.0(react-hook-form@7.76.1(react@19.2.6))':
@@ -7862,7 +7862,7 @@ snapshots:
     dependencies:
       hermes-estree: 0.25.1
 
-  hono@4.12.23: {}
+  hono@4.12.29: {}
 
   htm@3.1.1: {}
 

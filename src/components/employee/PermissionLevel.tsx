@@ -3,7 +3,11 @@
 import type { ComponentType } from "react";
 import { AlertTriangle, Eye, FileCheck2, PencilLine } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { getPermissionLevel, permissionLabel, type PermissionRiskLevel } from "@/lib/permissions";
+import {
+  getPermissionLevel,
+  permissionLabel,
+  type PermissionRiskLevel,
+} from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 type PermissionLevelConfig = {
@@ -55,21 +59,32 @@ export function PermissionLevel({
       className={cn(
         "rounded-[8px] border p-3",
         config.className,
-        level === "Sensitive action" && "shadow-[0_0_0_1px_rgba(248,113,113,0.18)]",
-        className,
+        level === "Sensitive action" &&
+          "shadow-[0_0_0_1px_rgba(248,113,113,0.18)]",
+        className
       )}
     >
       <div className="flex min-w-0 items-start gap-2">
         <Icon className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">{permissionLabel(permission)}</span>
-            <Badge className={cn("rounded-[8px] border text-[11px]", config.className)} variant="outline">
+            <span className="text-sm font-medium">
+              {permissionLabel(permission)}
+            </span>
+            <Badge
+              className={cn(
+                "rounded-[8px] border text-[11px]",
+                config.className
+              )}
+              variant="outline"
+            >
               {level}
             </Badge>
           </div>
           {!compact && showDescription ? (
-            <p className="mt-2 text-xs leading-5 opacity-85">{config.description}</p>
+            <p className="mt-2 text-xs leading-5 opacity-85">
+              {config.description}
+            </p>
           ) : null}
         </div>
       </div>
@@ -86,10 +101,13 @@ export function PermissionLevelList({
 }) {
   return (
     <div className={cn("grid gap-3", compact ? "sm:grid-cols-2" : undefined)}>
-      {permissions.map((permission) => (
-        <PermissionLevel compact={compact} key={permission} permission={permission} />
+      {permissions.map(permission => (
+        <PermissionLevel
+          compact={compact}
+          key={permission}
+          permission={permission}
+        />
       ))}
     </div>
   );
 }
-

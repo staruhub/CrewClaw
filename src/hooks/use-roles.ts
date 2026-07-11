@@ -12,16 +12,20 @@ function readStoredRoles(): RoleAssignments {
 
   try {
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return {};
 
-    return Object.entries(parsed).reduce<RoleAssignments>((roles, [employeeId, role]) => {
-      if (typeof employeeId === "string" && typeof role === "string") {
-        const trimmedRole = role.trim();
-        if (trimmedRole) roles[employeeId] = trimmedRole;
-      }
+    return Object.entries(parsed).reduce<RoleAssignments>(
+      (roles, [employeeId, role]) => {
+        if (typeof employeeId === "string" && typeof role === "string") {
+          const trimmedRole = role.trim();
+          if (trimmedRole) roles[employeeId] = trimmedRole;
+        }
 
-      return roles;
-    }, {});
+        return roles;
+      },
+      {}
+    );
   } catch {
     return {};
   }
@@ -39,12 +43,15 @@ export function useRoles() {
     writeStoredRoles(roles);
   }, [roles]);
 
-  const getRole = useCallback((employeeId: string) => roles[employeeId] ?? "", [roles]);
+  const getRole = useCallback(
+    (employeeId: string) => roles[employeeId] ?? "",
+    [roles]
+  );
 
   const assignRole = useCallback((employeeId: string, role: string) => {
     const trimmedRole = role.trim();
 
-    setRoles((currentRoles) => {
+    setRoles(currentRoles => {
       if (!trimmedRole) {
         const { [employeeId]: _removedRole, ...remainingRoles } = currentRoles;
         return remainingRoles;

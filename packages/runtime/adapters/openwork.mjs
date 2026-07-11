@@ -77,11 +77,16 @@ function toArray(value) {
 }
 
 function capabilityId(name) {
-  return String(name).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
+  return String(name)
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
 }
 
 function objectEntries(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? Object.entries(value) : [];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? Object.entries(value)
+    : [];
 }
 
 function toolBindings(pkg) {
@@ -92,7 +97,11 @@ function toolBindings(pkg) {
       crewclaw_capability: name,
       necessity: need?.necessity || "optional",
       permission: need?.permission || "unspecified",
-      permission_level: pkg?.permission_policy?.grants?.[name] || pkg?.permission_policy?.denied?.[name] || pkg?.permission_policy?.default_level || "P1",
+      permission_level:
+        pkg?.permission_policy?.grants?.[name] ||
+        pkg?.permission_policy?.denied?.[name] ||
+        pkg?.permission_policy?.default_level ||
+        "P1",
       description: need?.description || "",
       enabled: !disabled,
       binding_type: "abstract-capability",
@@ -123,13 +132,15 @@ function permissionGatewayRules(pkg) {
     default_level: pkg?.permission_policy?.default_level || "P1",
     tier_order: ["P0", "P1", "P2", "P3", "P4"],
     tiers,
-    human_authorization_required: toArray(pkg?.permission_policy?.human_authorization_required).map(String),
+    human_authorization_required: toArray(
+      pkg?.permission_policy?.human_authorization_required
+    ).map(String),
     levels: pkg?.permission_policy?.levels || {},
   };
 }
 
 function artifactTemplates(pkg) {
-  return toArray(pkg?.deliverables).map((deliverable) => ({
+  return toArray(pkg?.deliverables).map(deliverable => ({
     type: deliverable?.type || capabilityId(deliverable?.name || deliverable),
     name: deliverable?.name || deliverable?.type || String(deliverable),
     template_source: "crewclaw-deliverable",
@@ -137,7 +148,7 @@ function artifactTemplates(pkg) {
 }
 
 function taskAcceptanceRules(pkg) {
-  return toArray(pkg?.outcome_rubric).map((rule) => ({
+  return toArray(pkg?.outcome_rubric).map(rule => ({
     id: rule?.id || capabilityId(rule?.criterion || rule),
     weight: rule?.weight ?? null,
     criterion: rule?.criterion || String(rule),
@@ -171,14 +182,17 @@ function employeeCard(pkg) {
 
 function smokeDescriptor(pkg) {
   const smoke =
-    (Array.isArray(pkg?.eval_suite?.smoke_tests) && pkg.eval_suite.smoke_tests[0]) ||
+    (Array.isArray(pkg?.eval_suite?.smoke_tests) &&
+      pkg.eval_suite.smoke_tests[0]) ||
     (Array.isArray(pkg?.eval_suite) && pkg.eval_suite[0]);
 
   return {
     id: smoke?.id || "research-seed-2.1",
     name: "Seed 2.1 OpenWork eval trial",
     seed: "Seed 2.1",
-    task: smoke?.task || "Research Seed 2.1 and decide whether it is suitable for CrewClaw.",
+    task:
+      smoke?.task ||
+      "Research Seed 2.1 and decide whether it is suitable for CrewClaw.",
     acceptance: toArray(smoke?.acceptance),
     runtime: "openwork",
     trial_type: "eval",
@@ -256,7 +270,9 @@ export const openworkAdapter = defineAdapter({
       {
         id: "employee_package",
         status: validation.ok ? "pass" : "fail",
-        detail: validation.ok ? "Employee package validates for OpenWork." : validation.errors.join("; "),
+        detail: validation.ok
+          ? "Employee package validates for OpenWork."
+          : validation.errors.join("; "),
       },
       {
         id: "compatibility",
@@ -265,13 +281,20 @@ export const openworkAdapter = defineAdapter({
       },
       {
         id: "workspace_blueprint",
-        status: blueprint && Object.keys(blueprint).length === BLUEPRINT_KEYS.length ? "pass" : "skip",
-        detail: blueprint ? Object.keys(blueprint).join(", ") : "Skipped because validation failed.",
+        status:
+          blueprint && Object.keys(blueprint).length === BLUEPRINT_KEYS.length
+            ? "pass"
+            : "skip",
+        detail: blueprint
+          ? Object.keys(blueprint).join(", ")
+          : "Skipped because validation failed.",
       },
     ];
 
     return {
-      status: checks.every((check) => check.status === "pass") ? "ok" : "needs_attention",
+      status: checks.every(check => check.status === "pass")
+        ? "ok"
+        : "needs_attention",
       target_level: "L4",
       checks,
       fixes: validation.ok ? compatibility.reasons : validation.errors,

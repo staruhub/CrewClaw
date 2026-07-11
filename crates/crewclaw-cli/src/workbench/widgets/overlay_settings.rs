@@ -212,7 +212,7 @@ pub(crate) fn render_settings(frame: &mut Frame<'_>, ui_state: &UiState) {
         let left = format!("{marker}{label_col}");
         // v0.16 W4.3：desc 列(设计稿弹性截断说明文字),挤在 label 和右侧 value/note 之间。
         let fixed_w = left.width() + value_str.width() + note.width() + 2;
-        let desc_w = width.saturating_sub(fixed_w).max(0);
+        let desc_w = width.saturating_sub(fixed_w);
         let desc_shown = truncate_display_width(row.desc, desc_w);
         let pad = width
             .saturating_sub(left.width() + desc_shown.width() + value_str.width() + note.width());

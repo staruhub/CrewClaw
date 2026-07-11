@@ -34,11 +34,18 @@ export function getPermissionLevel(permission: string): PermissionRiskLevel {
     return "Sensitive action";
   }
 
-  if (value.includes("human_confirmation_required") || value.includes("confirmation")) {
+  if (
+    value.includes("human_confirmation_required") ||
+    value.includes("confirmation")
+  ) {
     return "Write with confirmation";
   }
 
-  if (value.includes(":write") || value.includes(" write") || value.includes("write:")) {
+  if (
+    value.includes(":write") ||
+    value.includes(" write") ||
+    value.includes("write:")
+  ) {
     return "Autonomous write";
   }
 

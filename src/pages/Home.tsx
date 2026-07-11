@@ -34,12 +34,19 @@ export default function Home() {
         <AgentPackage onJoinWaitlist={() => openWaitlist("coming-soon")} />
         <Testimonials />
         <CTA onGetStarted={() => openWaitlist()} />
-        <Pricing onGetStarted={openWaitlist} onContact={() => setContactOpen(true)} />
+        <Pricing
+          onGetStarted={openWaitlist}
+          onContact={() => setContactOpen(true)}
+        />
         <Team />
         <FAQ />
       </main>
       <Footer onGetStarted={() => openWaitlist()} />
-      <WaitlistModal open={waitlistOpen} onClose={() => setWaitlistOpen(false)} defaultPlan={selectedPlan} />
+      <WaitlistModal
+        open={waitlistOpen}
+        onClose={() => setWaitlistOpen(false)}
+        defaultPlan={selectedPlan}
+      />
       <ContactModal open={contactOpen} onClose={() => setContactOpen(false)} />
       <Toaster
         position="top-center"

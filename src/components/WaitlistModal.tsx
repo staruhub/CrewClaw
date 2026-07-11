@@ -9,7 +9,11 @@ interface WaitlistModalProps {
   defaultPlan?: string;
 }
 
-export function WaitlistModal({ open, onClose, defaultPlan }: WaitlistModalProps) {
+export function WaitlistModal({
+  open,
+  onClose,
+  defaultPlan,
+}: WaitlistModalProps) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const subscribe = trpc.waitlist.subscribe.useMutation({
@@ -29,12 +33,19 @@ export function WaitlistModal({ open, onClose, defaultPlan }: WaitlistModalProps
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
-    subscribe.mutate({ email: email.trim(), name: name.trim() || undefined, plan: defaultPlan });
+    subscribe.mutate({
+      email: email.trim(),
+      name: name.trim() || undefined,
+      plan: defaultPlan,
+    });
   };
 
   return (
     <div className="fixed inset-0 z-[900] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
@@ -48,25 +59,36 @@ export function WaitlistModal({ open, onClose, defaultPlan }: WaitlistModalProps
         >
           <X size={20} />
         </button>
-        <h3 id="waitlist-title" className="font-mono text-xl font-bold text-crew-heading mb-2">Join the Waitlist</h3>
-        <p className="text-crew-body text-sm mb-6">Be the first to hire AI agents for your team.</p>
+        <h3
+          id="waitlist-title"
+          className="font-mono text-xl font-bold text-crew-heading mb-2"
+        >
+          Join the Waitlist
+        </h3>
+        <p className="text-crew-body text-sm mb-6">
+          Be the first to hire AI agents for your team.
+        </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">Name</label>
+            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">
+              Name
+            </label>
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={e => setName(e.target.value)}
               className="w-full bg-crew-bg border border-crew-border rounded-lg px-4 py-3 text-crew-heading text-sm focus:outline-none focus:border-crew-copper transition-colors"
               placeholder="Your name"
             />
           </div>
           <div>
-            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">Email *</label>
+            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">
+              Email *
+            </label>
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={e => setEmail(e.target.value)}
               required
               className="w-full bg-crew-bg border border-crew-border rounded-lg px-4 py-3 text-crew-heading text-sm focus:outline-none focus:border-crew-copper transition-colors"
               placeholder="you@company.com"

@@ -5,15 +5,34 @@
 //   FORCE_COLOR=1 node tui/chat-demo2.mjs
 import { mountChat } from "./chat.mjs";
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const stub = (text) => String(text).split("\n").map((l) => "   " + l); // until ui-markdown lands
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const stub = text =>
+  String(text)
+    .split("\n")
+    .map(l => "   " + l); // until ui-markdown lands
 
 // interleaved: plan text → two tool reads → answer text (tools land WHERE they happened)
 const fakeRunTurn = async (text, cb) => {
-  for (const ch of "计划：先查一下数据源，再给你结构化结果。") { cb.onDelta(ch); await sleep(6); }
-  cb.onInvocation({ toolName: "web_fetch", args: { url: "https://wttr.in/Hangzhou" }, output: "x".repeat(412), status: "success" });
-  cb.onInvocation({ toolName: "web_fetch", args: { url: "https://wttr.in/Hangzhou?m" }, output: "y".repeat(388), status: "success" });
-  for (const ch of "\n\n根据数据源，杭州明天多云转晴，最高 30°C、最低 21°C。") { cb.onDelta(ch); await sleep(6); }
+  for (const ch of "计划：先查一下数据源，再给你结构化结果。") {
+    cb.onDelta(ch);
+    await sleep(6);
+  }
+  cb.onInvocation({
+    toolName: "web_fetch",
+    args: { url: "https://wttr.in/Hangzhou" },
+    output: "x".repeat(412),
+    status: "success",
+  });
+  cb.onInvocation({
+    toolName: "web_fetch",
+    args: { url: "https://wttr.in/Hangzhou?m" },
+    output: "y".repeat(388),
+    status: "success",
+  });
+  for (const ch of "\n\n根据数据源，杭州明天多云转晴，最高 30°C、最低 21°C。") {
+    cb.onDelta(ch);
+    await sleep(6);
+  }
   cb.onUsage({ prompt_tokens: 800, completion_tokens: 120 });
 };
 

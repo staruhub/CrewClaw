@@ -24,9 +24,21 @@ function numberOrZero(value) {
 
 function tokenUsage(value = {}) {
   return {
-    prompt_tokens: numberOrZero(firstDefined(value.prompt_tokens, value.promptTokens, value.input_tokens, value.inputTokens)),
+    prompt_tokens: numberOrZero(
+      firstDefined(
+        value.prompt_tokens,
+        value.promptTokens,
+        value.input_tokens,
+        value.inputTokens
+      )
+    ),
     completion_tokens: numberOrZero(
-      firstDefined(value.completion_tokens, value.completionTokens, value.output_tokens, value.outputTokens),
+      firstDefined(
+        value.completion_tokens,
+        value.completionTokens,
+        value.output_tokens,
+        value.outputTokens
+      )
     ),
   };
 }
@@ -37,7 +49,11 @@ function eventType(event) {
 }
 
 function eventTypes(taskRun = {}) {
-  return new Set(asArray(firstDefined(taskRun.timeline_events, taskRun.events)).map(eventType).filter(Boolean));
+  return new Set(
+    asArray(firstDefined(taskRun.timeline_events, taskRun.events))
+      .map(eventType)
+      .filter(Boolean)
+  );
 }
 
 export function assembleProofPack(taskRun = {}) {
@@ -46,7 +62,9 @@ export function assembleProofPack(taskRun = {}) {
   return {
     task_run_id: taskRun.task_run_id ?? null,
     plan_snapshot: taskRun.plan ?? null,
-    timeline_events: asArray(firstDefined(taskRun.timeline_events, taskRun.events)),
+    timeline_events: asArray(
+      firstDefined(taskRun.timeline_events, taskRun.events)
+    ),
     tool_calls: asArray(firstDefined(taskRun.tool_calls, taskRun.tools)),
     artifacts: asArray(taskRun.artifacts),
     evidence_cards: asArray(taskRun.evidence),
@@ -58,8 +76,9 @@ export function assembleProofPack(taskRun = {}) {
 
 export function validateCompletion(taskRun = {}) {
   const types = eventTypes(taskRun);
-  const missing = REQUIRED_COMPLETION_EVENTS.filter((type) => !types.has(type));
-  const approvalPresent = types.has("approval.requested") || Boolean(taskRun.approval);
+  const missing = REQUIRED_COMPLETION_EVENTS.filter(type => !types.has(type));
+  const approvalPresent =
+    types.has("approval.requested") || Boolean(taskRun.approval);
 
   if (!approvalPresent) {
     missing.push("approval.requested");
@@ -81,7 +100,8 @@ export function costSummary(usage = {}) {
       completionTokens: tokens.completion_tokens,
     }).cost;
   } else {
-    cost = tokens.prompt_tokens * 0.000002 + tokens.completion_tokens * 0.000008;
+    cost =
+      tokens.prompt_tokens * 0.000002 + tokens.completion_tokens * 0.000008;
   }
 
   return {

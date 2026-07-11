@@ -44,7 +44,10 @@ const DEFAULT_METHODS = Object.freeze({
 export function defineAdapter(impl = {}) {
   const adapter = {};
   for (const method of ADAPTER_METHODS) {
-    adapter[method] = typeof impl[method] === "function" ? impl[method] : DEFAULT_METHODS[method];
+    adapter[method] =
+      typeof impl[method] === "function"
+        ? impl[method]
+        : DEFAULT_METHODS[method];
   }
 
   for (const [key, value] of Object.entries(impl)) {

@@ -3,15 +3,15 @@
 ## Project
 
 This repo builds **CrewClaw by ChaoGeek: an AI Employee Platform** — discover, hire, deploy, use,
-and evaluate digital employees. One line: *OpenCode makes AI able to work; OpenWork gives AI a
-computer; CrewClaw proves which AI employee deserves to be hired.*
+and evaluate digital employees. One line: _OpenCode makes AI able to work; OpenWork gives AI a
+computer; CrewClaw proves which AI employee deserves to be hired._
 
 Components: the two-file employee standard (`hire.yaml` hiring contract + `crewclaw.employee.yaml`
 runtime spec, JSON Schemas in `contracts/schema/`), the employee registry + validator, the Node
 reference runtime (`packages/runtime`, TaskEvent JSONL), the Ratatui supervision workbench
 (`crates/crewclaw-cli`), the evaluation runner (real benchmark scores), and the local-first
 marketplace website (Vite + hono, real package downloads). Authoritative product doc:
-`../prd_v0.18.md` (boundary charter included).
+`docs/prd_v0.18.md` (versioned with the implementation; boundary charter included).
 
 ## Boundaries (charter, 2026-07-10)
 

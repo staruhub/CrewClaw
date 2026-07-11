@@ -19,16 +19,12 @@ import { PricingBadge } from "@/components/PricingInfo";
 import { formatPricingLabel, pricingTone } from "@/lib/pricing";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { getEmployee, type Employee } from "@/data/employees";
+import { isLocalDevelopment, localCrewClawCommand } from "@/data/experts";
 import { track } from "@/hooks/use-analytics";
 import { useEmployeeReviews } from "@/hooks/use-reviews";
 import { useSavedEmployees } from "@/hooks/use-saved";
@@ -41,12 +37,17 @@ type ResumeSectionProps = {
   className?: string;
 };
 
-function ResumeSection({ title, eyebrow, children, className }: ResumeSectionProps) {
+function ResumeSection({
+  title,
+  eyebrow,
+  children,
+  className,
+}: ResumeSectionProps) {
   return (
     <Card
       className={cn(
         "rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading shadow-[0_18px_54px_rgba(0,0,0,0.18)]",
-        className,
+        className
       )}
     >
       <CardHeader className="gap-2">
@@ -65,7 +66,7 @@ function ResumeSection({ title, eyebrow, children, className }: ResumeSectionPro
 function TextList({ items }: { items: string[] }) {
   return (
     <ul className="space-y-3 text-sm leading-6 text-crew-body">
-      {items.map((item) => (
+      {items.map(item => (
         <li className="flex gap-3" key={item}>
           <CheckCircle2 className="mt-1 size-4 shrink-0 text-crew-copper" />
           <span>{item}</span>
@@ -95,11 +96,19 @@ function Stat({
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1 border-b border-white/10 py-3 last:border-b-0 sm:flex-row sm:items-start sm:justify-between">
       <dt className="text-sm text-crew-muted">{label}</dt>
-      <dd className="text-sm text-crew-body sm:max-w-[65%] sm:text-right">{value}</dd>
+      <dd className="text-sm text-crew-body sm:max-w-[65%] sm:text-right">
+        {value}
+      </dd>
     </div>
   );
 }
@@ -112,11 +121,13 @@ function formatReviewDate(value: string) {
 }
 
 function ratingStars(value: number) {
-  return Array.from({ length: 5 }, (_, index) => index + 1).map((star) => (
+  return Array.from({ length: 5 }, (_, index) => index + 1).map(star => (
     <Star
       className={cn(
         "size-4",
-        star <= Math.round(value) ? "fill-crew-copper text-crew-copper" : "text-crew-muted",
+        star <= Math.round(value)
+          ? "fill-crew-copper text-crew-copper"
+          : "text-crew-muted"
       )}
       key={star}
     />
@@ -145,16 +156,29 @@ function onboardingRequirements(employee: Employee) {
     requirements.push("Browser access for public web research.");
   }
 
-  if (employee.tools.includes("terminal") || employee.tools.includes("read_file")) {
-    requirements.push("Local read-only project context when task work needs repository files.");
+  if (
+    employee.tools.includes("terminal") ||
+    employee.tools.includes("read_file")
+  ) {
+    requirements.push(
+      "Local read-only project context when task work needs repository files."
+    );
   }
 
   if (employee.install_command) {
-    requirements.push(`Hermes profile command available: ${employee.install_command}`);
+    requirements.push(
+      isLocalDevelopment
+        ? `Local CrewClaw launcher available: ${localCrewClawCommand}`
+        : "Public package distribution is pending; use the CrewClaw repository local setup guide."
+    );
   }
 
   if (employee.repo || employee.local_source) {
-    requirements.push(employee.repo ? `Source package: ${employee.repo}` : `Local package: ${employee.local_source}`);
+    requirements.push(
+      employee.repo
+        ? `Source package: ${employee.repo}`
+        : `Local package: ${employee.local_source}`
+    );
   }
 
   return requirements;
@@ -178,7 +202,10 @@ function NotFound() {
   return (
     <main className="min-h-screen bg-crew-bg px-4 py-10 text-crew-heading sm:px-6">
       <section className="mx-auto max-w-3xl">
-        <Badge className="border-white/10 bg-white/[0.04] text-crew-muted" variant="outline">
+        <Badge
+          className="border-white/10 bg-white/[0.04] text-crew-muted"
+          variant="outline"
+        >
           Resume
         </Badge>
         <h1 className="mt-5 text-3xl font-light">Employee not found</h1>
@@ -262,7 +289,7 @@ export default function EmployeeDetail() {
               <Badge className="border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
                 {employee.verified ? "Verified Employee" : "In Review"}
               </Badge>
-              {employee.categories.map((category) => (
+              {employee.categories.map(category => (
                 <Badge
                   className="border-white/10 bg-white/[0.04] text-crew-muted"
                   key={category}
@@ -326,9 +353,11 @@ export default function EmployeeDetail() {
                   "rounded-[8px] border-white/15",
                   isSaved
                     ? "border-crew-copper/45 bg-crew-copper/10 text-crew-copper"
-                    : "text-crew-muted hover:text-crew-heading",
+                    : "text-crew-muted hover:text-crew-heading"
                 )}
-                onClick={() => saved.toggleSaved(employee.employee_id, employee.name)}
+                onClick={() =>
+                  saved.toggleSaved(employee.employee_id, employee.name)
+                }
                 type="button"
                 variant="outline"
               >
@@ -370,14 +399,28 @@ export default function EmployeeDetail() {
 
           <Card className="h-fit rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading shadow-[0_18px_54px_rgba(0,0,0,0.18)]">
             <CardHeader>
-              <CardTitle className="text-base font-semibold">Resume snapshot</CardTitle>
+              <CardTitle className="text-base font-semibold">
+                Resume snapshot
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <dl>
-                <DetailRow label="Reports to" value={employee.identity.reports_to ?? "Team owner"} />
-                <DetailRow label="Location" value={employee.identity.location ?? "Remote"} />
-                <DetailRow label="Pricing" value={<PricingBadge pricing={employee.pricing} />} />
-                <DetailRow label="Trial period" value={employee.lifecycle.trial_period} />
+                <DetailRow
+                  label="Reports to"
+                  value={employee.identity.reports_to ?? "Team owner"}
+                />
+                <DetailRow
+                  label="Location"
+                  value={employee.identity.location ?? "Remote"}
+                />
+                <DetailRow
+                  label="Pricing"
+                  value={<PricingBadge pricing={employee.pricing} />}
+                />
+                <DetailRow
+                  label="Trial period"
+                  value={employee.lifecycle.trial_period}
+                />
                 <DetailRow
                   label="Lifecycle"
                   value={`${employee.lifecycle.hireable ? "Hireable" : "Closed"} / ${
@@ -394,19 +437,33 @@ export default function EmployeeDetail() {
             (certification, version) instead; live user reviews still surface in the Reviews section
             below when they exist. */}
         <section className="mt-8 grid gap-4 sm:grid-cols-3">
-          <Stat icon={ShieldCheck} label="Certification" value={employee.certification} />
+          <Stat
+            icon={ShieldCheck}
+            label="Certification"
+            value={employee.certification}
+          />
           <Stat icon={Tag} label="Version" value={`v${employee.version}`} />
-          <Stat icon={Clock3} label="Updated" value={new Date(employee.updated_at).toLocaleDateString()} />
+          <Stat
+            icon={Clock3}
+            label="Updated"
+            value={new Date(employee.updated_at).toLocaleDateString()}
+          />
         </section>
 
         <section className="mt-8 grid gap-5 lg:grid-cols-2">
           <ResumeSection eyebrow="Fit" title="Best for">
-            <TextList items={employee.demo_tasks.length > 0 ? employee.demo_tasks : employee.examples.inputs} />
+            <TextList
+              items={
+                employee.demo_tasks.length > 0
+                  ? employee.demo_tasks
+                  : employee.examples.inputs
+              }
+            />
           </ResumeSection>
 
           <ResumeSection eyebrow="Skills" title="Core skills">
             <div className="flex flex-wrap gap-2">
-              {employee.skills.map((skill) => (
+              {employee.skills.map(skill => (
                 <Badge
                   className="border-crew-copper/35 bg-crew-copper/10 text-crew-copper"
                   key={skill}
@@ -430,10 +487,12 @@ export default function EmployeeDetail() {
                 {pricingDescription(employee.pricing)}
               </p>
               <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
-                <h3 className="text-sm font-medium text-crew-heading">Before onboarding</h3>
+                <h3 className="text-sm font-medium text-crew-heading">
+                  Before onboarding
+                </h3>
                 <p className="mt-2 text-sm leading-6 text-crew-body">
-                  Choose a Free or Pro mock plan during hire confirmation, then review
-                  permissions before this employee joins your crew.
+                  Choose a Free or Pro mock plan during hire confirmation, then
+                  review permissions before this employee joins your crew.
                 </p>
               </div>
             </div>
@@ -444,7 +503,7 @@ export default function EmployeeDetail() {
               <div>
                 <h3 className="text-sm font-medium text-crew-heading">Tools</h3>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {employee.tools.map((tool) => (
+                  {employee.tools.map(tool => (
                     <Badge
                       className="border-white/10 bg-white/[0.04] text-crew-muted"
                       key={tool}
@@ -457,9 +516,14 @@ export default function EmployeeDetail() {
               </div>
               <Separator className="bg-white/10" />
               <div>
-                <h3 className="text-sm font-medium text-crew-heading">Permissions</h3>
+                <h3 className="text-sm font-medium text-crew-heading">
+                  Permissions
+                </h3>
                 <div className="mt-3">
-                  <PermissionLevelList compact permissions={employee.permissions} />
+                  <PermissionLevelList
+                    compact
+                    permissions={employee.permissions}
+                  />
                 </div>
               </div>
             </div>
@@ -468,7 +532,7 @@ export default function EmployeeDetail() {
           <ResumeSection eyebrow="Try first" title="Example tasks">
             <div className="space-y-5">
               <div className="space-y-3">
-                {employee.examples.inputs.map((task) => {
+                {employee.examples.inputs.map(task => {
                   const command = demoCommand(employee.employee_id, task);
 
                   return (
@@ -478,7 +542,9 @@ export default function EmployeeDetail() {
                     >
                       <div className="flex gap-3">
                         <CheckCircle2 className="mt-1 size-4 shrink-0 text-crew-copper" />
-                        <p className="text-sm leading-6 text-crew-body">{task}</p>
+                        <p className="text-sm leading-6 text-crew-body">
+                          {task}
+                        </p>
                       </div>
                       <div className="mt-4 rounded-[8px] border border-white/10 bg-black/20 p-3">
                         <code className="break-all font-mono text-xs leading-6 text-crew-heading">
@@ -487,8 +553,8 @@ export default function EmployeeDetail() {
                       </div>
                       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs leading-5 text-crew-muted">
-                          Copy this command and run it locally when this employee has joined
-                          your crew.
+                          Copy this command and run it locally when this
+                          employee has joined your crew.
                         </p>
                         <Button
                           className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
@@ -506,7 +572,9 @@ export default function EmployeeDetail() {
               </div>
               <Separator className="bg-white/10" />
               <div>
-                <h3 className="mb-3 text-sm font-medium text-crew-heading">Expected output</h3>
+                <h3 className="mb-3 text-sm font-medium text-crew-heading">
+                  Expected output
+                </h3>
                 <TextList items={employee.examples.outputs} />
               </div>
             </div>
@@ -525,12 +593,19 @@ export default function EmployeeDetail() {
           </ResumeSection>
         </section>
 
-        <ResumeSection className="mt-5" eyebrow="Version" title="Lifecycle and changelog">
+        <ResumeSection
+          className="mt-5"
+          eyebrow="Version"
+          title="Lifecycle and changelog"
+        >
           <div className="grid gap-5 md:grid-cols-[280px_1fr]">
             <dl className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
               <DetailRow label="Version" value={`v${employee.version}`} />
               <DetailRow label="Status" value={employee.status} />
-              <DetailRow label="Created" value={new Date(employee.created_at).toLocaleDateString()} />
+              <DetailRow
+                label="Created"
+                value={new Date(employee.created_at).toLocaleDateString()}
+              />
             </dl>
             <div>
               <div className="mb-3 flex items-center gap-2 text-sm font-medium text-crew-heading">
@@ -542,7 +617,11 @@ export default function EmployeeDetail() {
           </div>
         </ResumeSection>
 
-        <ResumeSection className="mt-5" eyebrow="Reviews" title="Teammate reviews">
+        <ResumeSection
+          className="mt-5"
+          eyebrow="Reviews"
+          title="Teammate reviews"
+        >
           <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
             <div>
               <div className="flex flex-wrap items-center gap-3">
@@ -558,7 +637,7 @@ export default function EmployeeDetail() {
               </div>
               <div className="mt-5 space-y-3">
                 {reviews.reviews.length > 0 ? (
-                  reviews.reviews.map((review) => (
+                  reviews.reviews.map(review => (
                     <article
                       className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4"
                       key={review.id}
@@ -571,7 +650,9 @@ export default function EmployeeDetail() {
                           {formatReviewDate(review.created_at)}
                         </time>
                       </div>
-                      <p className="mt-3 text-sm leading-6 text-crew-body">{review.text}</p>
+                      <p className="mt-3 text-sm leading-6 text-crew-body">
+                        {review.text}
+                      </p>
                     </article>
                   ))
                 ) : (
@@ -579,8 +660,8 @@ export default function EmployeeDetail() {
                     <div className="flex gap-3">
                       <MessageSquare className="mt-1 size-4 shrink-0 text-crew-copper" />
                       <p className="text-sm leading-6 text-crew-body">
-                        No teammate reviews yet. Add the first review after this employee
-                        helps your crew.
+                        No teammate reviews yet. Add the first review after this
+                        employee helps your crew.
                       </p>
                     </div>
                   </div>
@@ -591,9 +672,11 @@ export default function EmployeeDetail() {
               className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4"
               onSubmit={submitReview}
             >
-              <h3 className="text-sm font-medium text-crew-heading">Review this employee</h3>
+              <h3 className="text-sm font-medium text-crew-heading">
+                Review this employee
+              </h3>
               <div className="mt-4 flex flex-wrap gap-2" role="radiogroup">
-                {[1, 2, 3, 4, 5].map((rating) => (
+                {[1, 2, 3, 4, 5].map(rating => (
                   <Button
                     aria-checked={reviewRating === rating}
                     aria-label={`${rating} star review`}
@@ -601,7 +684,7 @@ export default function EmployeeDetail() {
                       "size-10 rounded-[8px] border-white/15",
                       reviewRating >= rating
                         ? "border-crew-copper/45 bg-crew-copper/10 text-crew-copper"
-                        : "text-crew-muted hover:text-crew-heading",
+                        : "text-crew-muted hover:text-crew-heading"
                     )}
                     key={rating}
                     onClick={() => setReviewRating(rating)}
@@ -609,18 +692,25 @@ export default function EmployeeDetail() {
                     type="button"
                     variant="outline"
                   >
-                    <Star className={cn("size-4", reviewRating >= rating && "fill-current")} />
+                    <Star
+                      className={cn(
+                        "size-4",
+                        reviewRating >= rating && "fill-current"
+                      )}
+                    />
                   </Button>
                 ))}
               </div>
               <Textarea
                 className="mt-4 min-h-28 rounded-[8px] border-white/10 bg-white/[0.04] text-crew-heading placeholder:text-crew-muted"
-                onChange={(event) => setReviewText(event.target.value)}
+                onChange={event => setReviewText(event.target.value)}
                 placeholder="Share what this AI employee helped with and where it still needs attention."
                 value={reviewText}
               />
               {reviewMessage ? (
-                <p className="mt-3 text-sm leading-6 text-crew-muted">{reviewMessage}</p>
+                <p className="mt-3 text-sm leading-6 text-crew-muted">
+                  {reviewMessage}
+                </p>
               ) : null}
               <Button className="mt-4 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze">
                 Submit review
@@ -633,9 +723,12 @@ export default function EmployeeDetail() {
           <div className="flex gap-3">
             <ShieldCheck className="mt-1 size-5 shrink-0 text-crew-copper" />
             <div>
-              <h2 className="text-base font-semibold">Ready to onboard this AI employee?</h2>
+              <h2 className="text-base font-semibold">
+                Ready to onboard this AI employee?
+              </h2>
               <p className="mt-1 text-sm leading-6 text-crew-body">
-                Review tool access and confirmation points before this employee joins your team.
+                Review tool access and confirmation points before this employee
+                joins your team.
               </p>
             </div>
           </div>

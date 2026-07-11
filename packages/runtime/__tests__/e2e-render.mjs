@@ -42,17 +42,23 @@ function chunkText(text, size = 20) {
 
 function visibleLen(text) {
   let n = 0;
-  for (const ch of text) n += /[\u1100-\u115f\u2329\u232a\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe10-\ufe19\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/u.test(ch) ? 2 : 1;
+  for (const ch of text)
+    n +=
+      /[\u1100-\u115f\u2329\u232a\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe10-\ufe19\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/u.test(
+        ch
+      )
+        ? 2
+        : 1;
   return n;
 }
 
 function renderedContentLines(output) {
   return stripAnsi(output)
     .split(/\r?\n/)
-    .map((line) => line.replace(RUNTIME_LABEL_RE, ""))
-    .filter((line) => line.trim() !== "")
-    .filter((line) => !/· model .* · \d+ skills · live$/.test(line))
-    .filter((line) => !/下班了/.test(line));
+    .map(line => line.replace(RUNTIME_LABEL_RE, ""))
+    .filter(line => line.trim() !== "")
+    .filter(line => !/· model .* · \d+ skills · live$/.test(line))
+    .filter(line => !/下班了/.test(line));
 }
 
 function assertRendered(output) {
@@ -61,21 +67,36 @@ function assertRendered(output) {
 
   assert.ok(lines.length > 0, "expected rendered assistant output lines");
 
-  const badIndent = lines.filter((line) => {
+  const badIndent = lines.filter(line => {
     const indent = line.match(/^ */)?.[0].length ?? 0;
     const listTextColumn = line.search(/item\d/u);
     const isList = line.includes("• item");
     return isList ? listTextColumn < 4 : indent < 2;
   });
-  assert.deepEqual(badIndent, [], "expected each content line to be gutter-indented");
+  assert.deepEqual(
+    badIndent,
+    [],
+    "expected each content line to be gutter-indented"
+  );
 
-  assert.match(plain, /┌.*┬.*┐|╔.*╦.*╗/s, "expected rendered table to contain box-drawing border chars");
+  assert.match(
+    plain,
+    /┌.*┬.*┐|╔.*╦.*╗/s,
+    "expected rendered table to contain box-drawing border chars"
+  );
 
-  const longLines = lines.filter((line) => visibleLen(line) > 79);
-  assert.deepEqual(longLines, [], "expected no visible rendered content line to exceed 79 columns");
+  const longLines = lines.filter(line => visibleLen(line) > 79);
+  assert.deepEqual(
+    longLines,
+    [],
+    "expected no visible rendered content line to exceed 79 columns"
+  );
 
-  const chineseLines = lines.filter((line) => /[\u4e00-\u9fff]/u.test(line));
-  assert.ok(chineseLines.length >= 2, "expected long Chinese paragraph to wrap onto multiple lines");
+  const chineseLines = lines.filter(line => /[\u4e00-\u9fff]/u.test(line));
+  assert.ok(
+    chineseLines.length >= 2,
+    "expected long Chinese paragraph to wrap onto multiple lines"
+  );
 }
 
 async function run() {
@@ -97,18 +118,26 @@ async function run() {
           CREWCLAW_ROOT: cwd,
         },
         stdio: ["ignore", "pipe", "pipe"],
-      },
+      }
     );
 
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (data) => { stdout += data; });
-    child.stderr.on("data", (data) => { stderr += data; });
+    child.stdout.on("data", data => {
+      stdout += data;
+    });
+    child.stderr.on("data", data => {
+      stderr += data;
+    });
 
     const [code] = await once(child, "close");
-    assert.equal(code, 0, `run.mjs exited with ${code}\nSTDERR:\n${stderr}\nSTDOUT:\n${stdout}`);
+    assert.equal(
+      code,
+      0,
+      `run.mjs exited with ${code}\nSTDERR:\n${stderr}\nSTDOUT:\n${stdout}`
+    );
     assertRendered(stdout);
     console.log("All assertions passed");
   } catch (error) {

@@ -13,11 +13,11 @@ PRD 依据：`crewclaw_prd.md` §12（Manifest）、§13（数据模型）、§2
 
 "员工是什么"目前有三套并存且互不一致的描述：
 
-| 来源 | 形态 | 用途 | 问题 |
-|---|---|---|---|
-| `registry/experts.json` | 旧 JSON schema（name/display_name/status/requires/first_task…） | CLI 读取、展示 | 字段与 PRD Manifest 不对齐；无 macao |
-| `experts/<name>/distribution.yaml` | 包分发清单 | 安装、校验 | 与 registry 字段重复、口径不一 |
-| `agents/macao-networking-agent/hire.yaml` | `crewclaw/v1, kind: Employee` Manifest | macao 专用 | 格式最贴 PRD，但只有 macao 用，且不在 registry |
+| 来源                                      | 形态                                                            | 用途           | 问题                                           |
+| ----------------------------------------- | --------------------------------------------------------------- | -------------- | ---------------------------------------------- |
+| `registry/experts.json`                   | 旧 JSON schema（name/display_name/status/requires/first_task…） | CLI 读取、展示 | 字段与 PRD Manifest 不对齐；无 macao           |
+| `experts/<name>/distribution.yaml`        | 包分发清单                                                      | 安装、校验     | 与 registry 字段重复、口径不一                 |
+| `agents/macao-networking-agent/hire.yaml` | `crewclaw/v1, kind: Employee` Manifest                          | macao 专用     | 格式最贴 PRD，但只有 macao 用，且不在 registry |
 
 M1–M4（CLI 闭环、前端市场、创作者/审核、信任/埋点）全部要读"员工是什么"。**不先统一，后面每个里程碑都在三套口径之间打架。**
 
@@ -26,12 +26,14 @@ M1–M4（CLI 闭环、前端市场、创作者/审核、信任/埋点）全部�
 ## 2. 范围
 
 **做（P0 地基）**
+
 - 统一 Employee Manifest 标准（crewclaw/v1）。
 - 定义 4 个数据模型契约（PRD §13）。
 - macao 接入：迁入 `experts/`、补齐标准包、补 2 个缺失 skill、进 registry。
 - 校验器按新标准校验全部员工包。
 
 **不做（留给后续里程碑）**
+
 - 新增 CLI 命令 `search/inspect/submit`（M1）。
 - 任何前端页面（M2）。
 - 创作者后台、审核队列（M3）。
@@ -46,21 +48,21 @@ M1–M4（CLI 闭环、前端市场、创作者/审核、信任/埋点）全部�
 
 字段（合并 macao 现有结构 + PRD §12）：
 
-| 区块 | 字段 | 必填 | 来源/说明 |
-|---|---|---|---|
-| `apiVersion` / `kind` | — | ✅ | 固定 `crewclaw/v1` / `Employee` |
-| `metadata` | id, name, mascot, version, certification, published_by, creator | ✅ | PRD: id/name/version/creator |
-| `identity` | title(=role), description(一句话), reports_to, location | ✅ | PRD: role/description/identity |
-| `soul` | 工作风格与原则（一句话摘要，详写在 `SOUL.md`） | ✅ | PRD: soul |
-| `skills` | 技能名列表（对应 `skills/**/SKILL.md`） | ✅ | PRD: skills |
-| `tools` | 工具列表（browser/contacts/calendar/mailbox…） | ✅ | PRD: tools |
-| `permissions` | 最小权限声明（`calendar:read`、`contacts:write`…） | ✅ | PRD: permissions |
-| `requires` | hermes, runtime, env[] | ✅ | PRD: install_requirements |
-| `examples` | inputs[], outputs[] | ✅ | PRD: input/output_examples |
-| `limitations` | 能力边界列表 | ✅ | PRD: limitations |
-| `sla` | response_time, availability, escalation | ⬜ | macao 现有 |
-| `lifecycle` | hireable, fireable, trial_period | ✅ | macao 现有 |
-| 可选 | pricing, categories, tags, demo_tasks, changelog, support_url, safety_notes | ⬜ | PRD §12.2 |
+| 区块                  | 字段                                                                        | 必填 | 来源/说明                       |
+| --------------------- | --------------------------------------------------------------------------- | ---- | ------------------------------- |
+| `apiVersion` / `kind` | —                                                                           | ✅   | 固定 `crewclaw/v1` / `Employee` |
+| `metadata`            | id, name, mascot, version, certification, published_by, creator             | ✅   | PRD: id/name/version/creator    |
+| `identity`            | title(=role), description(一句话), reports_to, location                     | ✅   | PRD: role/description/identity  |
+| `soul`                | 工作风格与原则（一句话摘要，详写在 `SOUL.md`）                              | ✅   | PRD: soul                       |
+| `skills`              | 技能名列表（对应 `skills/**/SKILL.md`）                                     | ✅   | PRD: skills                     |
+| `tools`               | 工具列表（browser/contacts/calendar/mailbox…）                              | ✅   | PRD: tools                      |
+| `permissions`         | 最小权限声明（`calendar:read`、`contacts:write`…）                          | ✅   | PRD: permissions                |
+| `requires`            | hermes, runtime, env[]                                                      | ✅   | PRD: install_requirements       |
+| `examples`            | inputs[], outputs[]                                                         | ✅   | PRD: input/output_examples      |
+| `limitations`         | 能力边界列表                                                                | ✅   | PRD: limitations                |
+| `sla`                 | response_time, availability, escalation                                     | ⬜   | macao 现有                      |
+| `lifecycle`           | hireable, fireable, trial_period                                            | ✅   | macao 现有                      |
+| 可选                  | pricing, categories, tags, demo_tasks, changelog, support_url, safety_notes | ⬜   | PRD §12.2                       |
 
 **渐进、不破坏**：现有 `experts/*/distribution.yaml` **保留**（CLI/validator 继续兼容），但 manifest 真相以新增的 `hire.yaml` 为准。shrimp/crab 的 `hire.yaml` 由其现有 `distribution.yaml` + `registry` 条目映射生成。
 
@@ -107,6 +109,7 @@ zod schema：`contracts/manifest.ts`（导出 `EmployeeManifestSchema` + 推导�
 ## 4. 文件清单
 
 **新增**
+
 - `contracts/manifest.ts`（EmployeeManifestSchema + 类型）
 - `contracts/types.ts` 扩展：AgentEmployee / EmployeePackage / WorkspaceEmployee / DoctorReport（+ zod）
 - `experts/macao-networking-agent/`（迁入 + 补齐标准包 + 2 skill）
@@ -114,34 +117,36 @@ zod schema：`contracts/manifest.ts`（导出 `EmployeeManifestSchema` + 推导�
 - `experts/code-review-shrimp/hire.yaml`、`experts/product-prd-crab/hire.yaml`（由 distribution.yaml 映射生成）
 
 **修改**
+
 - `registry/experts.json`（schema 升级 + 新增 macao 条目）
 - `packages/validator/**`（按新 schema 校验 + 一致性检查）
 - CLI（`crates/crewclaw-cli`）：`Expert`/`Registry` struct 与新 registry 字段对齐（保持 `crew list` 正常）
 
 **删除/迁移**
+
 - `agents/macao-networking-agent/` → 迁移至 `experts/`（迁移后清空旧目录）
 
 ## 5. 验收标准（可测试）
 
-| 编号 | 标准 | 验证命令 |
-|---|---|---|
-| M0-AC-1 | 类型检查通过 | `pnpm run check` |
-| M0-AC-2 | 全部 3 个员工通过校验 | `pnpm run validate:all-experts` |
-| M0-AC-3 | `crew list` 显示含 macao 的 3 个 available 员工 | `pnpm run crewclaw list` |
-| M0-AC-4 | 单测 + Rust 测试通过 | `pnpm test` |
-| M0-AC-5 | 并行验证全绿 | `pnpm run crewclaw verify` |
-| M0-AC-6 | registry ↔ hire.yaml 一致性校验生效（故意改不一致会报错） | validator 单测 |
+| 编号    | 标准                                                      | 验证命令                        |
+| ------- | --------------------------------------------------------- | ------------------------------- |
+| M0-AC-1 | 类型检查通过                                              | `pnpm run check`                |
+| M0-AC-2 | 全部 3 个员工通过校验                                     | `pnpm run validate:all-experts` |
+| M0-AC-3 | `crew list` 显示含 macao 的 3 个 available 员工           | `pnpm run crewclaw list`        |
+| M0-AC-4 | 单测 + Rust 测试通过                                      | `pnpm test`                     |
+| M0-AC-5 | 并行验证全绿                                              | `pnpm run crewclaw verify`      |
+| M0-AC-6 | registry ↔ hire.yaml 一致性校验生效（故意改不一致会报错） | validator 单测                  |
 
 ## 6. codex 并行任务拆分
 
 依赖：**卡 A（契约层）先行**，其余三卡依赖 A 的类型/ schema，A 完成后并行。
 
-| 卡 | 目标 | 涉及文件 | 验收 | 禁碰区 |
-|---|---|---|---|---|
-| **A 契约层**（先行，effort high） | 统一 manifest zod schema + 4 实体类型 | `contracts/manifest.ts`、`contracts/types.ts` | `pnpm run check` 过；导出符号齐全 | 不改 CLI、registry、experts/ |
-| **B registry+CLI**（依赖 A，high） | registry schema 升级 + macao 条目 + CLI struct 对齐 | `registry/experts.json`、`crates/crewclaw-cli/src/main.rs` | `crew list` 显示 3 员工；`cargo test` 过 | 不改 experts/ 内容、validator |
-| **C macao 包**（依赖 A，medium） | 迁入 experts/ + 补标准包 + 2 skill + 分组 | `experts/macao-networking-agent/**` | 目录含全部标准文件 + 4 个 SKILL.md | 不改 registry、其他 experts |
-| **D validator**（依赖 A，medium） | 按 schema 校验 + 一致性检查 + 高风险权限标记 | `packages/validator/**` | `validate:all-experts` 过；不一致用例报错 | 不改 experts/ 内容、CLI |
+| 卡                                 | 目标                                                | 涉及文件                                                   | 验收                                      | 禁碰区                        |
+| ---------------------------------- | --------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------- | ----------------------------- |
+| **A 契约层**（先行，effort high）  | 统一 manifest zod schema + 4 实体类型               | `contracts/manifest.ts`、`contracts/types.ts`              | `pnpm run check` 过；导出符号齐全         | 不改 CLI、registry、experts/  |
+| **B registry+CLI**（依赖 A，high） | registry schema 升级 + macao 条目 + CLI struct 对齐 | `registry/experts.json`、`crates/crewclaw-cli/src/main.rs` | `crew list` 显示 3 员工；`cargo test` 过  | 不改 experts/ 内容、validator |
+| **C macao 包**（依赖 A，medium）   | 迁入 experts/ + 补标准包 + 2 skill + 分组           | `experts/macao-networking-agent/**`                        | 目录含全部标准文件 + 4 个 SKILL.md        | 不改 registry、其他 experts   |
+| **D validator**（依赖 A，medium）  | 按 schema 校验 + 一致性检查 + 高风险权限标记        | `packages/validator/**`                                    | `validate:all-experts` 过；不一致用例报错 | 不改 experts/ 内容、CLI       |
 
 合并顺序：A → (B‖C‖D) → 我跑全量验收（§5）→ 解冲突 → `crew verify`。
 
@@ -155,12 +160,12 @@ zod schema：`contracts/manifest.ts`（导出 `EmployeeManifestSchema` + 推导�
 
 ## 8. 风险与对策
 
-| 风险 | 对策 |
-|---|---|
-| 改动现有可用员工（shrimp/crab）引入回归 | 只**新增** hire.yaml，不删 distribution.yaml；改动后跑全量验收 |
-| macao 迁目录破坏现有 hire 动画/scenario 引用 | 先 grep 引用（`agents/macao`、hire-scenario），同步更新路径 |
-| codex 并行改 registry/contracts 撞车 | 卡 A 先行串行；B/C/D 文件域不重叠；必要时各自 worktree |
-| manifest 字段与 PRD 偏离 | 字段表逐条对回 PRD §12/§13；validator 强校验 |
+| 风险                                         | 对策                                                           |
+| -------------------------------------------- | -------------------------------------------------------------- |
+| 改动现有可用员工（shrimp/crab）引入回归      | 只**新增** hire.yaml，不删 distribution.yaml；改动后跑全量验收 |
+| macao 迁目录破坏现有 hire 动画/scenario 引用 | 先 grep 引用（`agents/macao`、hire-scenario），同步更新路径    |
+| codex 并行改 registry/contracts 撞车         | 卡 A 先行串行；B/C/D 文件域不重叠；必要时各自 worktree         |
+| manifest 字段与 PRD 偏离                     | 字段表逐条对回 PRD §12/§13；validator 强校验                   |
 
 ## 9. 非目标
 

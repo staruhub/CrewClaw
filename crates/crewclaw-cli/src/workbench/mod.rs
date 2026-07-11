@@ -28,7 +28,7 @@ use self::{
         user_action_for_pending_digit, write_user_action,
     },
     input::InputBuffer,
-    protocol::{TaskEvent, UserAction},
+    protocol::{TASK_EVENT_PROTOCOL_VERSION, TaskEvent, UserAction},
     refs::{picker_for_query, resolve_references},
     state::{AppState, InputMode, Overlay, Screen, UiState},
 };
@@ -37,6 +37,7 @@ pub mod actions;
 pub mod config;
 pub mod fuzzy;
 pub mod input;
+pub mod insights;
 pub mod preview;
 pub mod protocol;
 pub mod refs;
@@ -152,6 +153,7 @@ pub fn run_workbench_live(runtime_args: &[String], root: &Path) -> Result<i32, S
         debug,
         &mut child_stdin,
         root,
+        &runtime_args[0],
     );
     drop(terminal);
     drop(child_stdin);
@@ -336,6 +338,7 @@ fn run_live_loop(
     debug: Receiver<WorkbenchMessage>,
     child_stdin: &mut ChildStdin,
     root: &Path,
+    employee_id: &str,
 ) -> Result<LiveLoopExit, String> {
     let mut state = AppState::default();
     let mut ui_state = UiState::default();
@@ -353,8 +356,15 @@ fn run_live_loop(
     ui_state.market = market;
     ui_state.hire_reports = hire_reports;
     let mut input = InputBuffer::with_history_path(prompt_history_path(root));
+    refresh_persisted_insights(root, employee_id, &mut state, &mut ui_state);
+    let mut next_persisted_refresh = Instant::now() + Duration::from_secs(2);
 
     loop {
+        if ui_state.persisted_refresh_requested || Instant::now() >= next_persisted_refresh {
+            refresh_persisted_insights(root, employee_id, &mut state, &mut ui_state);
+            ui_state.persisted_refresh_requested = false;
+            next_persisted_refresh = Instant::now() + Duration::from_secs(2);
+        }
         terminal
             .draw(|frame| {
                 ui::render_with_input_spans(
@@ -407,27 +417,17 @@ fn run_live_loop(
             }
             let terminal_event =
                 event::read().map_err(|error| format!("Failed to read terminal event: {error}"))?;
-            if let Event::Key(key) = &terminal_event {
-                if key.kind == KeyEventKind::Press {
-                    if let KeyCode::Char(ch) = key.code {
-                        if should_route_pending_action_digit(
-                            &state,
-                            &ui_state,
-                            input.is_empty(),
-                            ch,
-                        ) {
-                            if let Some(action) = user_action_for_pending_digit(
-                                &state,
-                                &ui_state,
-                                input.is_empty(),
-                                ch,
-                            ) {
-                                write_user_action(child_stdin, &action)?;
-                            }
-                            continue;
-                        }
-                    }
+            if let Event::Key(key) = &terminal_event
+                && key.kind == KeyEventKind::Press
+                && let KeyCode::Char(ch) = key.code
+                && should_route_pending_action_digit(&state, &ui_state, input.is_empty(), ch)
+            {
+                if let Some(action) =
+                    user_action_for_pending_digit(&state, &ui_state, input.is_empty(), ch)
+                {
+                    write_user_action(child_stdin, &action)?;
                 }
+                continue;
             }
             match handle_terminal_event_from_event(
                 &mut state,
@@ -470,7 +470,19 @@ fn run_live_loop(
         let mut saw_eof = false;
         while let Ok(message) = events.try_recv() {
             match message {
-                WorkbenchMessage::Event(event) => state.reduce(&event),
+                WorkbenchMessage::Event(event) => {
+                    let refresh = matches!(
+                        event.event_type(),
+                        "session.ready"
+                            | "task.completed"
+                            | "task.failed"
+                            | "task.revision_needed"
+                            | "memory.saved"
+                            | "approval.accepted"
+                    );
+                    state.reduce(&event);
+                    ui_state.persisted_refresh_requested |= refresh;
+                }
                 WorkbenchMessage::Debug(line) => state.debug.push(line),
                 WorkbenchMessage::Error(error) => state.debug.push(error),
                 WorkbenchMessage::Eof => saw_eof = true,
@@ -481,7 +493,10 @@ fn run_live_loop(
                 WorkbenchMessage::Debug(line) | WorkbenchMessage::Error(line) => {
                     state.debug.push(line);
                 }
-                WorkbenchMessage::Event(event) => state.reduce(&event),
+                WorkbenchMessage::Event(event) => {
+                    state.reduce(&event);
+                    ui_state.persisted_refresh_requested = true;
+                }
                 WorkbenchMessage::Eof => {}
             }
         }
@@ -563,11 +578,8 @@ fn handle_mouse_scroll(ui_state: &mut UiState, kind: MouseEventKind) {
 /// v0.17 P2 C1：读取某员工的跨会话真累计 KPI(引擎 kpi.mjs 写的 `.crewclaw/kpi/<agentId>.json`)。
 /// 缺文件/解析失败 → 全零默认值(新员工/从未跑过的诚实起点)，不 panic。
 fn read_kpi_cumulative(root: &Path, agent_id: &str) -> state::KpiCumulative {
-    let path = root
-        .join(".crewclaw")
-        .join("kpi")
-        .join(format!("{agent_id}.json"));
-    let Ok(raw) = std::fs::read_to_string(&path) else {
+    let relative = PathBuf::from("kpi").join(format!("{agent_id}.json"));
+    let Ok(Some(raw)) = crate::state_store::read_string(root, &relative) else {
         return state::KpiCumulative::default();
     };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
@@ -592,6 +604,28 @@ fn read_kpi_cumulative(root: &Path, agent_id: &str) -> state::KpiCumulative {
     }
 }
 
+fn refresh_persisted_insights(
+    root: &Path,
+    employee_id: &str,
+    state: &mut AppState,
+    ui_state: &mut UiState,
+) {
+    let insights = insights::load(root, employee_id);
+    if let Some(employee) = state.employee.as_mut()
+        && !insights
+            .errors
+            .iter()
+            .any(|error| error.starts_with("kpi:"))
+    {
+        employee.kpi_cumulative = insights.kpi;
+    }
+    // Never promote a direct Rust disk read to the session trust channel. employee.eval is owned
+    // by Node session.ready after readEvalResult has rebound the record to the current
+    // subject/spec/dependency/runtime/execution context. Disk insights remain non-certified.
+    ui_state.persisted_state_active = true;
+    ui_state.persisted_insights = insights;
+}
+
 /// v0.12 M2+M3：从 registry/experts.json 读**真实**员工，并为每个员工跑 doctor 体检。
 /// 返回平行的 (market, hire_reports)。任何读取/解析失败 → 空列表（屏显占位），不 panic、不碰 live 流。
 fn load_marketplace(root: &Path) -> (Vec<state::MarketEntry>, Vec<state::HireHealth>) {
@@ -608,7 +642,7 @@ fn load_marketplace(root: &Path) -> (Vec<state::MarketEntry>, Vec<state::HireHea
             .local_source
             .as_deref()
             .ok_or_else(|| "no local package".to_string())
-            .and_then(|ls| crate::manifest::read_manifest(root, ls));
+            .and_then(|ls| crate::manifest::read_manifest(root, &e.name, ls));
         let report = crate::doctor::build_report(e, manifest, &team);
         reports.push(state::HireHealth {
             status: report.health_status.as_str().to_string(),
@@ -634,12 +668,24 @@ fn load_marketplace(root: &Path) -> (Vec<state::MarketEntry>, Vec<state::HireHea
 
 /// v0.12：NORMAL 模式 j/k 在当前屏的列表游标上移动（MARKET/HIRE），按真实市场长度收敛上界。
 fn nav_screen_cursor(ui_state: &mut UiState, delta: i32) {
-    // v0.16 W6.2：DREAM 的 MEMORY 列表游标——数据是编译期定长 MOCK 数组,松量上界(20)由
-    // render 侧再按 filtered 列表真实长度 `.min(len-1)` 兜底钳制,这里不需要跨模块暴露长度。
+    // DREAM 的 MEMORY 游标按真实持久记忆分类后的长度收敛。
     if ui_state.screen == Screen::Dream {
-        let upper = 20i32;
+        let wanted = match ui_state.dream_mem_tab {
+            1 => Some("K"),
+            2 => Some("P"),
+            3 => Some("E"),
+            _ => None,
+        };
+        let upper = ui_state
+            .persisted_insights
+            .dream
+            .memories
+            .iter()
+            .filter(|memory| wanted.is_none_or(|kind| memory.kind == kind))
+            .count()
+            .saturating_sub(1) as i32;
         ui_state.dream_mem_cursor =
-            (ui_state.dream_mem_cursor as i32 + delta).clamp(0, upper) as usize;
+            (ui_state.dream_mem_cursor as i32 + delta).clamp(0, upper.max(0)) as usize;
         return;
     }
     // v0.17 P1-B1：MARKET 游标要按 filtered 列表长度收敛（过滤生效时比 market.len() 短）。
@@ -772,10 +818,8 @@ fn handle_key_event(
             KeyCode::Char('h') | KeyCode::Left => changed = cycle(ui_state, -1),
             _ => {}
         }
-        if changed {
-            if let Some(root) = ui_state.prefs_root.clone() {
-                ui_state.prefs.save(&root); // best-effort 落盘 .crewclaw/prefs.json
-            }
+        if changed && let Some(root) = ui_state.prefs_root.clone() {
+            ui_state.prefs.save(&root); // best-effort 落盘 .crewclaw/prefs.json
         }
         return Ok(TerminalAction::Continue);
     }
@@ -964,6 +1008,10 @@ fn handle_key_event(
                 config::apply_theme_index(idx, Some(config::accent()));
                 return Ok(TerminalAction::Continue);
             }
+            KeyCode::Char('r') if matches!(ui_state.screen, Screen::Eval | Screen::Dream) => {
+                ui_state.persisted_refresh_requested = true;
+                return Ok(TerminalAction::Continue);
+            }
             KeyCode::Char('i') => {
                 ui_state.mode = InputMode::Insert;
                 // 回输入即回到跟随流（清事件游标）。
@@ -1136,31 +1184,31 @@ fn handle_drawer_key(
         KeyCode::PageUp => ui_state.scroll_drawer(-10),
         KeyCode::PageDown => ui_state.scroll_drawer(10),
         KeyCode::Enter => {
-            if ui_state.drawer == Some(state::FocusPanel::Artifacts) {
-                if let Some(action) = artifact_action_for_selected(state, "artifact.preview") {
-                    return Ok(TerminalAction::SendAction(action));
-                }
+            if ui_state.drawer == Some(state::FocusPanel::Artifacts)
+                && let Some(action) = artifact_action_for_selected(state, "artifact.preview")
+            {
+                return Ok(TerminalAction::SendAction(action));
             }
         }
         KeyCode::Char('d') if key.modifiers.is_empty() => {
-            if ui_state.drawer == Some(state::FocusPanel::Artifacts) {
-                if let Some(action) = artifact_action_for_selected(state, "artifact.delete") {
-                    return Ok(TerminalAction::SendAction(action));
-                }
+            if ui_state.drawer == Some(state::FocusPanel::Artifacts)
+                && let Some(action) = artifact_action_for_selected(state, "artifact.delete")
+            {
+                return Ok(TerminalAction::SendAction(action));
             }
         }
         KeyCode::Char('r') if key.modifiers.is_empty() => {
-            if ui_state.drawer == Some(state::FocusPanel::Artifacts) {
-                if let Some(action) = artifact_action_for_selected(state, "artifact.reveal") {
-                    return Ok(TerminalAction::SendAction(action));
-                }
+            if ui_state.drawer == Some(state::FocusPanel::Artifacts)
+                && let Some(action) = artifact_action_for_selected(state, "artifact.reveal")
+            {
+                return Ok(TerminalAction::SendAction(action));
             }
         }
         KeyCode::Char('e') if key.modifiers.is_empty() => {
-            if ui_state.drawer == Some(state::FocusPanel::Artifacts) {
-                if let Some(action) = artifact_action_for_selected(state, "artifact.export") {
-                    return Ok(TerminalAction::SendAction(action));
-                }
+            if ui_state.drawer == Some(state::FocusPanel::Artifacts)
+                && let Some(action) = artifact_action_for_selected(state, "artifact.export")
+            {
+                return Ok(TerminalAction::SendAction(action));
             }
         }
         _ => {}
@@ -1441,14 +1489,72 @@ fn prompt_history_path(root: &Path) -> PathBuf {
     root.join(".crewclaw").join("prompt-history.jsonl")
 }
 
+const MAX_JAVASCRIPT_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+fn json_safe_nonnegative_integer(value: &serde_json::Value) -> Option<u64> {
+    if let Some(integer) = value.as_u64() {
+        return (integer <= MAX_JAVASCRIPT_SAFE_INTEGER).then_some(integer);
+    }
+    let number = value.as_f64()?;
+    (number.is_finite()
+        && number >= 0.0
+        && number <= MAX_JAVASCRIPT_SAFE_INTEGER as f64
+        && number.fract() == 0.0)
+        .then_some(number as u64)
+}
+
 fn parse_task_event_line(line: &str) -> Result<Option<TaskEvent>, String> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
         return Ok(None);
     }
-    serde_json::from_str::<TaskEvent>(trimmed)
-        .map(Some)
-        .map_err(|error| error.to_string())
+
+    let mut envelope =
+        serde_json::from_str::<serde_json::Value>(trimmed).map_err(|error| error.to_string())?;
+    if !envelope.is_object() {
+        return Err("event must be an object".to_string());
+    }
+    if let Some(version) = envelope.get("protocol_version") {
+        let parsed = json_safe_nonnegative_integer(version);
+        if parsed != Some(TASK_EVENT_PROTOCOL_VERSION) {
+            return Err(format!(
+                "unsupported TaskEvent protocol_version {version}; supported version is {TASK_EVENT_PROTOCOL_VERSION}"
+            ));
+        }
+    }
+
+    let event_type = envelope
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "type must be a non-empty string".to_string())?
+        .to_string();
+    let timestamp = envelope
+        .get("ts")
+        .and_then(json_safe_nonnegative_integer)
+        .ok_or_else(|| "ts must be a non-negative safe integer".to_string())?;
+    if !envelope
+        .get("data")
+        .is_some_and(serde_json::Value::is_object)
+    {
+        return Err("data must be an object".to_string());
+    }
+    // serde_json preserves `1.0` as a float while JSON.parse turns it into the integer Number 1.
+    // Normalize after applying the shared safe-integer rule so Rust accepts exactly the same ts.
+    envelope
+        .as_object_mut()
+        .expect("validated TaskEvent object")
+        .insert("ts".to_string(), serde_json::Value::from(timestamp));
+    let event = serde_json::from_value::<TaskEvent>(envelope).map_err(|error| error.to_string())?;
+    if matches!(event, TaskEvent::Unknown) {
+        // TaskEvent v1 is additive-only. An older Workbench must ignore a same-version event it
+        // does not know yet; explicit future protocol versions were rejected above.
+        return Ok(None);
+    }
+    event
+        .validate_payload()
+        .map_err(|error| format!("{event_type}: {error}"))?;
+    Ok(Some(event))
 }
 
 fn spawn_stdin_reader() -> Receiver<WorkbenchMessage> {
@@ -1818,6 +1924,82 @@ mod tests {
     }
 
     #[test]
+    fn persisted_insight_refresh_updates_the_live_employee_snapshot() {
+        let root = std::env::temp_dir().join(format!(
+            "crewclaw-insight-refresh-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).expect("root");
+        let mut state = AppState::default();
+        state.reduce(&TaskEvent::from_parts(
+            "session.ready",
+            1,
+            serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m","eval":{
+                "score":91,"verdict":"PASS","model":"trusted","mock":false,
+                "evaluated_at":1,"exams":[{"id":"bound","score":91,"passed":true}]
+            }}}),
+        ));
+        let mut ui = UiState::default();
+        let write_kpi = |tasks: u64| {
+            crate::state_store::write_atomic(
+                &root,
+                "kpi/whale.json",
+                serde_json::to_string(&serde_json::json!({
+                    "tasks":tasks,"accepted":1,"total_cost":2.5
+                }))
+                .expect("json")
+                .as_bytes(),
+            )
+            .expect("kpi state");
+        };
+        write_kpi(3);
+        refresh_persisted_insights(&root, "whale", &mut state, &mut ui);
+        assert!(ui.persisted_state_active);
+        assert_eq!(
+            state
+                .employee
+                .as_ref()
+                .expect("employee")
+                .kpi_cumulative
+                .tasks,
+            3
+        );
+        assert_eq!(
+            state
+                .employee
+                .as_ref()
+                .and_then(|employee| employee.eval.as_ref())
+                .map(|eval| eval.score),
+            Some(91),
+            "disk refresh must not overwrite the Node-validated session eval"
+        );
+        write_kpi(4);
+        refresh_persisted_insights(&root, "whale", &mut state, &mut ui);
+        assert_eq!(
+            state
+                .employee
+                .as_ref()
+                .expect("employee")
+                .kpi_cumulative
+                .tasks,
+            4
+        );
+        assert_eq!(
+            state
+                .employee
+                .as_ref()
+                .and_then(|employee| employee.eval.as_ref())
+                .map(|eval| eval.score),
+            Some(91)
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn insert_mode_digit_types_into_input_not_switch() {
         // INSERT 下数字进输入框，不切屏——保持既有打字行为。
         // (v0.15：冷启动默认 NORMAL,故这里显式进 INSERT 测打字语义。)
@@ -1888,10 +2070,12 @@ mod tests {
         // 有产物：Enter 开，Esc 关。
         state.artifacts.push(Artifact {
             id: Some("a1".to_string()),
+            task_id: None,
             name: Some("report.md".to_string()),
             kind: Some("report".to_string()),
             artifact_type: None,
             path: Some("nonexistent.md".to_string()),
+            export_path: None,
             status: "draft".to_string(),
             summary: None,
             checks: Vec::new(),
@@ -1917,10 +2101,12 @@ mod tests {
         for (id, name) in [("a1", "first.md"), ("a2", "second.md")] {
             state.artifacts.push(Artifact {
                 id: Some(id.to_string()),
+                task_id: None,
                 name: Some(name.to_string()),
                 kind: Some("report".to_string()),
                 artifact_type: None,
                 path: Some("nonexistent.md".to_string()),
+                export_path: None,
                 status: "draft".to_string(),
                 summary: None,
                 checks: Vec::new(),
@@ -1998,6 +2184,21 @@ mod tests {
         assert_eq!(ui.dream_mem_tab, 3, "f cycles to tab 3 (E)");
         press(&mut state, &mut ui, &mut input, KeyCode::Char('f'));
         assert_eq!(ui.dream_mem_tab, 0, "f wraps back to tab 0 (全部)");
+    }
+
+    #[test]
+    fn eval_and_dream_r_request_a_persisted_state_refresh() {
+        let mut state = AppState::default();
+        let mut ui = UiState::default();
+        ui.mode = InputMode::Normal;
+        ui.screen = Screen::Eval;
+        let mut input = InputBuffer::default();
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('r'));
+        assert!(ui.persisted_refresh_requested);
+        ui.persisted_refresh_requested = false;
+        ui.screen = Screen::Dream;
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('r'));
+        assert!(ui.persisted_refresh_requested);
     }
 
     /// v0.15 P1-2：n 开通知中心；j/k 移游标；R 全读；Enter 跳工作台并已读+关闭；Esc 关。
@@ -2470,13 +2671,54 @@ mod tests {
     fn task_event_line_parser_skips_blanks_and_reports_bad_json() {
         assert_eq!(parse_task_event_line("   ").expect("blank line"), None);
 
-        let event =
+        let legacy_event =
             parse_task_event_line(r#"{"type":"token.delta","ts":1,"data":{"text":"hello"}}"#)
-                .expect("valid line")
+                .expect("valid legacy line")
                 .expect("event");
 
-        assert_eq!(event.event_type(), "token.delta");
+        assert_eq!(legacy_event.event_type(), "token.delta");
+
+        let versioned_event = parse_task_event_line(
+            r#"{"protocol_version":1,"type":"token.delta","ts":2,"data":{"text":"hello v1"}}"#,
+        )
+        .expect("valid v1 line")
+        .expect("event");
+
+        assert_eq!(versioned_event.event_type(), "token.delta");
+        assert_eq!(versioned_event.ts(), 2);
+        let unsupported = parse_task_event_line(
+            r#"{"protocol_version":2,"type":"token.delta","ts":3,"data":{"text":"future"}}"#,
+        )
+        .expect_err("future protocol version must be rejected");
+        assert!(unsupported.contains("unsupported TaskEvent protocol_version 2"));
+        let unknown = parse_task_event_line(
+            r#"{"protocol_version":1,"type":"future.event","ts":4,"data":{"value":1}}"#,
+        )
+        .expect("same-version additive event");
+        assert_eq!(
+            unknown, None,
+            "older clients ignore additive event variants"
+        );
+        let invalid_terminal = parse_task_event_line(
+            r#"{"protocol_version":1,"type":"task.completed","ts":5,"data":{}}"#,
+        )
+        .expect_err("critical payload without correlation must fail closed");
+        assert!(invalid_terminal.contains("data.id or data.taskRunId"));
         assert!(parse_task_event_line("{not json").is_err());
+    }
+
+    #[test]
+    fn task_event_line_parser_matches_shared_node_envelope_vectors() {
+        let vectors: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../packages/runtime/__tests__/fixtures/task-event-envelope-v1-vectors.json"
+        ))
+        .expect("shared TaskEvent envelope vectors");
+        for vector in vectors.as_array().expect("vector array") {
+            let name = vector["name"].as_str().expect("vector name");
+            let expected = vector["valid"].as_bool().expect("vector verdict");
+            let line = serde_json::to_string(&vector["event"]).expect("event json");
+            assert_eq!(parse_task_event_line(&line).is_ok(), expected, "{name}");
+        }
     }
 
     #[test]
@@ -2593,10 +2835,12 @@ mod tests {
         let mut state = AppState::default();
         state.artifacts.push(state::Artifact {
             id: Some("a1".to_string()),
+            task_id: None,
             name: Some("roi_report.md".to_string()),
             kind: Some("markdown".to_string()),
             artifact_type: None,
             path: Some("/tmp/roi_report.md".to_string()),
+            export_path: None,
             status: "ready".to_string(),
             summary: Some("ROI".to_string()),
             checks: Vec::new(),
@@ -2860,10 +3104,12 @@ mod tests {
         });
         state.artifacts.push(state::Artifact {
             id: Some("a1".to_string()),
+            task_id: None,
             name: Some("roi_report.md".to_string()),
             kind: Some("markdown".to_string()),
             artifact_type: None,
             path: None,
+            export_path: None,
             status: "ready".to_string(),
             summary: None,
             checks: Vec::new(),
@@ -3226,6 +3472,44 @@ mod tests {
         if let Some(root) = history_path.parent().and_then(|path| path.parent()) {
             let _ = std::fs::remove_dir_all(root);
         }
+    }
+
+    #[test]
+    fn concurrent_prompt_history_submissions_do_not_overwrite_each_other() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let root = std::sync::Arc::new(std::env::temp_dir().join(format!(
+            "crewclaw-history-concurrency-{}-{nonce}",
+            std::process::id()
+        )));
+        let workers = 8;
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(workers));
+        let mut joins = Vec::new();
+        for worker in 0..workers {
+            let root = std::sync::Arc::clone(&root);
+            let barrier = std::sync::Arc::clone(&barrier);
+            joins.push(std::thread::spawn(move || {
+                let path = prompt_history_path(&root);
+                let mut input = InputBuffer::with_history_path(path);
+                barrier.wait();
+                let prompt = format!("concurrent prompt {worker}");
+                input.insert_str(&prompt);
+                assert_eq!(input.submit(), prompt);
+            }));
+        }
+        for join in joins {
+            join.join().expect("worker");
+        }
+        let contents = std::fs::read_to_string(prompt_history_path(&root)).expect("history file");
+        let prompts = contents
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("history record"))
+            .map(|record| record["text"].as_str().expect("text").to_string())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(prompts.len(), workers);
+        let _ = std::fs::remove_dir_all(root.as_ref());
     }
 
     #[test]

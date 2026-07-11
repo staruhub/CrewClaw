@@ -32,7 +32,8 @@ export class VTerm {
   }
 
   #eraseToEol() {
-    for (let c = this.col; c < this.cols; c++) this.grid[this.row][c] = { ch: " ", cont: false };
+    for (let c = this.col; c < this.cols; c++)
+      this.grid[this.row][c] = { ch: " ", cont: false };
   }
 
   #eraseWholeRow() {
@@ -62,7 +63,7 @@ export class VTerm {
 
   write(s, meta = {}) {
     const input = String(s);
-    for (let i = 0; i < input.length;) {
+    for (let i = 0; i < input.length; ) {
       const rest = input.slice(i);
       const csi = rest.match(CSI_RE);
       if (csi) {
@@ -106,6 +107,11 @@ export class VTerm {
   }
 
   snapshot() {
-    return this.grid.map((row) => row.map((cell) => cell.cont ? "" : cell.ch).join("").trimEnd());
+    return this.grid.map(row =>
+      row
+        .map(cell => (cell.cont ? "" : cell.ch))
+        .join("")
+        .trimEnd()
+    );
   }
 }

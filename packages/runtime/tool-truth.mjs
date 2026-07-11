@@ -83,7 +83,9 @@ function browserRenderEntry(env, opts) {
     });
   }
 
-  const name = String(provider || "").toLowerCase().trim();
+  const name = String(provider || "")
+    .toLowerCase()
+    .trim();
   if (!name || name === "none") {
     return entry("browser.render", STATUS.unavailable, {
       detail: "未配置 render provider",
@@ -101,7 +103,8 @@ function browserRenderEntry(env, opts) {
   }
 
   if (name === "firecrawl" || name === "browserbase") {
-    const keyName = name === "firecrawl" ? "FIRECRAWL_API_KEY" : "BROWSERBASE_API_KEY";
+    const keyName =
+      name === "firecrawl" ? "FIRECRAWL_API_KEY" : "BROWSERBASE_API_KEY";
     if (env[keyName]) {
       return entry("browser.render", STATUS.degraded, {
         provider: name,
@@ -127,18 +130,22 @@ const PERSISTENT_MEMORY_ENV = Object.freeze([
 ]);
 
 function memoryEntries(env) {
-  const configuredBy = PERSISTENT_MEMORY_ENV.find((name) => env[name]);
+  const configuredBy = PERSISTENT_MEMORY_ENV.find(name => env[name]);
   return [
     entry("memory.write", STATUS.available, {
       provider: "session",
       detail: "session memory",
     }),
-    entry("memory.write", configuredBy ? STATUS.available : STATUS.unavailable, {
-      provider: "persistent",
-      detail: configuredBy
-        ? `persistent memory via ${configuredBy}`
-        : `persistent memory requires ${PERSISTENT_MEMORY_ENV.join(" or ")}`,
-    }),
+    entry(
+      "memory.write",
+      configuredBy ? STATUS.available : STATUS.unavailable,
+      {
+        provider: "persistent",
+        detail: configuredBy
+          ? `persistent memory via ${configuredBy}`
+          : `persistent memory requires ${PERSISTENT_MEMORY_ENV.join(" or ")}`,
+      }
+    ),
   ];
 }
 
@@ -147,7 +154,11 @@ export function getToolTruth(env = process.env, opts = {}) {
 
   for (const capability of CAPABILITIES) {
     if (capability === "utility.weather") {
-      states.push(entry(capability, STATUS.unavailable, { detail: "未配 weather provider" }));
+      states.push(
+        entry(capability, STATUS.unavailable, {
+          detail: "未配 weather provider",
+        })
+      );
     } else if (capability === "web.search" || capability === "web.extract") {
       states.push(webProviderEntry(capability, env));
     } else if (capability === "browser.render") {
@@ -155,16 +166,27 @@ export function getToolTruth(env = process.env, opts = {}) {
     } else if (capability === "artifact.write") {
       states.push(entry(capability, STATUS.available, { provider: "local" }));
     } else if (capability === "artifact.reveal") {
-      states.push(entry(capability, STATUS.degraded, { detail: "需 OpenWork/OS Adapter" }));
+      states.push(
+        entry(capability, STATUS.degraded, { detail: "需 OpenWork/OS Adapter" })
+      );
     } else if (capability === "memory.write") {
       states.push(...memoryEntries(env));
     } else if (capability === "shell.run") {
       states.push(
-        entry(capability, env.SHELL_ALLOW === "1" ? STATUS.available : STATUS.permission_required, {
-          detail: env.SHELL_ALLOW === "1" ? "" : "sandbox/needs approval",
-        }),
+        entry(
+          capability,
+          env.SHELL_ALLOW === "1"
+            ? STATUS.available
+            : STATUS.permission_required,
+          {
+            detail: env.SHELL_ALLOW === "1" ? "" : "sandbox/needs approval",
+          }
+        )
       );
-    } else if (capability === "evidence.create" || capability === "outcome.grade") {
+    } else if (
+      capability === "evidence.create" ||
+      capability === "outcome.grade"
+    ) {
       states.push(entry(capability, STATUS.available, { provider: "local" }));
     }
   }
@@ -198,15 +220,20 @@ const SYMBOLS = Object.freeze({
 
 function lineLabel(state) {
   const base = SHORT_NAMES[state.capability] || state.capability;
-  if (state.capability === "memory.write" && state.provider) return `${base}:${state.provider}`;
+  if (state.capability === "memory.write" && state.provider)
+    return `${base}:${state.provider}`;
   return base;
 }
 
 function lineStatus(state) {
   const symbol = SYMBOLS[state.status] || "!";
-  return state.status === STATUS.missing_key ? `${symbol}${STATUS.missing_key}` : symbol;
+  return state.status === STATUS.missing_key
+    ? `${symbol}${STATUS.missing_key}`
+    : symbol;
 }
 
 export function toolTruthLine(states = getToolTruth()) {
-  return states.map((state) => `${lineLabel(state)} ${lineStatus(state)}`).join(" · ");
+  return states
+    .map(state => `${lineLabel(state)} ${lineStatus(state)}`)
+    .join(" · ");
 }

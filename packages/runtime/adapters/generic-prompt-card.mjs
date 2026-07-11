@@ -14,7 +14,8 @@ function hasValue(value) {
 function scalar(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   return "";
 }
 
@@ -24,9 +25,11 @@ function renderValue(value, indent = 0) {
   if (typeof value !== "object") return [`${pad}- ${scalar(value)}`];
 
   if (Array.isArray(value)) {
-    return value.flatMap((item) => {
+    return value.flatMap(item => {
       if (typeof item === "object" && item !== null) {
-        return renderValue(item, indent).map((line, index) => (index === 0 ? line : line));
+        return renderValue(item, indent).map((line, index) =>
+          index === 0 ? line : line
+        );
       }
       return [`${pad}- ${scalar(item)}`];
     });
@@ -62,8 +65,13 @@ function riskNotes(pkg) {
   }
 
   const policy = pkg?.permission_policy || {};
-  if (Array.isArray(policy.human_authorization_required) && policy.human_authorization_required.length > 0) {
-    notes.push(`- 需要人工授权：${policy.human_authorization_required.join(", ")}。`);
+  if (
+    Array.isArray(policy.human_authorization_required) &&
+    policy.human_authorization_required.length > 0
+  ) {
+    notes.push(
+      `- 需要人工授权：${policy.human_authorization_required.join(", ")}。`
+    );
   }
 
   const denied = Object.keys(policy.denied || {});
@@ -94,7 +102,8 @@ export const genericPromptCardAdapter = defineAdapter({
   validate(pkg) {
     const errors = [];
     for (const field of ["identity", "role_contract", "soul"]) {
-      if (!hasValue(pkg?.[field])) errors.push(`Missing required field: ${field}`);
+      if (!hasValue(pkg?.[field]))
+        errors.push(`Missing required field: ${field}`);
     }
     return { ok: errors.length === 0, errors };
   },

@@ -18,16 +18,16 @@ describe("web employees dataset drift guard", () => {
   });
 
   it("projects every available registry expert (5/5, including whale and zeneth)", () => {
-    const ids = regenerated.employees.map((employee) => employee.employee_id);
+    const ids = regenerated.employees.map(employee => employee.employee_id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain("ai-adoption-whale");
     expect(ids).toContain("zeneth");
 
     const registry = JSON.parse(
-      readFileSync(path.join(repoRoot, "registry/experts.json"), "utf8"),
+      readFileSync(path.join(repoRoot, "registry/experts.json"), "utf8")
     ) as { experts: { status: string; local_source?: string | null }[] };
     const availableCount = registry.experts.filter(
-      (entry) => entry.status === "available" && entry.local_source,
+      entry => entry.status === "available" && entry.local_source
     ).length;
     expect(ids.length).toBe(availableCount);
   });

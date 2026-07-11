@@ -46,16 +46,27 @@ export function runCommand(line, ctx = {}) {
   const id = args[0] ?? "";
 
   if (command === "/help") return { handled: true, text: helpText(color) };
-  if (command === "/tools") return { handled: true, text: toolsText(ctx, color) };
-  if (command === "/model") return { handled: true, text: modelText(ctx, color) };
-  if (command === "/clear" || command === "/reset") return { handled: true, action: { type: "clear" } };
+  if (command === "/tools")
+    return { handled: true, text: toolsText(ctx, color) };
+  if (command === "/model")
+    return { handled: true, text: modelText(ctx, color) };
+  if (command === "/clear" || command === "/reset")
+    return { handled: true, action: { type: "clear" } };
   if (command === "/crew") return { handled: true, text: crewText(ctx, color) };
-  if (command === "/agent" || command === "/switch") return switchAgent(id, ctx, color, command);
+  if (command === "/agent" || command === "/switch")
+    return switchAgent(id, ctx, color, command);
   if (command === "/topbar") {
     const v = (id || "toggle").toLowerCase();
-    return { handled: true, action: { type: "topbar", value: v === "on" ? "on" : v === "off" ? "off" : "toggle" } };
+    return {
+      handled: true,
+      action: {
+        type: "topbar",
+        value: v === "on" ? "on" : v === "off" ? "off" : "toggle",
+      },
+    };
   }
-  if (command === "/exit" || command === "/quit") return { handled: true, action: { type: "exit" } };
+  if (command === "/exit" || command === "/quit")
+    return { handled: true, action: { type: "exit" } };
 
   return {
     handled: true,
@@ -66,16 +77,22 @@ export function runCommand(line, ctx = {}) {
 function helpText(color) {
   return [
     c.accent("Slash commands", color),
-    ...COMMANDS.map(([name, description]) => `  ${c.info(name, color)}  ${description}`),
+    ...COMMANDS.map(
+      ([name, description]) => `  ${c.info(name, color)}  ${description}`
+    ),
   ].join("\n");
 }
 
 function toolsText(ctx, color) {
-  const enabled = new Set(Array.isArray(ctx.tools) && ctx.tools.length ? ctx.tools : TOOL_DESCRIPTIONS.map(([name]) => name));
+  const enabled = new Set(
+    Array.isArray(ctx.tools) && ctx.tools.length
+      ? ctx.tools
+      : TOOL_DESCRIPTIONS.map(([name]) => name)
+  );
   return [
     c.accent("Tools", color),
     ...TOOL_DESCRIPTIONS.filter(([name]) => enabled.has(name)).map(
-      ([name, description]) => `  ${c.info(name, color)}  ${description}`,
+      ([name, description]) => `  ${c.info(name, color)}  ${description}`
     ),
   ].join("\n");
 }
@@ -87,25 +104,27 @@ function modelText(ctx, color) {
 function crewText(ctx, color) {
   const experts = availableExperts(ctx);
   if (!experts.ok) return registryError(experts.error, color);
-  if (!experts.items.length) return c.warn("No available experts found.", color);
+  if (!experts.items.length)
+    return c.warn("No available experts found.", color);
   return [
     c.accent("Available crew", color),
-    ...experts.items.map((expert) =>
-      `  ${c.info(expert.name, color)} · ${expert.display_name || expert.name} · ${expert.description || ""}`.trimEnd(),
+    ...experts.items.map(expert =>
+      `  ${c.info(expert.name, color)} · ${expert.display_name || expert.name} · ${expert.description || ""}`.trimEnd()
     ),
   ].join("\n");
 }
 
 function switchAgent(id, ctx, color, command) {
   const experts = availableExperts(ctx);
-  if (!experts.ok) return { handled: true, text: registryError(experts.error, color) };
+  if (!experts.ok)
+    return { handled: true, text: registryError(experts.error, color) };
   if (!id) {
     return {
       handled: true,
       text: `Usage: ${command} <id>\nAvailable: ${availableIds(experts.items, color)}`,
     };
   }
-  if (experts.items.some((expert) => expert.name === id)) {
+  if (experts.items.some(expert => expert.name === id)) {
     return { handled: true, action: { type: "switch", agent: id } };
   }
   return {
@@ -120,7 +139,10 @@ function availableExperts(ctx) {
     const path = join(ctx.root, "registry", "experts.json");
     const registry = JSON.parse(readFileSync(path, "utf8"));
     const items = Array.isArray(registry.experts)
-      ? registry.experts.filter((expert) => expert?.status === "available" && typeof expert.name === "string")
+      ? registry.experts.filter(
+          expert =>
+            expert?.status === "available" && typeof expert.name === "string"
+        )
       : [];
     return { ok: true, items };
   } catch (error) {
@@ -129,7 +151,9 @@ function availableExperts(ctx) {
 }
 
 function availableIds(experts, color) {
-  return experts.length ? experts.map((expert) => c.info(expert.name, color)).join(", ") : "(none)";
+  return experts.length
+    ? experts.map(expert => c.info(expert.name, color)).join(", ")
+    : "(none)";
 }
 
 function registryError(error, color) {

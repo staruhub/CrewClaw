@@ -48,7 +48,10 @@ export function Features() {
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(200,121,65,0.48),transparent)] opacity-70" />
                   <div className="flex items-start gap-4 md:gap-5">
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center md:h-16 md:w-16">
-                      <FeatureIcon name={feature.icon} className="h-14 w-14 md:h-16 md:w-16" />
+                      <FeatureIcon
+                        name={feature.icon}
+                        className="h-14 w-14 md:h-16 md:w-16"
+                      />
                     </div>
                     <div className="min-w-0">
                       <h3 className="max-w-[360px] font-sans text-[24px] leading-[1.12] text-crew-heading md:text-[26px]">

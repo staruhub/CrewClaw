@@ -8,7 +8,12 @@ import { pickRenderProvider } from "../render-provider.mjs";
 
 const require = createRequire(import.meta.url);
 function moduleInstalled(name) {
-  try { require.resolve(name); return true; } catch { return false; }
+  try {
+    require.resolve(name);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Returns [{ tool, ok, label, reason, code }]. `code` is a structured error code (vision
@@ -21,16 +26,22 @@ export function getToolStatus(env = process.env) {
 
   return [
     {
-      tool: "web.search", ok: searchOk,
+      tool: "web.search",
+      ok: searchOk,
       label: searchOk ? backend.name : "missing key",
       reason: searchOk ? "" : "未配 search provider(只能降级 DDG 抓取,不可靠)",
       code: searchOk ? "" : "missing_key",
     },
     { tool: "web.fetch", ok: true, label: "ok", reason: "", code: "" },
     {
-      tool: "browser.render", ok: renderOk,
+      tool: "browser.render",
+      ok: renderOk,
       label: renderOk ? "playwright" : provider,
-      reason: renderOk ? "" : (provider === "playwright" ? "playwright 未安装" : provider + " 云端渲染未接"),
+      reason: renderOk
+        ? ""
+        : provider === "playwright"
+          ? "playwright 未安装"
+          : provider + " 云端渲染未接",
       code: renderOk ? "" : "no_render_provider",
     },
     { tool: "evidence", ok: true, label: "ok", reason: "", code: "" },
@@ -40,6 +51,13 @@ export function getToolStatus(env = process.env) {
 // Compact one-line form for the status bar: "search ✗ · fetch ✓ · render ✓ · evidence ✓".
 // Symbols + (implicitly) color so it doesn't rely on color alone (vision UI standard).
 export function toolStatusLine(status = getToolStatus()) {
-  const short = { "web.search": "search", "web.fetch": "fetch", "browser.render": "render", "evidence": "evidence" };
-  return status.map((s) => `${short[s.tool] || s.tool} ${s.ok ? "✓" : "✗"}`).join(" · ");
+  const short = {
+    "web.search": "search",
+    "web.fetch": "fetch",
+    "browser.render": "render",
+    evidence: "evidence",
+  };
+  return status
+    .map(s => `${short[s.tool] || s.tool} ${s.ok ? "✓" : "✗"}`)
+    .join(" · ");
 }

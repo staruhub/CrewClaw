@@ -7,7 +7,10 @@ export function historyToTurns(history) {
   const out = [];
   for (const m of history || []) {
     if (m.role === "user") {
-      out.push({ role: "user", text: typeof m.content === "string" ? m.content : "（含附件）" });
+      out.push({
+        role: "user",
+        text: typeof m.content === "string" ? m.content : "（含附件）",
+      });
     } else if (m.role === "assistant" && m.content && !m.tool_calls) {
       out.push({
         role: "assistant",
@@ -26,14 +29,22 @@ export function historyToTurns(history) {
   return out;
 }
 
-export function buildRunTurn({ agentLoop, agentLoopDeps = {}, history, saveSession, root }) {
+export function buildRunTurn({
+  agentLoop,
+  agentLoopDeps = {},
+  history,
+  saveSession,
+  root,
+}) {
   // `input` is either a plain string (legacy) or {text, parts} (v0.8 M6). With parts, expand
   // attachments to content blocks via the shared parts.mjs; without, push the string unchanged.
   return async function runTurn(input, sink) {
     const content =
       typeof input === "string"
         ? input
-        : await expandPartsToContent(input, { root: root || agentLoopDeps.root });
+        : await expandPartsToContent(input, {
+            root: root || agentLoopDeps.root,
+          });
     history.push({ role: "user", content });
     const output = await agentLoop({
       ...agentLoopDeps,
@@ -51,7 +62,8 @@ export function buildRunTurn({ agentLoop, agentLoopDeps = {}, history, saveSessi
 }
 
 export function buildQuickUtilityTurn({ agentLoop, agentLoopDeps = {} }) {
-  const LIGHT_SYSTEM = "你是一个通用快捷助手。请简短、直接地回答用户这一个快捷问题(天气/时间/单位换算等),不要展开,也不要使用任何员工的专业身份或长期上下文。";
+  const LIGHT_SYSTEM =
+    "你是一个通用快捷助手。请简短、直接地回答用户这一个快捷问题(天气/时间/单位换算等),不要展开,也不要使用任何员工的专业身份或长期上下文。";
   return async function runQuickUtility(text, sink) {
     return agentLoop({
       ...agentLoopDeps,

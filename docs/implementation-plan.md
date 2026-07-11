@@ -1,31 +1,47 @@
-# ChaoGeek Hermes Experts MVP Implementation Plan
+# CrewClaw v0.18 Implementation Plan
+
+The authoritative product contract is [`prd_v0.18.md`](./prd_v0.18.md). This file tracks the
+implementation order and quality gates; it does not redefine the product boundary.
 
 ## Architecture
 
-CrewClaw keeps the existing Vite application and adds an incremental expert distribution layer:
-
-- `registry/experts.json` is the source of truth for website and CLI expert metadata.
+- `contracts/` defines the two-file employee standard and generated JSON Schemas.
+- `registry/experts.json` is the marketplace/CLI source of truth.
 - `experts/` contains local Hermes profile distributions.
-- `packages/validator` validates profile structure and safety.
-- `crates/crewclaw-cli` implements the CrewClaw command-line surface in Rust and wraps official `hermes profile` commands.
-- `packages/cli/bin/chaogeek-hermes.cjs` is only a local Node bin bridge into the Rust CLI.
+- `packages/runtime/` is the Node reference runtime and TaskEvent producer.
+- `crates/crewclaw-cli/` is the Ratatui supervision cockpit and TaskEvent consumer.
+- `packages/validator/` rejects incomplete, unsafe, or version-drifted employee packages.
+- The Vite/Hono website is a local-first registry projection with real package downloads.
 
-## MVP Sequence
+## Current Sequence
 
-1. Maintain the current Vite website and pnpm scripts.
-2. Add P0 expert profiles for `code-review-shrimp` and `product-prd-crab`.
-3. Validate expert packages with `pnpm run validate:all-experts`.
-4. Use `pnpm --silent -C /Volumes/Ventoy/Playground/crewhire run crewclaw` for local interactive CLI smoke tests from any directory.
-5. Run `pnpm run check`, `pnpm run lint`, `pnpm test`, `cargo test --manifest-path crates/crewclaw-cli/Cargo.toml`, `pnpm run build`, and `pnpm run test:e2e`.
-6. Start a fresh local dev server after changes for manual testing.
+1. Close runtime trust boundaries: public-network egress, workspace confinement, approval
+   durability, artifact integrity, terminal idempotency, and cross-process state updates.
+2. Make TaskEvent payloads canonical and correlation-complete, then replay the same golden JSONL
+   through the Node and Rust reducers and compare semantic snapshots.
+3. Make every TUI action honest: perform the side effect or emit a typed unavailable/failed event.
+4. Keep `tool_needs`, permission grants, eval suites, and outcome rubrics wired into live execution.
+5. Replace remaining explicitly-labelled MOCK panels only when a real data source exists.
 
-## Hermes Compatibility
+## Required Gates
 
-The CLI wrapper prefers Hermes profile distribution support through `hermes profile install`. Older local Hermes builds can still be smoke-tested through the wrapper's local-directory fallback: it creates a temporary `.tar.gz` archive and imports it with `hermes profile import --name`.
+```bash
+pnpm run check
+pnpm run lint
+pnpm run format:check
+pnpm test
+pnpm run test:conformance
+pnpm run validate:all-experts
+cargo clippy --manifest-path crates/crewclaw-cli/Cargo.toml --all-targets -- -D warnings
+pnpm run build
+pnpm run test:e2e
+```
+
+No gate may silently skip a known failure. Live/credentialed smoke checks must be named separately
+from deterministic CI checks, with their prerequisites and skip reason explicit.
 
 ## Non-Goals
 
-- No Next.js migration in this MVP.
-- No multi-package workspace split beyond the current incremental `packages/` layout.
-- No paid registry, enterprise private registry, or analytics upload.
-- No direct writes to `~/.hermes`.
+- No hosted marketplace/accounts backend in this milestone.
+- No editor, file manager, browser, or long-running execution surface in the CrewClaw TUI.
+- No direct writes to `~/.hermes`; use official Hermes profile commands.

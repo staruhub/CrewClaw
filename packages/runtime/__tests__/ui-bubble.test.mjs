@@ -7,12 +7,18 @@ assert.equal(userBubble("hello", { color: false }), "▎ hello");
 
 const longBubble = userBubble("word ".repeat(contentWidth()), { color: false });
 const longLines = longBubble.split("\n");
-assert.ok(longLines.length > 1, "long user bubble should wrap into multiple lines");
+assert.ok(
+  longLines.length > 1,
+  "long user bubble should wrap into multiple lines"
+);
 for (const line of longLines) {
-  assert.ok(line.startsWith("▎ "), `line should start with rail prompt: ${line}`);
+  assert.ok(
+    line.startsWith("▎ "),
+    `line should start with rail prompt: ${line}`
+  );
   assert.ok(
     visibleLen(line) <= contentWidth() + 2,
-    `line exceeds content width: ${visibleLen(line)} > ${contentWidth() + 2}`,
+    `line exceeds content width: ${visibleLen(line)} > ${contentWidth() + 2}`
   );
 }
 

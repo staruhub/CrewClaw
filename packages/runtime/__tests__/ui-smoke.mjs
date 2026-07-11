@@ -43,7 +43,10 @@ assert.match(status, /step 2/);
 assert.match(status, /bash\/search/);
 
 const plainBadge = agentBadge(sample, { color: false });
-const plainStatus = statusBar({ model: sample.model, step: 2 }, { color: false });
+const plainStatus = statusBar(
+  { model: sample.model, step: 2 },
+  { color: false }
+);
 const plainLabels = `${userLabel({ color: false })}${agentLabel(sample.name, { color: false })}`;
 console.log(plainBadge);
 console.log(plainStatus);
@@ -67,13 +70,19 @@ assert.deepEqual(wrapText("", 10), [""]);
 assert.deepEqual(wrapText("   ", 10), [""]);
 // CJK has no spaces → hard-break by display width; every line fits.
 for (const ln of wrapText("你好世界你好世界", 6)) {
-  assert.ok(visibleLen(ln) <= 6, `CJK wrap overruns (${visibleLen(ln)}): ${ln}`);
+  assert.ok(
+    visibleLen(ln) <= 6,
+    `CJK wrap overruns (${visibleLen(ln)}): ${ln}`
+  );
 }
 // long unbroken token splits into equal display-width chunks
 assert.equal(wrapText("x".repeat(50), 10).length, 5);
 for (const ln of wrapText("x".repeat(50), 10)) assert.equal(visibleLen(ln), 10);
 // mixed CJK + latin still respects the width budget
-for (const ln of wrapText("混合 mixed 文本 text 很长很长很长很长很长很长很长很长 end", 12)) {
+for (const ln of wrapText(
+  "混合 mixed 文本 text 很长很长很长很长很长很长很长很长 end",
+  12
+)) {
   assert.ok(visibleLen(ln) <= 12, `mixed wrap overruns: ${visibleLen(ln)}`);
 }
 assert.equal(indent(["a", "b"], ">> ", "   "), ">> a\n   b");
@@ -85,23 +94,53 @@ console.log("ui-layout assertions passed");
 
 // --- ui-tools: compact one-line tool activity ---
 assert.equal(
-  toolLine({ name: "search", args: { query: "name" }, output: "a.json:2: name" }, { color: false }),
-  '⌕ "name" (1 处匹配)',
+  toolLine(
+    { name: "search", args: { query: "name" }, output: "a.json:2: name" },
+    { color: false }
+  ),
+  '⌕ "name" (1 处匹配)'
 );
 assert.equal(
-  toolLine({ name: "read_file", args: { path: "README.md" }, output: "l1\nl2\nl3" }, { color: false }),
-  "→ README.md (3 行)",
+  toolLine(
+    { name: "read_file", args: { path: "README.md" }, output: "l1\nl2\nl3" },
+    { color: false }
+  ),
+  "→ README.md (3 行)"
 );
-assert.equal(toolLine({ name: "bash", command: "ls -la", output: "a\nb" }, { color: false }), "$ ls -la (2 行)");
-assert.match(toolLine({ name: "bash", command: "rm x", confirmed: false }, { color: false }), /\(已跳过\)$/);
 assert.equal(
-  toolLine({ name: "write_file", args: { path: "x.txt" }, output: "✓ 已写入 x.txt" }, { color: false }),
-  "✚ x.txt (已写入)",
+  toolLine(
+    { name: "bash", command: "ls -la", output: "a\nb" },
+    { color: false }
+  ),
+  "$ ls -la (2 行)"
 );
-const _tl = toolLine({ name: "search", args: { query: "q" }, output: "f:1: q" }, { color: false });
+assert.match(
+  toolLine(
+    { name: "bash", command: "rm x", confirmed: false },
+    { color: false }
+  ),
+  /\(已跳过\)$/
+);
+assert.equal(
+  toolLine(
+    { name: "write_file", args: { path: "x.txt" }, output: "✓ 已写入 x.txt" },
+    { color: false }
+  ),
+  "✚ x.txt (已写入)"
+);
+const _tl = toolLine(
+  { name: "search", args: { query: "q" }, output: "f:1: q" },
+  { color: false }
+);
 assert.doesNotMatch(_tl, /\x1b\[/); // no ANSI when color off
 assert.doesNotMatch(_tl, /\n/); // single physical line
-assert.match(toolLine({ name: "search", args: { query: "q" }, output: "f:1: q" }, { color: true }), /\x1b\[/);
+assert.match(
+  toolLine(
+    { name: "search", args: { query: "q" }, output: "f:1: q" },
+    { color: true }
+  ),
+  /\x1b\[/
+);
 console.log("ui-tools toolLine assertions passed");
 
 // --- tools-files: cross-platform path conversion (the Git-Bash C:\ <-> /c/ fix) ---
@@ -115,18 +154,38 @@ console.log("tools-files path assertions passed");
 
 // --- tools-files: paste-path auto-detection (OI find_image_path generalized) ---
 const selfPath = fileURLToPath(import.meta.url); // a real existing .mjs absolute path
-const detected = detectFilePaths(`看看这个文件 ${selfPath} 行不行`);
+const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
+const detected = detectFilePaths(`看看这个文件 ${selfPath} 行不行`, {
+  root: workspaceRoot,
+});
 assert.ok(
-  detected.includes(selfPath) || detected.some((p) => p.endsWith("ui-smoke.mjs")),
-  `detectFilePaths should find the existing path, got: ${JSON.stringify(detected)}`,
+  detected.includes(selfPath) || detected.some(p => p.endsWith("ui-smoke.mjs")),
+  `detectFilePaths should find the existing path, got: ${JSON.stringify(detected)}`
 );
-assert.deepEqual(detectFilePaths("没有路径，只有 /nope/nonexistent_xyz.md 这种不存在的"), []);
-assert.deepEqual(detectFilePaths("纯文本，没有任何文件路径"), []);
+assert.deepEqual(
+  detectFilePaths("没有路径，只有 /nope/nonexistent_xyz.md 这种不存在的", {
+    root: workspaceRoot,
+  }),
+  []
+);
+assert.deepEqual(
+  detectFilePaths("纯文本，没有任何文件路径", { root: workspaceRoot }),
+  []
+);
 console.log("tools-files detect assertions passed");
 
 // --- commands: /topbar toggle parsing ---
-assert.deepEqual(runCommand("/topbar on", { color: false }).action, { type: "topbar", value: "on" });
-assert.deepEqual(runCommand("/topbar off", { color: false }).action, { type: "topbar", value: "off" });
-assert.deepEqual(runCommand("/topbar", { color: false }).action, { type: "topbar", value: "toggle" });
+assert.deepEqual(runCommand("/topbar on", { color: false }).action, {
+  type: "topbar",
+  value: "on",
+});
+assert.deepEqual(runCommand("/topbar off", { color: false }).action, {
+  type: "topbar",
+  value: "off",
+});
+assert.deepEqual(runCommand("/topbar", { color: false }).action, {
+  type: "topbar",
+  value: "toggle",
+});
 assert.equal(runCommand("/exit", { color: false }).action.type, "exit");
 console.log("commands /topbar assertions passed");

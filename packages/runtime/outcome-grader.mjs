@@ -7,7 +7,7 @@ export const RESEARCH_RUBRIC = [
   { key: "scenario_advice", label: "场景建议", kind: "model" },
   { key: "risk_stated", label: "风险说明", kind: "model" },
   { key: "no_fabrication", label: "无捏造", kind: "rule" },
-  { key: "readable", label: "可读性", kind: "model" }
+  { key: "readable", label: "可读性", kind: "model" },
 ];
 
 const FIELD_TOKENS = [
@@ -22,7 +22,7 @@ const FIELD_TOKENS = [
   "context",
   "capability",
   "source",
-  "confidence"
+  "confidence",
 ];
 
 const URL_RE = /https?:\/\/\S+/i;
@@ -38,18 +38,20 @@ function checkRule(key, text) {
     return {
       key,
       passed,
-      reason: passed ? "包含 URL 来源" : "缺少 URL 来源"
+      reason: passed ? "包含 URL 来源" : "缺少 URL 来源",
     };
   }
 
   if (key === "field_completeness") {
     const lower = text.toLowerCase();
-    const tokenCount = FIELD_TOKENS.filter((token) => lower.includes(token.toLowerCase())).length;
+    const tokenCount = FIELD_TOKENS.filter(token =>
+      lower.includes(token.toLowerCase())
+    ).length;
     const passed = text.length >= 120 && tokenCount >= 3;
     return {
       key,
       passed,
-      reason: passed ? "长度和字段覆盖达标" : "长度不足或字段覆盖不足"
+      reason: passed ? "长度和字段覆盖达标" : "长度不足或字段覆盖不足",
     };
   }
 
@@ -58,7 +60,7 @@ function checkRule(key, text) {
     return {
       key,
       passed,
-      reason: passed ? "包含置信度标注" : "缺少置信度标注"
+      reason: passed ? "包含置信度标注" : "缺少置信度标注",
     };
   }
 
@@ -67,14 +69,14 @@ function checkRule(key, text) {
     return {
       key,
       passed: !failed,
-      reason: failed ? "数值声明缺少 URL 来源支撑" : "未发现无来源数值声明"
+      reason: failed ? "数值声明缺少 URL 来源支撑" : "未发现无来源数值声明",
     };
   }
 
   return {
     key,
     passed: true,
-    reason: "no rule"
+    reason: "no rule",
   };
 }
 
@@ -88,7 +90,7 @@ export function ruleCheck(artifactText, rubric = RESEARCH_RUBRIC) {
     }
   }
 
-  const hardFails = checks.filter((check) => !check.passed).length;
+  const hardFails = checks.filter(check => !check.passed).length;
   return { checks, hardFails };
 }
 
@@ -97,7 +99,7 @@ async function runModelCheck(task, text, dimension, modelFn) {
     return {
       key: dimension.key,
       passed: true,
-      reason: "skipped (no grader model)"
+      reason: "skipped (no grader model)",
     };
   }
 
@@ -106,19 +108,23 @@ async function runModelCheck(task, text, dimension, modelFn) {
     return {
       key: dimension.key,
       passed: Boolean(result?.passed),
-      reason: result?.reason ?? ""
+      reason: result?.reason ?? "",
     };
   } catch (error) {
     return {
       key: dimension.key,
       passed: false,
-      reason: error?.message ?? String(error)
+      reason: error?.message ?? String(error),
     };
   }
 }
 
-export async function grade({ task, artifact, rubric = RESEARCH_RUBRIC }, modelFn) {
-  const text = typeof artifact === "string" ? artifact : artifact && artifact.text || "";
+export async function grade(
+  { task, artifact, rubric = RESEARCH_RUBRIC },
+  modelFn
+) {
+  const text =
+    typeof artifact === "string" ? artifact : (artifact && artifact.text) || "";
   const rules = ruleCheck(text, rubric);
   const modelResults = [];
 
@@ -129,10 +135,14 @@ export async function grade({ task, artifact, rubric = RESEARCH_RUBRIC }, modelF
   }
 
   const perDimension = rules.checks.concat(modelResults);
-  const failed = perDimension.filter((dimension) => !dimension.passed).map((dimension) => dimension.key);
+  const failed = perDimension
+    .filter(dimension => !dimension.passed)
+    .map(dimension => dimension.key);
   return {
-    passed: rules.hardFails === 0 && modelResults.every((dimension) => dimension.passed),
+    passed:
+      rules.hardFails === 0 &&
+      modelResults.every(dimension => dimension.passed),
     perDimension,
-    feedback: failed.length ? failed.join(", ") : "全部通过"
+    feedback: failed.length ? failed.join(", ") : "全部通过",
   };
 }

@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { ArrowUpRight, BadgeCheck, Heart, ShieldCheck, Tag } from "lucide-react";
+import {
+  ArrowUpRight,
+  BadgeCheck,
+  Heart,
+  ShieldCheck,
+  Tag,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,11 +32,15 @@ type EmployeeCardProps = {
 function formatPricing(pricing: string) {
   return pricing
     .split("-")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
 
-export function EmployeeCard({ employee, action, className }: EmployeeCardProps) {
+export function EmployeeCard({
+  employee,
+  action,
+  className,
+}: EmployeeCardProps) {
   const saved = useSavedEmployees();
   const isSaved = saved.isSaved(employee.employee_id);
 
@@ -38,13 +48,15 @@ export function EmployeeCard({ employee, action, className }: EmployeeCardProps)
     <Card
       className={cn(
         "h-full gap-4 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading shadow-[0_18px_54px_rgba(0,0,0,0.22)] transition-colors hover:border-crew-copper/35 hover:bg-white/[0.045]",
-        className,
+        className
       )}
-      onClickCapture={(event) => {
+      onClickCapture={event => {
         if (!(event.target instanceof Element)) return;
 
         const anchor = event.target.closest("a");
-        if (anchor?.getAttribute("href") === `/employee/${employee.employee_id}`) {
+        if (
+          anchor?.getAttribute("href") === `/employee/${employee.employee_id}`
+        ) {
           track("employee_card_clicked", {
             employee_id: employee.employee_id,
             employee_name: employee.name,
@@ -56,7 +68,10 @@ export function EmployeeCard({ employee, action, className }: EmployeeCardProps)
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <CardTitle className="text-lg font-semibold leading-tight md:text-xl">
-              <Link className="hover:text-crew-copper" to={`/employee/${employee.employee_id}`}>
+              <Link
+                className="hover:text-crew-copper"
+                to={`/employee/${employee.employee_id}`}
+              >
                 {employee.name}
               </Link>
             </CardTitle>
@@ -72,9 +87,9 @@ export function EmployeeCard({ employee, action, className }: EmployeeCardProps)
                   "size-9 rounded-[8px] border-white/15",
                   isSaved
                     ? "border-crew-copper/45 bg-crew-copper/10 text-crew-copper"
-                    : "text-crew-muted hover:text-crew-heading",
+                    : "text-crew-muted hover:text-crew-heading"
                 )}
-                onClick={(event) => {
+                onClick={event => {
                   event.preventDefault();
                   event.stopPropagation();
                   saved.toggleSaved(employee.employee_id, employee.name);
@@ -93,7 +108,7 @@ export function EmployeeCard({ employee, action, className }: EmployeeCardProps)
           </CardAction>
         </div>
         <div className="flex flex-wrap gap-2">
-          {employee.tags.slice(0, 4).map((tag) => (
+          {employee.tags.slice(0, 4).map(tag => (
             <Badge
               className="border-white/10 bg-white/[0.04] text-crew-muted"
               key={tag}
@@ -105,7 +120,9 @@ export function EmployeeCard({ employee, action, className }: EmployeeCardProps)
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col">
-        <p className="line-clamp-3 text-sm leading-6 text-crew-body">{employee.description}</p>
+        <p className="line-clamp-3 text-sm leading-6 text-crew-body">
+          {employee.description}
+        </p>
 
         {/* v0.18 Phase 2b: honest facts only. rating (4.8) / hire_count (1.2k) were fabricated —
             a bundled site has no eval/kpi data source. Show real registry facts instead. */}
@@ -115,8 +132,7 @@ export function EmployeeCard({ employee, action, className }: EmployeeCardProps)
             {employee.certification}
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
-            <Tag className="size-3.5 text-crew-copper" />
-            v{employee.version}
+            <Tag className="size-3.5 text-crew-copper" />v{employee.version}
           </span>
           <span className="min-w-0 truncate text-right text-crew-heading">
             {formatPricing(employee.pricing)}

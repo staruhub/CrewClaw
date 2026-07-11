@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { isImagePath, readImageDataUrl } from "../tools-files.mjs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  detectFilePaths,
+  isImagePath,
+  readImageDataUrl,
+} from "../tools-files.mjs";
+import { REPO_ROOT } from "./test-paths.mjs";
 
 async function test(name, fn) {
   try {
@@ -25,12 +33,16 @@ await test("isImagePath returns false for non-image paths", () => {
 
 await test("readImageDataUrl reads a real png file as a data URL", async () => {
   const prefix = "data:image/png;base64,";
-  const gitBashImagePath = "/c/Users/12117/Playground/crewclaw/crewhire/decks/arkclaw-design-security/scratch/assets/creation-atelier.png";
-  const imagePath = process.platform === "win32"
-    ? "C:/Users/12117/Playground/crewclaw/crewhire/decks/arkclaw-design-security/scratch/assets/creation-atelier.png"
-    : gitBashImagePath;
+  const imagePath = join(
+    REPO_ROOT,
+    "decks",
+    "arkclaw-design-security",
+    "scratch",
+    "assets",
+    "creation-atelier.png"
+  );
 
-  const result = await readImageDataUrl(imagePath);
+  const result = await readImageDataUrl(imagePath, { root: REPO_ROOT });
 
   assert.equal(result.ok, true);
   assert.equal(result.dataUrl.startsWith(prefix), true);
@@ -40,8 +52,42 @@ await test("readImageDataUrl reads a real png file as a data URL", async () => {
 });
 
 await test("readImageDataUrl rejects unsupported types", async () => {
-  const result = await readImageDataUrl("foo.txt");
+  const result = await readImageDataUrl("foo.txt", { root: REPO_ROOT });
 
   assert.equal(result.ok, false);
   assert.match(result.error, /不支持|类型/);
+});
+
+await test("image path replaced by an outside junction after detection is rejected", async () => {
+  const fixture = mkdtempSync(join(tmpdir(), "crewclaw-image-race-"));
+  const workspace = join(fixture, "workspace");
+  const imageDir = join(workspace, "images");
+  const outsideDir = join(fixture, "outside");
+  mkdirSync(imageDir, { recursive: true });
+  mkdirSync(outsideDir, { recursive: true });
+  const source = join(
+    REPO_ROOT,
+    "decks",
+    "arkclaw-design-security",
+    "scratch",
+    "assets",
+    "creation-atelier.png"
+  );
+  cpSync(source, join(imageDir, "race.png"));
+  cpSync(source, join(outsideDir, "race.png"));
+  const [detected] = detectFilePaths(join(imageDir, "race.png"), {
+    root: workspace,
+  });
+  assert.ok(detected, "safe image is detected before replacement");
+  rmSync(imageDir, { recursive: true, force: true });
+  symlinkSync(
+    outsideDir,
+    imageDir,
+    process.platform === "win32" ? "junction" : "dir"
+  );
+
+  const result = await readImageDataUrl(detected, { root: workspace });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /not found|symbolic|workspace/i);
+  rmSync(fixture, { recursive: true, force: true });
 });

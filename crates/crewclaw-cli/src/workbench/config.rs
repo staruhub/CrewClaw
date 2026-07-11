@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// v0.15 P1-1：偏好设置（SETTINGS 浮层）。持久化到 `.crewclaw/prefs.json`(独立于用户 tui.json,
 /// 不覆写用户手写配置)。字段存**选项下标**——具体可选值由 overlay_settings 的静态表定义。
 /// APPEARANCE(theme_index/scanlines/density) 全真生效；BEHAVIOR 组引擎暂不支持,仅存选择(为接入预留)。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Prefs {
     #[serde(default)]
     pub theme_index: usize,
@@ -33,39 +33,20 @@ pub struct Prefs {
     pub dream: usize,
 }
 
-impl Default for Prefs {
-    fn default() -> Self {
-        Self {
-            theme_index: 0,
-            scanlines: false,
-            density: 0,
-            approval: 0,
-            parallel: 0,
-            budget: 0,
-            perm_scope: 0,
-            dream: 0,
-        }
-    }
-}
-
 impl Prefs {
     /// 从 `root/.crewclaw/prefs.json` 读；不存在/损坏 → 默认（不 panic）。
     pub fn load(root: &Path) -> Self {
-        let path = root.join(".crewclaw").join("prefs.json");
-        match std::fs::read_to_string(&path) {
-            Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-            Err(_) => Self::default(),
-        }
+        crate::state_store::read_string(root, "prefs.json")
+            .ok()
+            .flatten()
+            .and_then(|contents| serde_json::from_str(&contents).ok())
+            .unwrap_or_default()
     }
 
     /// 写回 `root/.crewclaw/prefs.json`（best-effort;IO 失败静默——偏好丢失不该炸 UI）。
     pub fn save(&self, root: &Path) {
-        let dir = root.join(".crewclaw");
-        if std::fs::create_dir_all(&dir).is_err() {
-            return;
-        }
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(dir.join("prefs.json"), json);
+            let _ = crate::state_store::write_atomic(root, "prefs.json", json.as_bytes());
         }
     }
 }
@@ -253,12 +234,11 @@ impl Default for TuiConfig {
 impl TuiConfig {
     /// 从 `root/.crewclaw/tui.json` 读配置。文件不存在或 JSON 损坏 → 默认配置（不报错、不 panic）。
     pub fn load(root: &Path) -> Self {
-        let path = root.join(".crewclaw").join("tui.json");
-        let contents = match std::fs::read_to_string(&path) {
-            Ok(contents) => contents,
-            Err(_) => return Self::default(),
-        };
-        Self::from_json(&contents)
+        crate::state_store::read_string(root, "tui.json")
+            .ok()
+            .flatten()
+            .map(|contents| Self::from_json(&contents))
+            .unwrap_or_default()
     }
 
     /// 解析 JSON 文本；损坏时回落默认（供单测直接喂字符串，不碰文件系统）。

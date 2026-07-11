@@ -12,7 +12,7 @@ export const EMPLOYEE_SORT_OPTIONS = [
 export type EmployeeSort = (typeof EMPLOYEE_SORT_OPTIONS)[number]["value"];
 
 export function isEmployeeSort(value: string | null): value is EmployeeSort {
-  return EMPLOYEE_SORT_OPTIONS.some((option) => option.value === value);
+  return EMPLOYEE_SORT_OPTIONS.some(option => option.value === value);
 }
 
 function compareVersionDesc(a: Employee, b: Employee) {
@@ -36,7 +36,9 @@ export function sortEmployees(employees: Employee[], sort: EmployeeSort) {
     }
 
     if (sort === "updated_at") {
-      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      return (
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      );
     }
 
     return (

@@ -33,7 +33,7 @@ function writeStoredTeam(team: WorkspaceEmployee[]) {
 
 function createWorkspaceEmployee(
   employeeId: string,
-  permissions: string[],
+  permissions: string[]
 ): WorkspaceEmployee | null {
   const employee = getEmployee(employeeId);
   if (!employee) return null;
@@ -64,15 +64,18 @@ export function useTeam() {
 
   const isHired = useCallback(
     (id: string) =>
-      team.some((employee) => employee.employee_id === id && employee.status === "active"),
-    [team],
+      team.some(
+        employee => employee.employee_id === id && employee.status === "active"
+      ),
+    [team]
   );
 
   const hire = useCallback(
     (id: string, permissions: string[]): TeamActionResult => {
       if (isHired(id)) {
         const existing = team.find(
-          (employee) => employee.employee_id === id && employee.status === "active",
+          employee =>
+            employee.employee_id === id && employee.status === "active"
         );
 
         return {
@@ -90,13 +93,15 @@ export function useTeam() {
         };
       }
 
-      setTeam((currentTeam) => {
-        const existingIndex = currentTeam.findIndex((employee) => employee.employee_id === id);
+      setTeam(currentTeam => {
+        const existingIndex = currentTeam.findIndex(
+          employee => employee.employee_id === id
+        );
 
         if (existingIndex === -1) return [...currentTeam, nextEmployee];
 
         return currentTeam.map((employee, index) =>
-          index === existingIndex ? nextEmployee : employee,
+          index === existingIndex ? nextEmployee : employee
         );
       });
 
@@ -106,16 +111,17 @@ export function useTeam() {
         employee: nextEmployee,
       };
     },
-    [isHired, team],
+    [isHired, team]
   );
 
   const fire = useCallback((id: string): TeamActionResult => {
     const now = new Date().toISOString();
     let firedEmployee: WorkspaceEmployee | undefined;
 
-    setTeam((currentTeam) =>
-      currentTeam.map((employee) => {
-        if (employee.employee_id !== id || employee.status === "fired") return employee;
+    setTeam(currentTeam =>
+      currentTeam.map(employee => {
+        if (employee.employee_id !== id || employee.status === "fired")
+          return employee;
 
         firedEmployee = {
           ...employee,
@@ -124,7 +130,7 @@ export function useTeam() {
         };
 
         return firedEmployee;
-      }),
+      })
     );
 
     if (!firedEmployee) {
@@ -143,14 +149,17 @@ export function useTeam() {
 
   const getReport = useCallback(
     (id: string): DoctorReport => {
-      const workspaceEmployee = team.find((employee) => employee.employee_id === id);
+      const workspaceEmployee = team.find(
+        employee => employee.employee_id === id
+      );
       const employee = getEmployee(id);
       const checkedAt = new Date().toISOString();
 
       if (!workspaceEmployee || workspaceEmployee.status === "fired") {
         return {
           report_id: `doctor:${id}:${checkedAt}`,
-          workspace_employee_id: workspaceEmployee?.workspace_employee_id ?? `${WORKSPACE_ID}:${id}`,
+          workspace_employee_id:
+            workspaceEmployee?.workspace_employee_id ?? `${WORKSPACE_ID}:${id}`,
           health_status: "broken",
           issues: ["This employee is not active in your crew."],
           suggestions: ["Hire the employee before assigning work."],
@@ -170,7 +179,8 @@ export function useTeam() {
       }
 
       const missingPermissions = employee.permissions.filter(
-        (permission) => !workspaceEmployee.permissions_granted.includes(permission),
+        permission =>
+          !workspaceEmployee.permissions_granted.includes(permission)
       );
 
       return {
@@ -179,7 +189,9 @@ export function useTeam() {
         health_status: missingPermissions.length > 0 ? "warning" : "healthy",
         issues:
           missingPermissions.length > 0
-            ? missingPermissions.map((permission) => `Missing permission: ${permission}`)
+            ? missingPermissions.map(
+                permission => `Missing permission: ${permission}`
+              )
             : ["This employee is healthy and ready to work."],
         suggestions:
           missingPermissions.length > 0
@@ -188,7 +200,7 @@ export function useTeam() {
         checked_at: checkedAt,
       };
     },
-    [team],
+    [team]
   );
 
   return {

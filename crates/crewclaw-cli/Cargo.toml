@@ -21,3 +21,14 @@ arboard = { version = "3", default-features = false }
 # v0.13：SESSION 事件行的 HH:MM 本地时间。std 拿不到时区偏移；time crate 的 local-offset
 # 有多线程 soundness caveat，chrono 是稳妥选项。关默认 feature 只留 clock。
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+getrandom = "0.3.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.177"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Threading",
+] }

@@ -87,7 +87,10 @@ function formatActivity(value: string) {
 
 function HealthBadge({ status }: { status: HealthStatus }) {
   return (
-    <Badge className={cn("rounded-[8px] border", HEALTH_BADGE_CLASS[status])} variant="outline">
+    <Badge
+      className={cn("rounded-[8px] border", HEALTH_BADGE_CLASS[status])}
+      variant="outline"
+    >
       {HEALTH_LABEL[status]}
     </Badge>
   );
@@ -96,8 +99,11 @@ function HealthBadge({ status }: { status: HealthStatus }) {
 function ReportList({ items }: { items: string[] }) {
   return (
     <ul className="space-y-2 text-sm leading-6 text-crew-body">
-      {items.map((item) => (
-        <li className="rounded-[8px] border border-white/10 bg-white/[0.03] px-3 py-2" key={item}>
+      {items.map(item => (
+        <li
+          className="rounded-[8px] border border-white/10 bg-white/[0.03] px-3 py-2"
+          key={item}
+        >
           {item}
         </li>
       ))}
@@ -109,13 +115,14 @@ export default function TeamDashboard() {
   const team = useTeam();
   const roleAssignments = useRoles();
   const [report, setReport] = useState<DoctorReport | null>(null);
-  const [reportEmployeeName, setReportEmployeeName] = useState<string>("Employee");
+  const [reportEmployeeName, setReportEmployeeName] =
+    useState<string>("Employee");
   const [roleDraft, setRoleDraft] = useState<RoleDraft | null>(null);
-  const roster = team.list().filter((employee) => employee.status !== "fired");
+  const roster = team.list().filter(employee => employee.status !== "fired");
 
   const rows = useMemo(
     () =>
-      roster.map((workspaceEmployee) => {
+      roster.map(workspaceEmployee => {
         const employee = getEmployee(workspaceEmployee.employee_id);
         const doctorReport = team.getReport(workspaceEmployee.employee_id);
 
@@ -128,7 +135,7 @@ export default function TeamDashboard() {
           assignedRole: roleAssignments.getRole(workspaceEmployee.employee_id),
         };
       }),
-    [roleAssignments, roster, team],
+    [roleAssignments, roster, team]
   );
 
   useEffect(() => {
@@ -137,7 +144,11 @@ export default function TeamDashboard() {
     });
   }, [roster.length]);
 
-  function openRoleDialog(employeeId: string, employeeName: string, currentRole: string) {
+  function openRoleDialog(
+    employeeId: string,
+    employeeName: string,
+    currentRole: string
+  ) {
     const role = roleAssignments.getRole(employeeId) || currentRole;
 
     track("team_viewed", {
@@ -179,8 +190,8 @@ export default function TeamDashboard() {
               Your AI crew
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              Manage active employees, check their health, inspect resumes, and fire
-              employees when they leave the crew.
+              Manage active employees, check their health, inspect resumes, and
+              fire employees when they leave the crew.
             </p>
           </div>
           <Button
@@ -194,10 +205,12 @@ export default function TeamDashboard() {
         {rows.length === 0 ? (
           <Card className="mt-10 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <CardContent className="py-10">
-              <h2 className="text-2xl font-light">No active AI employees yet.</h2>
+              <h2 className="text-2xl font-light">
+                No active AI employees yet.
+              </h2>
               <p className="mt-3 max-w-xl text-sm leading-6 text-crew-body">
-                Hire a verified employee from the marketplace to start building your
-                local demo team.
+                Hire a verified employee from the marketplace to start building
+                your local demo team.
               </p>
               <Button
                 asChild
@@ -213,11 +226,21 @@ export default function TeamDashboard() {
               <Table>
                 <TableHeader>
                   <TableRow className="border-white/10 hover:bg-transparent">
-                    <TableHead className="px-5 py-4 text-crew-muted">Employee</TableHead>
-                    <TableHead className="px-5 py-4 text-crew-muted">Role</TableHead>
-                    <TableHead className="px-5 py-4 text-crew-muted">Responsibility</TableHead>
-                    <TableHead className="px-5 py-4 text-crew-muted">Status</TableHead>
-                    <TableHead className="px-5 py-4 text-crew-muted">Version</TableHead>
+                    <TableHead className="px-5 py-4 text-crew-muted">
+                      Employee
+                    </TableHead>
+                    <TableHead className="px-5 py-4 text-crew-muted">
+                      Role
+                    </TableHead>
+                    <TableHead className="px-5 py-4 text-crew-muted">
+                      Responsibility
+                    </TableHead>
+                    <TableHead className="px-5 py-4 text-crew-muted">
+                      Status
+                    </TableHead>
+                    <TableHead className="px-5 py-4 text-crew-muted">
+                      Version
+                    </TableHead>
                     <TableHead className="px-5 py-4 text-crew-muted">
                       Recent activity
                     </TableHead>
@@ -227,119 +250,152 @@ export default function TeamDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map(({ assignedRole, doctorReport, name, role, workspaceEmployee }) => (
-                    <TableRow
-                      className="border-white/10 hover:bg-white/[0.025]"
-                      key={workspaceEmployee.workspace_employee_id}
-                    >
-                      <TableCell className="px-5 py-5 font-medium text-crew-heading">
-                        {name}
-                      </TableCell>
-                      <TableCell className="px-5 py-5 text-crew-body">{role}</TableCell>
-                      <TableCell className="px-5 py-5">
-                        {assignedRole ? (
-                          <Badge
-                            className="max-w-48 rounded-[8px] border-white/10 bg-white/[0.04] text-crew-body"
-                            variant="outline"
-                          >
-                            {assignedRole}
-                          </Badge>
-                        ) : (
-                          <span className="text-sm text-crew-muted">No long-term role</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="px-5 py-5">
-                        <HealthBadge status={doctorReport.health_status} />
-                      </TableCell>
-                      <TableCell className="px-5 py-5 font-mono text-xs text-crew-muted">
-                        v{workspaceEmployee.version}
-                      </TableCell>
-                      <TableCell className="px-5 py-5 text-crew-body">
-                        {formatActivity(workspaceEmployee.hired_at)}
-                      </TableCell>
-                      <TableCell className="px-5 py-5">
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Button
-                            className="rounded-[8px] border-white/15"
-                            onClick={() =>
-                              openRoleDialog(workspaceEmployee.employee_id, name, role)
-                            }
-                            variant="outline"
-                          >
-                            {assignedRole ? "Modify role" : "Assign role"}
-                          </Button>
-                          <Button
-                            className="rounded-[8px] border-white/15"
-                            onClick={() => {
-                              track("doctor_started", {
-                                employee_id: workspaceEmployee.employee_id,
-                                employee_name: name,
-                              });
-                              const nextReport = team.getReport(workspaceEmployee.employee_id);
-                              track("doctor_completed", {
-                                employee_id: workspaceEmployee.employee_id,
-                                employee_name: name,
-                                health_status: nextReport.health_status,
-                                issue_count: nextReport.issues.length,
-                                suggestion_count: nextReport.suggestions.length,
-                              });
-                              setReport(nextReport);
-                              setReportEmployeeName(name);
-                            }}
-                            variant="outline"
-                          >
-                            Doctor
-                          </Button>
-                          <Button asChild className="rounded-[8px] border-white/15" variant="outline">
-                            <Link to={`/employee/${workspaceEmployee.employee_id}`}>Inspect</Link>
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                className="rounded-[8px]"
-                                onClick={() =>
-                                  track("fire_clicked", {
-                                    employee_id: workspaceEmployee.employee_id,
-                                    employee_name: name,
-                                  })
-                                }
-                                variant="destructive"
+                  {rows.map(
+                    ({
+                      assignedRole,
+                      doctorReport,
+                      name,
+                      role,
+                      workspaceEmployee,
+                    }) => (
+                      <TableRow
+                        className="border-white/10 hover:bg-white/[0.025]"
+                        key={workspaceEmployee.workspace_employee_id}
+                      >
+                        <TableCell className="px-5 py-5 font-medium text-crew-heading">
+                          {name}
+                        </TableCell>
+                        <TableCell className="px-5 py-5 text-crew-body">
+                          {role}
+                        </TableCell>
+                        <TableCell className="px-5 py-5">
+                          {assignedRole ? (
+                            <Badge
+                              className="max-w-48 rounded-[8px] border-white/10 bg-white/[0.04] text-crew-body"
+                              variant="outline"
+                            >
+                              {assignedRole}
+                            </Badge>
+                          ) : (
+                            <span className="text-sm text-crew-muted">
+                              No long-term role
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="px-5 py-5">
+                          <HealthBadge status={doctorReport.health_status} />
+                        </TableCell>
+                        <TableCell className="px-5 py-5 font-mono text-xs text-crew-muted">
+                          v{workspaceEmployee.version}
+                        </TableCell>
+                        <TableCell className="px-5 py-5 text-crew-body">
+                          {formatActivity(workspaceEmployee.hired_at)}
+                        </TableCell>
+                        <TableCell className="px-5 py-5">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              className="rounded-[8px] border-white/15"
+                              onClick={() =>
+                                openRoleDialog(
+                                  workspaceEmployee.employee_id,
+                                  name,
+                                  role
+                                )
+                              }
+                              variant="outline"
+                            >
+                              {assignedRole ? "Modify role" : "Assign role"}
+                            </Button>
+                            <Button
+                              className="rounded-[8px] border-white/15"
+                              onClick={() => {
+                                track("doctor_started", {
+                                  employee_id: workspaceEmployee.employee_id,
+                                  employee_name: name,
+                                });
+                                const nextReport = team.getReport(
+                                  workspaceEmployee.employee_id
+                                );
+                                track("doctor_completed", {
+                                  employee_id: workspaceEmployee.employee_id,
+                                  employee_name: name,
+                                  health_status: nextReport.health_status,
+                                  issue_count: nextReport.issues.length,
+                                  suggestion_count:
+                                    nextReport.suggestions.length,
+                                });
+                                setReport(nextReport);
+                                setReportEmployeeName(name);
+                              }}
+                              variant="outline"
+                            >
+                              Doctor
+                            </Button>
+                            <Button
+                              asChild
+                              className="rounded-[8px] border-white/15"
+                              variant="outline"
+                            >
+                              <Link
+                                to={`/employee/${workspaceEmployee.employee_id}`}
                               >
-                                Fire
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Fire {name}?</AlertDialogTitle>
-                                <AlertDialogDescription className="leading-6 text-crew-body">
-                                  This employee will leave your crew, but history will be
-                                  kept.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel className="rounded-[8px] border-white/15">
-                                  Keep employee
-                                </AlertDialogCancel>
-                                <AlertDialogAction
-                                  className="rounded-[8px] bg-destructive text-white hover:bg-destructive/90"
-                                  onClick={() => {
-                                    const result = team.fire(workspaceEmployee.employee_id);
-                                    track("fire_confirmed", {
-                                      employee_id: workspaceEmployee.employee_id,
+                                Inspect
+                              </Link>
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  className="rounded-[8px]"
+                                  onClick={() =>
+                                    track("fire_clicked", {
+                                      employee_id:
+                                        workspaceEmployee.employee_id,
                                       employee_name: name,
-                                      ok: result.ok,
-                                    });
-                                  }}
+                                    })
+                                  }
+                                  variant="destructive"
                                 >
-                                  Fire employee
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                                  Fire
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>
+                                    Fire {name}?
+                                  </AlertDialogTitle>
+                                  <AlertDialogDescription className="leading-6 text-crew-body">
+                                    This employee will leave your crew, but
+                                    history will be kept.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel className="rounded-[8px] border-white/15">
+                                    Keep employee
+                                  </AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="rounded-[8px] bg-destructive text-white hover:bg-destructive/90"
+                                    onClick={() => {
+                                      const result = team.fire(
+                                        workspaceEmployee.employee_id
+                                      );
+                                      track("fire_confirmed", {
+                                        employee_id:
+                                          workspaceEmployee.employee_id,
+                                        employee_name: name,
+                                        ok: result.ok,
+                                      });
+                                    }}
+                                  >
+                                    Fire employee
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
@@ -347,7 +403,10 @@ export default function TeamDashboard() {
         )}
       </section>
 
-      <Dialog onOpenChange={(open) => !open && setReport(null)} open={report !== null}>
+      <Dialog
+        onOpenChange={open => !open && setReport(null)}
+        open={report !== null}
+      >
         <DialogContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading sm:max-w-xl">
           {report ? (
             <>
@@ -363,7 +422,9 @@ export default function TeamDashboard() {
                   <HealthBadge status={report.health_status} />
                 </div>
                 <div>
-                  <h3 className="mb-3 text-sm font-medium text-crew-heading">Issues</h3>
+                  <h3 className="mb-3 text-sm font-medium text-crew-heading">
+                    Issues
+                  </h3>
                   <ReportList items={report.issues} />
                 </div>
                 <div>
@@ -381,14 +442,18 @@ export default function TeamDashboard() {
         </DialogContent>
       </Dialog>
 
-      <Dialog onOpenChange={(open) => !open && setRoleDraft(null)} open={roleDraft !== null}>
+      <Dialog
+        onOpenChange={open => !open && setRoleDraft(null)}
+        open={roleDraft !== null}
+      >
         <DialogContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading sm:max-w-xl">
           {roleDraft ? (
             <>
               <DialogHeader>
                 <DialogTitle>Assign a long-term role</DialogTitle>
                 <DialogDescription className="text-crew-body">
-                  Give {roleDraft.employeeName} a standing responsibility in your crew.
+                  Give {roleDraft.employeeName} a standing responsibility in
+                  your crew.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
@@ -397,18 +462,22 @@ export default function TeamDashboard() {
                     Suggested responsibilities
                   </label>
                   <Select
-                    onValueChange={(role) =>
-                      setRoleDraft((draft) => (draft ? { ...draft, role } : draft))
+                    onValueChange={role =>
+                      setRoleDraft(draft =>
+                        draft ? { ...draft, role } : draft
+                      )
                     }
                     value={
-                      ROLE_SUGGESTIONS.includes(roleDraft.role) ? roleDraft.role : undefined
+                      ROLE_SUGGESTIONS.includes(roleDraft.role)
+                        ? roleDraft.role
+                        : undefined
                     }
                   >
                     <SelectTrigger className="mt-2 w-full rounded-[8px] border-white/15 bg-white/[0.03] text-crew-heading">
                       <SelectValue placeholder="Choose a common crew responsibility" />
                     </SelectTrigger>
                     <SelectContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
-                      {ROLE_SUGGESTIONS.map((role) => (
+                      {ROLE_SUGGESTIONS.map(role => (
                         <SelectItem key={role} value={role}>
                           {role}
                         </SelectItem>
@@ -417,15 +486,18 @@ export default function TeamDashboard() {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-crew-heading" htmlFor="role-draft">
+                  <label
+                    className="text-sm font-medium text-crew-heading"
+                    htmlFor="role-draft"
+                  >
                     Responsibility
                   </label>
                   <Input
                     className="mt-2 rounded-[8px] border-white/15 bg-white/[0.03] text-crew-heading placeholder:text-crew-muted"
                     id="role-draft"
-                    onChange={(event) =>
-                      setRoleDraft((draft) =>
-                        draft ? { ...draft, role: event.target.value } : draft,
+                    onChange={event =>
+                      setRoleDraft(draft =>
+                        draft ? { ...draft, role: event.target.value } : draft
                       )
                     }
                     placeholder="Example: Pull request reviewer for release work"

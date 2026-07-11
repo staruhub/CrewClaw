@@ -16,9 +16,12 @@
 import assert from "node:assert/strict";
 import { Readable, Writable } from "node:stream";
 import os from "node:os";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { startJsonlBridge } from "../tui/jsonl-bridge.mjs";
+import { readKpi } from "../kpi.mjs";
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Build a fresh, isolated bridge with captured output. `reply` is what the model turn returns
 // (buildRunTurn calls agentLoop); short reply = plain chat, long/structured = a deliverable.
@@ -35,20 +38,32 @@ function makeBridge({ reply = "好的,我在。", mode = "Chat" } = {}) {
     },
   });
   const agentLoop = async () => reply;
-  const done = startJsonlBridge({ agentLoop, meta: { mode }, input, output, root: os.tmpdir() });
+  const done = startJsonlBridge({
+    agentLoop,
+    meta: { mode },
+    input,
+    output,
+    root: os.tmpdir(),
+  });
   return {
     input,
     events,
     done,
-    types: () => events.map((e) => e.type),
-    send: (obj) => input.push((typeof obj === "string" ? obj : JSON.stringify(obj)) + "\n"),
-    exit: async () => { input.push("/exit\n"); await sleep(20); await done; },
+    types: () => events.map(e => e.type),
+    send: obj =>
+      input.push((typeof obj === "string" ? obj : JSON.stringify(obj)) + "\n"),
+    exit: async () => {
+      input.push("/exit\n");
+      await sleep(20);
+      await done;
+    },
   };
 }
 
 // index of the first event of `type` at or after position `from`; -1 if none.
 const idxOf = (events, type, from = 0) => {
-  for (let i = from; i < events.length; i++) if (events[i].type === type) return i;
+  for (let i = from; i < events.length; i++)
+    if (events[i].type === type) return i;
   return -1;
 };
 
@@ -61,16 +76,30 @@ async function attachmentOnlyRuns() {
   // structured user.message with an image part and NO text — as the front-end sends an attachment.
   b.send({
     type: "user.message",
-    data: { text: "", refs: [], parts: [{ type: "image", mime: "image/png", data: "iVBORw0KGgo=" }] },
+    data: {
+      text: "",
+      refs: [],
+      parts: [{ type: "image", mime: "image/png", data: "iVBORw0KGgo=" }],
+    },
   });
   await sleep(120);
 
   const t = b.types();
-  assert.ok(t.includes("task.started"), `attachment-only turn must run (task.started); got ${t.join(",")}`);
+  assert.ok(
+    t.includes("task.started"),
+    `attachment-only turn must run (task.started); got ${t.join(",")}`
+  );
   // it actually reached the model and completed — the turn was not a no-op.
-  assert.ok(t.includes("task.completed"), "attachment-only turn settles to task.completed");
-  const started = b.events.find((e) => e.type === "task.started");
-  assert.equal(started.data.title, "（附件消息）", "empty-text turn gets the attachment placeholder title");
+  assert.ok(
+    t.includes("task.completed"),
+    "attachment-only turn settles to task.completed"
+  );
+  const started = b.events.find(e => e.type === "task.started");
+  assert.equal(
+    started.data.title,
+    "（附件消息）",
+    "empty-text turn gets the attachment placeholder title"
+  );
   await b.exit();
   console.log("  ✓ E2E-01 attachment-only message runs (not dropped)");
 }
@@ -86,11 +115,21 @@ async function blockedNoCompleted() {
 
   const t = b.types();
   const blockedIdx = idxOf(b.events, "task.blocked");
-  assert.ok(blockedIdx >= 0, `preflight-blocked task must emit task.blocked; got ${t.join(",")}`);
+  assert.ok(
+    blockedIdx >= 0,
+    `preflight-blocked task must emit task.blocked; got ${t.join(",")}`
+  );
   // the terminal state is blocked — no task.completed anywhere in this turn.
-  assert.equal(idxOf(b.events, "task.completed"), -1, "blocked task must NOT emit task.completed");
+  assert.equal(
+    idxOf(b.events, "task.completed"),
+    -1,
+    "blocked task must NOT emit task.completed"
+  );
   // and it surfaced the missing provider as tool truth, not a hallucinated answer.
-  assert.ok(t.includes("tool.preflight_checked"), "block is backed by a preflight tool-truth event");
+  assert.ok(
+    t.includes("tool.preflight_checked"),
+    "block is backed by a preflight tool-truth event"
+  );
   await b.exit();
   console.log("  ✓ E2E-02 preflight-blocked: task.blocked, no task.completed");
 }
@@ -105,18 +144,27 @@ async function chatNoNeedsArtifact() {
   await sleep(120);
 
   const t = b.types();
-  assert.ok(t.includes("task.completed"), `chat turn settles to task.completed; got ${t.join(",")}`);
+  assert.ok(
+    t.includes("task.completed"),
+    `chat turn settles to task.completed; got ${t.join(",")}`
+  );
   // NO needs-artifact signal of any shape:
   assert.equal(idxOf(b.events, "task.blocked"), -1, "chat turn is not blocked");
-  const outcomes = b.events.filter((e) => e.type === "outcome.checked");
+  const outcomes = b.events.filter(e => e.type === "outcome.checked");
   assert.ok(
-    !outcomes.some((e) => e.data && e.data.valid === false),
-    "chat turn must NOT emit outcome.checked{valid:false}",
+    !outcomes.some(e => e.data && e.data.valid === false),
+    "chat turn must NOT emit outcome.checked{valid:false}"
   );
   const anyNeedsArtifact = b.events.some(
-    (e) => JSON.stringify(e.data || {}).includes("no_artifact") || JSON.stringify(e.data || {}).includes("缺少交付物"),
+    e =>
+      JSON.stringify(e.data || {}).includes("no_artifact") ||
+      JSON.stringify(e.data || {}).includes("缺少交付物")
   );
-  assert.equal(anyNeedsArtifact, false, "chat turn must NOT surface 缺少交付物 / no_artifact");
+  assert.equal(
+    anyNeedsArtifact,
+    false,
+    "chat turn must NOT surface 缺少交付物 / no_artifact"
+  );
   await b.exit();
   console.log("  ✓ E2E-03 plain chat: idle, no needs_artifact");
 }
@@ -126,7 +174,9 @@ async function chatNoNeedsArtifact() {
 // persist), NOT be downgraded to chat by the attachment path. Only ambiguous/out_of_scope
 // attachment turns get forced to chat.
 async function deliverableWithAttachmentUpgrades() {
-  const longReport = "# 图像分析报告\n\n## 结论\n" + "该图显示服务器负载偏高,建议扩容。\n".repeat(12);
+  const longReport =
+    "# 图像分析报告\n\n## 结论\n" +
+    "该图显示服务器负载偏高,建议扩容。\n".repeat(12);
   const b = makeBridge({ reply: longReport });
   await sleep(20);
   b.send({
@@ -140,11 +190,24 @@ async function deliverableWithAttachmentUpgrades() {
   await sleep(150);
 
   const t = b.types();
-  assert.ok(t.includes("task.upgraded_from_chat"), `deliverable+attachment must upgrade to TaskRun; got ${t.join(",")}`);
-  assert.ok(t.includes("artifact.created"), "the upgraded task persists a real deliverable");
+  assert.ok(
+    t.includes("task.upgraded_from_chat"),
+    `deliverable+attachment must upgrade to TaskRun; got ${t.join(",")}`
+  );
+  assert.ok(
+    t.includes("artifact.created"),
+    "the upgraded task persists a real deliverable"
+  );
   // it entered Approval (deliverable held for accept), so no premature task.completed.
-  assert.ok(t.includes("approval.requested"), "deliverable enters approval-before-done");
-  assert.equal(idxOf(b.events, "task.completed"), -1, "held deliverable does not auto-complete");
+  assert.ok(
+    t.includes("approval.requested"),
+    "deliverable enters approval-before-done"
+  );
+  assert.equal(
+    idxOf(b.events, "task.completed"),
+    -1,
+    "held deliverable does not auto-complete"
+  );
   await b.exit();
   console.log("  ✓ E2E-04 deliverable+attachment upgrades to a TaskRun");
 }
@@ -157,11 +220,18 @@ async function multilinePasteIsOneMessage() {
   const b = makeBridge({ reply: "收到,这段多行内容我看完了。" });
   await sleep(20);
   // three logical lines, ONE JSONL frame (the newlines live INSIDE the JSON "text" string).
-  b.send({ type: "user.message", data: { text: "第一行\n第二行\n第三行", refs: [] } });
+  b.send({
+    type: "user.message",
+    data: { text: "第一行\n第二行\n第三行", refs: [] },
+  });
   await sleep(120);
 
-  const startedCount = b.events.filter((e) => e.type === "task.started").length;
-  assert.equal(startedCount, 1, `multi-line paste must be ONE turn; saw ${startedCount} task.started`);
+  const startedCount = b.events.filter(e => e.type === "task.started").length;
+  assert.equal(
+    startedCount,
+    1,
+    `multi-line paste must be ONE turn; saw ${startedCount} task.started`
+  );
   await b.exit();
   console.log("  ✓ E2E-05 multi-line paste is one message");
 }
@@ -188,18 +258,30 @@ async function thinkingSurfacesAsDelta() {
     onDelta?.("这是回答。");
     return "这是回答。";
   };
-  const done = startJsonlBridge({ agentLoop, meta: { mode: "Chat" }, input, output, root: os.tmpdir() });
+  const done = startJsonlBridge({
+    agentLoop,
+    meta: { mode: "Chat" },
+    input,
+    output,
+    root: os.tmpdir(),
+  });
   await sleep(20);
   input.push("你好\n"); // employee_chat → runModelTurn → agentLoop (stub drives onThinking)
   await sleep(120);
 
-  const think = events.filter((e) => e.type === "thinking.delta");
-  assert.ok(think.length >= 1, "thinking.delta must be emitted when the model reasons");
-  const joined = think.map((e) => e.data.text).join("");
-  assert.ok(joined.includes("先拆解需求"), `thinking text carried through; got ${joined}`);
+  const think = events.filter(e => e.type === "thinking.delta");
   assert.ok(
-    events.some((e) => e.type === "token.delta" && e.data.text.includes("回答")),
-    "answer still streams via token.delta (thinking is separate from deliverable prose)",
+    think.length >= 1,
+    "thinking.delta must be emitted when the model reasons"
+  );
+  const joined = think.map(e => e.data.text).join("");
+  assert.ok(
+    joined.includes("先拆解需求"),
+    `thinking text carried through; got ${joined}`
+  );
+  assert.ok(
+    events.some(e => e.type === "token.delta" && e.data.text.includes("回答")),
+    "answer still streams via token.delta (thinking is separate from deliverable prose)"
   );
   input.push("/exit\n");
   await sleep(20);
@@ -226,24 +308,46 @@ async function quickUtilityRecordsHistory() {
   const calls = [];
   // stub agentLoop records the messages array it receives per call.
   const agentLoop = async ({ messages }) => {
-    calls.push(messages.map((m) => `${m.role}:${typeof m.content === "string" ? m.content : "[blocks]"}`));
+    calls.push(
+      messages.map(
+        m =>
+          `${m.role}:${typeof m.content === "string" ? m.content : "[blocks]"}`
+      )
+    );
     return "接得上：明天带伞。";
   };
-  const done = startJsonlBridge({ agentLoop, meta: { mode: "Chat" }, input, output, root: os.tmpdir() });
+  const done = startJsonlBridge({
+    agentLoop,
+    meta: { mode: "Chat" },
+    input,
+    output,
+    root: os.tmpdir(),
+  });
   await sleep(20);
   input.push("几点了\n"); // quick_utility (时间) → light path (no weather card, offline)
   await sleep(150);
   input.push("那明天呢\n"); // follow-up → employee_chat model turn with shared history
   await sleep(150);
 
-  assert.ok(calls.length >= 2, `two model calls expected (light + follow-up); got ${calls.length}`);
+  assert.ok(
+    calls.length >= 2,
+    `two model calls expected (light + follow-up); got ${calls.length}`
+  );
   const followUp = calls[calls.length - 1].join(" | ");
-  assert.ok(followUp.includes("几点了"), `follow-up turn must see the quick-utility question; got: ${followUp}`);
-  assert.ok(followUp.includes("那明天呢"), "follow-up turn includes the new user message");
+  assert.ok(
+    followUp.includes("几点了"),
+    `follow-up turn must see the quick-utility question; got: ${followUp}`
+  );
+  assert.ok(
+    followUp.includes("那明天呢"),
+    "follow-up turn includes the new user message"
+  );
   input.push("/exit\n");
   await sleep(20);
   await done;
-  console.log("  ✓ E2E-07 quick-utility exchange lands in history (follow-ups anchor)");
+  console.log(
+    "  ✓ E2E-07 quick-utility exchange lands in history (follow-ups anchor)"
+  );
 }
 
 // ── E2E-08 (v0.13 M2): session.ready carries the real skills list + task.completed usage/cost ─
@@ -266,64 +370,95 @@ async function sessionReadySkillsAndCompletedUsage() {
   };
   const done = startJsonlBridge({
     agentLoop,
-    meta: { mode: "Chat", skills: ["模型选型", "ROI 评估"], agentId: "e2e-skills", avatar: ["  o  ", "~^~^~"] },
+    meta: {
+      mode: "Chat",
+      skills: ["模型选型", "ROI 评估"],
+      agentId: "e2e-skills",
+      avatar: ["  o  ", "~^~^~"],
+    },
     input,
     output,
     root: os.tmpdir(),
   });
   await sleep(20);
 
-  const ready = events.find((e) => e.type === "session.ready");
+  const ready = events.find(e => e.type === "session.ready");
   assert.ok(ready, "session.ready emitted");
-  assert.deepEqual(ready.data.employee.skills, ["模型选型", "ROI 评估"], "employee.skills carried");
-  assert.deepEqual(ready.data.employee.avatar, ["  o  ", "~^~^~"], "employee.avatar carried (v0.14 N2)");
+  assert.deepEqual(
+    ready.data.employee.skills,
+    ["模型选型", "ROI 评估"],
+    "employee.skills carried"
+  );
+  assert.deepEqual(
+    ready.data.employee.avatar,
+    ["  o  ", "~^~^~"],
+    "employee.avatar carried (v0.14 N2)"
+  );
 
   input.push("你好\n");
   await sleep(120);
-  const completed = events.find((e) => e.type === "task.completed");
+  const completed = events.find(e => e.type === "task.completed");
   assert.ok(completed, "task.completed emitted");
   assert.equal(completed.data.usage.prompt, 100, "usage.prompt from onUsage");
-  assert.equal(completed.data.usage.completion, 50, "usage.completion from onUsage");
-  assert.ok(typeof completed.data.est_cost === "number" && completed.data.est_cost > 0, "est_cost is a real number");
+  assert.equal(
+    completed.data.usage.completion,
+    50,
+    "usage.completion from onUsage"
+  );
+  assert.ok(
+    typeof completed.data.est_cost === "number" && completed.data.est_cost > 0,
+    "est_cost is a real number"
+  );
   input.push("/exit\n");
   await sleep(20);
   await done;
-  console.log("  ✓ E2E-08 session.ready skills + task.completed usage/est_cost");
+  console.log(
+    "  ✓ E2E-08 session.ready skills + task.completed usage/est_cost"
+  );
 }
 
 // ── E2E-09 (v0.13 M2): a deliverable turn citing URLs emits real evidence.created ────────────
 async function deliverableEmitsEvidence() {
   const report =
     "# 模型选型报告\n\n数据来源见 https://volcengine.com/pricing 与 https://openrouter.ai/models 。\n" +
-    "## 结论\n".padEnd(30, "…") + "国产模型建议首选性价比档位。\n".repeat(10);
+    "## 结论\n".padEnd(30, "…") +
+    "国产模型建议首选性价比档位。\n".repeat(10);
   const b = makeBridge({ reply: report });
   await sleep(20);
   b.send("写一份国产模型选型分析报告"); // employee_task deliverable (no needsSearch keyword)
   await sleep(200);
 
-  const ev = b.events.filter((e) => e.type === "evidence.created");
+  const ev = b.events.filter(e => e.type === "evidence.created");
   assert.ok(ev.length >= 2, `evidence.created per cited URL; got ${ev.length}`);
   assert.ok(
-    ev.some((e) => e.data.source === "https://volcengine.com/pricing"),
-    "evidence carries the cited source URL",
+    ev.some(e => e.data.source === "https://volcengine.com/pricing"),
+    "evidence carries the cited source URL"
   );
   assert.ok(
-    ev.every((e) => typeof e.data.source_type === "string" && e.data.source_type.length > 0),
-    "evidence carries source_type (categorical truth — no fabricated numeric confidence)",
+    ev.every(
+      e =>
+        typeof e.data.source_type === "string" && e.data.source_type.length > 0
+    ),
+    "evidence carries source_type (categorical truth — no fabricated numeric confidence)"
   );
   assert.ok(
-    ev.every((e) => e.data.confidence === undefined),
-    "no numeric confidence fabricated",
+    ev.every(e => e.data.confidence === undefined),
+    "no numeric confidence fabricated"
   );
   await b.exit();
-  console.log("  ✓ E2E-09 deliverable turn emits real evidence.created (source_type, no fake confidence)");
+  console.log(
+    "  ✓ E2E-09 deliverable turn emits real evidence.created (source_type, no fake confidence)"
+  );
 }
 
 // ── E2E-10 (v0.13 M2): memory.state carries the real item count when a store exists ──────────
 async function memoryStateCarriesCount() {
   const { addMemory } = await import("../memory-store.mjs");
   const agentId = `e2e-mem-${process.pid}`;
-  const seeded = addMemory(os.tmpdir(), agentId, { category: "user_prefs", text: "喜欢 md 交付" });
+  const seeded = addMemory(os.tmpdir(), agentId, {
+    category: "user_prefs",
+    text: "喜欢 md 交付",
+  });
   assert.ok(seeded.ok, "seed memory item");
 
   const input = new Readable({ read() {} });
@@ -352,14 +487,56 @@ async function memoryStateCarriesCount() {
   assert.ok(mem, "memory.state emitted");
   assert.ok(
     typeof mem.data.memory.count === "number" && mem.data.memory.count >= 1,
-    `memory.state carries real item count; got ${JSON.stringify(mem.data.memory)}`,
+    `memory.state carries real item count; got ${JSON.stringify(mem.data.memory)}`
   );
   input.push("/exit\n");
   await sleep(20);
   await done;
   console.log("  ✓ E2E-10 memory.state carries real store count");
 }
-const b_find = (events, type) => events.find((e) => e.type === type);
+const b_find = (events, type) => events.find(e => e.type === type);
+
+// ── E2E-11: QuickUtilityRun is explicitly un-scored and cannot inflate employee task KPI ─────
+async function quickUtilityDoesNotInflateKpi() {
+  const root = mkdtempSync(join(os.tmpdir(), "crewclaw-quick-kpi-"));
+  const agentId = "e2e-quick-kpi";
+  const input = new Readable({ read() {} });
+  const events = [];
+  const output = new Writable({
+    write(chunk, _enc, cb) {
+      for (const line of String(chunk).split("\n")) {
+        if (line.trim()) events.push(JSON.parse(line));
+      }
+      cb();
+    },
+  });
+  const done = startJsonlBridge({
+    agentLoop: async ({ onUsage }) => {
+      onUsage?.({ prompt_tokens: 5, completion_tokens: 2 });
+      return "现在是测试时间。";
+    },
+    meta: { mode: "Chat", agentId },
+    input,
+    output,
+    root,
+  });
+  input.push("几点了\n");
+  await sleep(150);
+  const completed = events.find(event => event.type === "task.completed");
+  assert.ok(
+    completed?.data?.id && completed.data.id === completed.data.taskRunId,
+    "utility terminal remains correlated"
+  );
+  assert.equal(
+    readKpi(root, agentId).tasks,
+    0,
+    "un-scored quick utility must not increment employee KPI tasks"
+  );
+  input.push("/exit\n");
+  await done;
+  rmSync(root, { recursive: true, force: true });
+  console.log("  ✓ E2E-11 quick utility remains un-scored in employee KPI");
+}
 
 async function main() {
   console.log("e2e-tui-flow: bridge-level end-to-end regressions");
@@ -373,10 +550,14 @@ async function main() {
   await sessionReadySkillsAndCompletedUsage();
   await deliverableEmitsEvidence();
   await memoryStateCarriesCount();
+  await quickUtilityDoesNotInflateKpi();
   console.log("e2e-tui-flow tests passed");
 }
 
 main().then(
   () => process.exit(0),
-  (e) => { console.error(e); process.exit(1); },
+  e => {
+    console.error(e);
+    process.exit(1);
+  }
 );

@@ -1,11 +1,26 @@
-import { existsSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { type Stats } from "node:fs";
+import { lstat, open, readdir, realpath } from "node:fs/promises";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import { EmployeeManifestSchema, type EmployeeManifest } from "../../../contracts/manifest";
-import { EmployeeSpecSchema, type EmployeeSpec } from "../../../contracts/employee-spec";
-import { isForbiddenPath } from "../../../contracts/forbidden-paths";
-import { getAvailableExperts } from "../../registry/src/index";
+import {
+  EmployeeManifestSchema,
+  type EmployeeManifest,
+} from "../../../contracts/manifest";
+import {
+  EmployeeSpecSchema,
+  type EmployeeSpec,
+} from "../../../contracts/employee-spec";
+import {
+  containsForbiddenSecret,
+  EMPLOYEE_PACKAGE_LIMITS,
+  isForbiddenPath,
+  isSafePortablePackagePath,
+  portablePathComparisonKey,
+} from "../../../contracts/forbidden-paths";
+import {
+  getAvailableExperts,
+  resolveExpertSource,
+} from "../../registry/src/index";
 // The spec file uses dotted map keys (tool_needs: web.search / artifact.report), which this
 // module's hand-rolled parseYaml silently drops (its key regex is [A-Za-z0-9_]+). Parse the spec
 // with the runtime's YAML module instead — it already handles the whale prototype end to end.
@@ -22,14 +37,6 @@ const requiredFiles = [
   "EXAMPLES.md",
   "EVALS.md",
   "CHANGELOG.md",
-];
-
-const secretPatterns = [
-  /sk-[A-Za-z0-9_-]{20,}/,
-  /gh[pousr]_[A-Za-z0-9_]{20,}/,
-  /sk-ant-[A-Za-z0-9_-]{20,}/,
-  /Bearer\s+[A-Za-z0-9._-]{20,}/i,
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
 ];
 
 const distributionSchema = z.object({
@@ -68,8 +75,10 @@ function parseScalar(value: string) {
   // without this they parse as the literal string "[]" and fail array-typed schema fields.
   if (trimmed === "[]") return [];
   if (trimmed === "{}") return {};
-  if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) return trimmed.slice(1, -1);
-  if (trimmed.startsWith("'") && trimmed.endsWith("'")) return trimmed.slice(1, -1);
+  if (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    return trimmed.slice(1, -1);
+  if (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    return trimmed.slice(1, -1);
   return trimmed;
 }
 
@@ -81,21 +90,34 @@ type YamlLine = {
 function parseYamlLines(raw: string): YamlLine[] {
   return raw
     .split(/\r?\n/)
-    .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
-    .map((line) => ({
+    .filter(line => line.trim() && !line.trimStart().startsWith("#"))
+    .map(line => ({
       indent: line.match(/^ */)?.[0].length ?? 0,
       text: line.trim(),
     }));
 }
 
-function parseYamlBlock(lines: YamlLine[], index: number, indent: number): [unknown, number] {
-  if (lines[index]?.text.startsWith("- ")) return parseYamlArray(lines, index, indent);
+function parseYamlBlock(
+  lines: YamlLine[],
+  index: number,
+  indent: number
+): [unknown, number] {
+  if (lines[index]?.text.startsWith("- "))
+    return parseYamlArray(lines, index, indent);
   return parseYamlObject(lines, index, indent);
 }
 
-function parseYamlArray(lines: YamlLine[], index: number, indent: number): [unknown[], number] {
+function parseYamlArray(
+  lines: YamlLine[],
+  index: number,
+  indent: number
+): [unknown[], number] {
   const output: unknown[] = [];
-  while (index < lines.length && lines[index].indent === indent && lines[index].text.startsWith("- ")) {
+  while (
+    index < lines.length &&
+    lines[index].indent === indent &&
+    lines[index].text.startsWith("- ")
+  ) {
     const item = lines[index].text.slice(2).trim();
     index += 1;
     if (item) {
@@ -106,8 +128,16 @@ function parseYamlArray(lines: YamlLine[], index: number, indent: number): [unkn
           [key]: parseScalar(value),
         };
         if (index < lines.length && lines[index].indent > indent) {
-          const [continuation, nextIndex] = parseYamlBlock(lines, index, lines[index].indent);
-          if (continuation && typeof continuation === "object" && !Array.isArray(continuation)) {
+          const [continuation, nextIndex] = parseYamlBlock(
+            lines,
+            index,
+            lines[index].indent
+          );
+          if (
+            continuation &&
+            typeof continuation === "object" &&
+            !Array.isArray(continuation)
+          ) {
             Object.assign(objectItem, continuation);
             index = nextIndex;
           }
@@ -125,9 +155,17 @@ function parseYamlArray(lines: YamlLine[], index: number, indent: number): [unkn
   return [output, index];
 }
 
-function parseYamlObject(lines: YamlLine[], index: number, indent: number): [Record<string, unknown>, number] {
+function parseYamlObject(
+  lines: YamlLine[],
+  index: number,
+  indent: number
+): [Record<string, unknown>, number] {
   const output: Record<string, unknown> = {};
-  while (index < lines.length && lines[index].indent === indent && !lines[index].text.startsWith("- ")) {
+  while (
+    index < lines.length &&
+    lines[index].indent === indent &&
+    !lines[index].text.startsWith("- ")
+  ) {
     const match = lines[index].text.match(/^([A-Za-z0-9_]+):\s*(.*)$/);
     if (!match) {
       index += 1;
@@ -155,7 +193,12 @@ export function parseYaml(raw: string): unknown {
 function parseTopLevelYaml(raw: string): Record<string, unknown> {
   const data: Record<string, unknown> = {};
   for (const line of raw.split(/\r?\n/)) {
-    if (!line.trim() || line.trimStart().startsWith("#") || line.startsWith(" ")) continue;
+    if (
+      !line.trim() ||
+      line.trimStart().startsWith("#") ||
+      line.startsWith(" ")
+    )
+      continue;
     const match = line.match(/^([A-Za-z0-9_]+):\s*(.*)$/);
     if (!match) continue;
     data[match[1]] = parseScalar(match[2]);
@@ -170,27 +213,250 @@ function parseFrontmatter(raw: string): Record<string, unknown> | null {
   return parseTopLevelYaml(raw.slice(4, end));
 }
 
-async function walkFiles(root: string): Promise<string[]> {
-  const output: string[] = [];
-  async function visit(dir: string) {
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
+type ValidatedFile = {
+  absolute: string;
+  metadata: Stats;
+};
+
+type PackageWalk = {
+  root: string;
+  allPaths: string[];
+  files: Map<string, ValidatedFile>;
+  errors: string[];
+};
+
+function pathIsWithin(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  return (
+    rel === "" ||
+    (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+  );
+}
+
+function pathsEqual(left: string, right: string): boolean {
+  return process.platform === "win32"
+    ? left.toLowerCase() === right.toLowerCase()
+    : left === right;
+}
+
+function sameFileIdentity(left: Stats, right: Stats): boolean {
+  return (
+    left.isFile() &&
+    right.isFile() &&
+    left.nlink === 1 &&
+    right.nlink === 1 &&
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs
+  );
+}
+
+function safeRelativePackagePath(
+  root: string,
+  absolute: string
+): string | null {
+  const raw = relative(root, absolute);
+  if (!raw || isAbsolute(raw)) return null;
+  const segments = raw.split(sep);
+  if (
+    segments.some(
+      segment =>
+        !segment ||
+        segment === "." ||
+        segment === ".." ||
+        segment.includes("/") ||
+        segment.includes("\\")
+    )
+  ) {
+    return null;
+  }
+  const normalized = segments.join("/");
+  return isSafePortablePackagePath(normalized) ? normalized : null;
+}
+
+async function walkPackage(inputRoot: string): Promise<PackageWalk> {
+  const requestedRoot = resolve(inputRoot);
+  const output: PackageWalk = {
+    root: requestedRoot,
+    allPaths: [],
+    files: new Map(),
+    errors: [],
+  };
+
+  let rootMetadata: Stats;
+  try {
+    rootMetadata = await lstat(requestedRoot);
+  } catch (error) {
+    output.errors.push(
+      `Cannot inspect expert root: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return output;
+  }
+  if (rootMetadata.isSymbolicLink()) {
+    output.errors.push("Expert root must not be a symlink or junction");
+    return output;
+  }
+  if (!rootMetadata.isDirectory()) {
+    output.errors.push("Expert root must be a directory");
+    return output;
+  }
+
+  const canonicalRoot = await realpath(requestedRoot);
+  output.root = canonicalRoot;
+  if (!pathsEqual(canonicalRoot, requestedRoot)) {
+    output.errors.push("Expert root must be a canonical non-link directory");
+    return output;
+  }
+
+  const portablePaths = new Map<string, string>();
+
+  async function visit(directory: string): Promise<void> {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (entry.name.startsWith("._")) continue;
-      const absolute = join(dir, entry.name);
-      const rel = relative(root, absolute).replace(/\\/g, "/");
-      output.push(rel);
-      if (entry.isDirectory()) await visit(absolute);
+      if (output.allPaths.length >= EMPLOYEE_PACKAGE_LIMITS.maxEntries) {
+        output.errors.push(
+          `Package exceeds ${EMPLOYEE_PACKAGE_LIMITS.maxEntries} entries`
+        );
+        return;
+      }
+      const absolute = join(directory, entry.name);
+      const rel = safeRelativePackagePath(canonicalRoot, absolute);
+      if (rel === null) {
+        output.errors.push(`Unsafe non-portable package path: ${entry.name}`);
+        continue;
+      }
+      const portableKey = portablePathComparisonKey(rel);
+      const collidingPath = portablePaths.get(portableKey);
+      if (collidingPath && collidingPath !== rel) {
+        output.errors.push(
+          `Case-folding package path collision: ${collidingPath} / ${rel}`
+        );
+      } else {
+        portablePaths.set(portableKey, rel);
+      }
+      output.allPaths.push(rel);
+      if (rel.split("/").length > EMPLOYEE_PACKAGE_LIMITS.maxDepth) {
+        output.errors.push(
+          `Package path exceeds ${EMPLOYEE_PACKAGE_LIMITS.maxDepth} levels: ${rel}`
+        );
+        continue;
+      }
+
+      const metadata = await lstat(absolute);
+      if (metadata.isSymbolicLink()) {
+        output.errors.push(`Unsafe symlink or junction found: ${rel}`);
+        continue;
+      }
+      const canonical = await realpath(absolute);
+      if (
+        !pathIsWithin(canonicalRoot, canonical) ||
+        !pathsEqual(canonical, absolute)
+      ) {
+        output.errors.push(`Path escapes the canonical expert root: ${rel}`);
+        continue;
+      }
+      if (metadata.isDirectory()) {
+        await visit(canonical);
+      } else if (metadata.isFile()) {
+        if (metadata.nlink !== 1) {
+          output.errors.push(`Unsafe hardlink found: ${rel}`);
+        } else {
+          if (output.files.size >= EMPLOYEE_PACKAGE_LIMITS.maxFiles) {
+            output.errors.push(
+              `Package exceeds ${EMPLOYEE_PACKAGE_LIMITS.maxFiles} files`
+            );
+            return;
+          }
+          if (metadata.size > EMPLOYEE_PACKAGE_LIMITS.maxFileBytes) {
+            output.errors.push(`Package file exceeds size limit: ${rel}`);
+            continue;
+          }
+          output.files.set(rel, { absolute: canonical, metadata });
+        }
+      } else {
+        output.errors.push(`Unsupported special file found: ${rel}`);
+      }
     }
   }
-  await visit(root);
+
+  await visit(canonicalRoot);
+  const totalBytes = [...output.files.values()].reduce(
+    (sum, file) => sum + file.metadata.size,
+    0
+  );
+  if (totalBytes > EMPLOYEE_PACKAGE_LIMITS.maxTotalBytes)
+    output.errors.push(
+      `Package exceeds ${EMPLOYEE_PACKAGE_LIMITS.maxTotalBytes} total bytes`
+    );
   return output;
 }
 
-function hasPotentialSecret(content: string) {
-  return secretPatterns.some((pattern) => pattern.test(content));
+async function readValidatedBytes(file: ValidatedFile): Promise<Uint8Array> {
+  const before = await lstat(file.absolute);
+  if (before.isSymbolicLink() || !sameFileIdentity(before, file.metadata)) {
+    throw new Error("file identity changed before open");
+  }
+
+  const handle = await open(file.absolute, "r");
+  try {
+    const opened = await handle.stat();
+    if (!sameFileIdentity(opened, file.metadata)) {
+      throw new Error("file identity changed while opening");
+    }
+    const content = await handle.readFile();
+    const after = await lstat(file.absolute);
+    if (after.isSymbolicLink() || !sameFileIdentity(after, opened)) {
+      throw new Error("file identity changed while reading");
+    }
+    return content;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readValidatedText(file: ValidatedFile): Promise<string> {
+  return new TextDecoder("utf-8").decode(await readValidatedBytes(file));
+}
+
+async function readPackageText(
+  fileName: string,
+  files: Map<string, ValidatedFile>,
+  errors: string[]
+): Promise<string | null> {
+  const file = files.get(fileName);
+  if (!file) return null;
+  try {
+    return await readValidatedText(file);
+  } catch (error) {
+    errors.push(
+      `Unsafe package file changed during validation: ${fileName} (${error instanceof Error ? error.message : String(error)})`
+    );
+    return null;
+  }
+}
+
+async function readPackageBytes(
+  fileName: string,
+  files: Map<string, ValidatedFile>,
+  errors: string[]
+): Promise<Uint8Array | null> {
+  const file = files.get(fileName);
+  if (!file) return null;
+  try {
+    return await readValidatedBytes(file);
+  } catch (error) {
+    errors.push(
+      `Unsafe package file changed during validation: ${fileName} (${error instanceof Error ? error.message : String(error)})`
+    );
+    return null;
+  }
 }
 
 function formatZodIssues(error: z.ZodError) {
-  return error.issues.map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`).join("; ");
+  return error.issues
+    .map(issue => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+    .join("; ");
 }
 
 function isHighRiskPermission(permission: string) {
@@ -208,7 +474,9 @@ function isHighRiskPermission(permission: string) {
 
 function displayPackageSource(cwd: string, root: string) {
   const relativePath = relative(cwd, root);
-  return relativePath && !relativePath.startsWith("..") && !resolve(relativePath).startsWith("..")
+  return relativePath &&
+    !relativePath.startsWith("..") &&
+    !resolve(relativePath).startsWith("..")
     ? relativePath.replace(/\\/g, "/")
     : root;
 }
@@ -218,19 +486,25 @@ function validateRegistryConsistency(
   root: string,
   registryExpert: RegistryExpertForValidation,
   cwd: string,
-  errors: string[],
+  errors: string[]
 ) {
   if (registryExpert.name !== manifest.metadata.id) {
-    errors.push(`Registry name mismatch: registry=${registryExpert.name} hire.yaml=${manifest.metadata.id}`);
+    errors.push(
+      `Registry name mismatch: registry=${registryExpert.name} hire.yaml=${manifest.metadata.id}`
+    );
   }
   if (registryExpert.version !== manifest.metadata.version) {
-    errors.push(`Registry version mismatch: registry=${registryExpert.version} hire.yaml=${manifest.metadata.version}`);
+    errors.push(
+      `Registry version mismatch: registry=${registryExpert.version} hire.yaml=${manifest.metadata.version}`
+    );
   }
   const registrySource = registryExpert.local_source;
   if (registrySource) {
     const registryRoot = resolve(cwd, registrySource);
-    if (registryRoot !== root) {
-      errors.push(`Registry local_source mismatch: registry=${registrySource} package=${displayPackageSource(cwd, root)}`);
+    if (!pathsEqual(registryRoot, root)) {
+      errors.push(
+        `Registry local_source mismatch: registry=${registrySource} package=${displayPackageSource(cwd, root)}`
+      );
     }
   }
 }
@@ -238,26 +512,30 @@ function validateRegistryConsistency(
 export async function validateExpert(
   inputRoot: string,
   registryExpert?: RegistryExpertForValidation,
-  cwd = process.cwd(),
+  cwd = process.cwd()
 ): Promise<ValidationResult> {
-  const root = resolve(inputRoot);
-  const name = root.split(/[\\/]/).at(-1) ?? root;
-  const errors: string[] = [];
+  const walked = await walkPackage(inputRoot);
+  const root = walked.root;
+  const name = basename(root) || root;
+  const errors: string[] = [...walked.errors];
   const warnings: string[] = [];
+  const allPaths = walked.allPaths;
+  const files = walked.files;
 
   for (const file of requiredFiles) {
-    if (!existsSync(join(root, file))) errors.push(`Missing required file: ${file}`);
+    if (!files.has(file)) errors.push(`Missing required file: ${file}`);
   }
 
-  const allPaths = existsSync(root) ? await walkFiles(root) : [];
   for (const path of allPaths) {
     if (isForbiddenPath(path)) errors.push(`Forbidden path found: ${path}`);
   }
 
-  const distributionPath = join(root, "distribution.yaml");
   let distributionVersion: string | null = null;
-  if (existsSync(distributionPath)) {
-    const raw = await readFile(distributionPath, "utf8");
+  if (files.has("distribution.yaml")) {
+    const raw = await readPackageText("distribution.yaml", files, errors);
+    if (raw === null) {
+      return { name, root, ok: false, errors, warnings };
+    }
     const parsed = distributionSchema.safeParse(parseTopLevelYaml(raw));
     if (!parsed.success) errors.push("Invalid distribution.yaml");
     else distributionVersion = parsed.data.version;
@@ -265,75 +543,117 @@ export async function validateExpert(
 
   // v0.18 A4: the two-file employee standard is MANDATORY for available experts — a listed
   // employee without its hiring contract or runtime spec used to pass silently (if-exists).
-  const hirePath = join(root, "hire.yaml");
-  if (!existsSync(hirePath)) {
+  if (!files.has("hire.yaml")) {
     errors.push("Missing required file: hire.yaml");
   } else {
-    const raw = await readFile(hirePath, "utf8");
+    const raw = await readPackageText("hire.yaml", files, errors);
+    if (raw === null) {
+      return { name, root, ok: false, errors, warnings };
+    }
     const parsed = EmployeeManifestSchema.safeParse(parseYaml(raw));
     if (!parsed.success) {
       errors.push(`Invalid hire.yaml: ${formatZodIssues(parsed.error)}`);
     } else {
-      const highRiskPermissions = parsed.data.permissions.filter(isHighRiskPermission);
+      const highRiskPermissions =
+        parsed.data.permissions.filter(isHighRiskPermission);
       if (highRiskPermissions.length > 0) {
-        warnings.push(`High-risk permissions declared in hire.yaml: ${highRiskPermissions.join(", ")}`);
+        warnings.push(
+          `High-risk permissions declared in hire.yaml: ${highRiskPermissions.join(", ")}`
+        );
       }
-      if (registryExpert) validateRegistryConsistency(parsed.data, root, registryExpert, cwd, errors);
-      if (distributionVersion && distributionVersion !== parsed.data.metadata.version) {
+      if (registryExpert)
+        validateRegistryConsistency(
+          parsed.data,
+          root,
+          registryExpert,
+          cwd,
+          errors
+        );
+      if (
+        distributionVersion &&
+        distributionVersion !== parsed.data.metadata.version
+      ) {
         errors.push(
-          `Version mismatch: distribution.yaml=${distributionVersion} hire.yaml=${parsed.data.metadata.version}`,
+          `Version mismatch: distribution.yaml=${distributionVersion} hire.yaml=${parsed.data.metadata.version}`
         );
       }
     }
   }
 
-  const specPath = join(root, "crewclaw.employee.yaml");
-  if (!existsSync(specPath)) {
+  if (!files.has("crewclaw.employee.yaml")) {
     errors.push("Missing required file: crewclaw.employee.yaml");
   } else {
-    const raw = await readFile(specPath, "utf8");
+    const raw = await readPackageText("crewclaw.employee.yaml", files, errors);
+    if (raw === null) {
+      return { name, root, ok: false, errors, warnings };
+    }
     let specDoc: unknown;
     try {
       specDoc = (runtimeYaml as { load(raw: string): unknown }).load(raw);
     } catch (error) {
       specDoc = null;
-      errors.push(`Unparseable crewclaw.employee.yaml: ${error instanceof Error ? error.message : String(error)}`);
+      errors.push(
+        `Unparseable crewclaw.employee.yaml: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
     if (specDoc !== null) {
       const parsed = EmployeeSpecSchema.safeParse(specDoc);
       if (!parsed.success) {
-        errors.push(`Invalid crewclaw.employee.yaml: ${formatZodIssues(parsed.error)}`);
+        errors.push(
+          `Invalid crewclaw.employee.yaml: ${formatZodIssues(parsed.error)}`
+        );
       } else {
         const spec: EmployeeSpec = parsed.data;
         if (registryExpert && spec.identity.id !== registryExpert.name) {
-          errors.push(`Spec identity.id mismatch: registry=${registryExpert.name} spec=${spec.identity.id}`);
-        }
-        if (registryExpert && registryExpert.version && spec.identity.version !== registryExpert.version) {
           errors.push(
-            `Version mismatch: registry=${registryExpert.version} crewclaw.employee.yaml=${spec.identity.version}`,
+            `Spec identity.id mismatch: registry=${registryExpert.name} spec=${spec.identity.id}`
+          );
+        }
+        if (
+          registryExpert &&
+          registryExpert.version &&
+          spec.identity.version !== registryExpert.version
+        ) {
+          errors.push(
+            `Version mismatch: registry=${registryExpert.version} crewclaw.employee.yaml=${spec.identity.version}`
           );
         }
       }
     }
   }
 
-  const mcpPath = join(root, "mcp.json");
-  if (existsSync(mcpPath)) {
+  if (files.has("mcp.json")) {
+    const raw = await readPackageText("mcp.json", files, errors);
+    if (raw === null) {
+      return { name, root, ok: false, errors, warnings };
+    }
     try {
-      const parsed = JSON.parse(await readFile(mcpPath, "utf8")) as { mcp_servers?: Record<string, unknown> };
-      for (const [serverName, serverConfig] of Object.entries(parsed.mcp_servers ?? {})) {
-        const tools = (serverConfig as { tools?: { include?: unknown; exclude?: unknown } }).tools;
-        if (!tools?.include && !tools?.exclude) errors.push(`MCP server must declare tool allowlist or denylist: ${serverName}`);
+      const parsed = JSON.parse(raw) as {
+        mcp_servers?: Record<string, unknown>;
+      };
+      for (const [serverName, serverConfig] of Object.entries(
+        parsed.mcp_servers ?? {}
+      )) {
+        const tools = (
+          serverConfig as { tools?: { include?: unknown; exclude?: unknown } }
+        ).tools;
+        if (!tools?.include && !tools?.exclude)
+          errors.push(
+            `MCP server must declare tool allowlist or denylist: ${serverName}`
+          );
       }
     } catch {
       errors.push("Invalid mcp.json");
     }
   }
 
-  const skillFiles = allPaths.filter((path) => path.endsWith("SKILL.md"));
+  const skillFiles = [...files.keys()].filter(path =>
+    path.endsWith("SKILL.md")
+  );
   if (skillFiles.length === 0) warnings.push("No SKILL.md files found");
   for (const skillPath of skillFiles) {
-    const raw = await readFile(join(root, skillPath), "utf8");
+    const raw = await readPackageText(skillPath, files, errors);
+    if (raw === null) continue;
     const frontmatter = parseFrontmatter(raw);
     if (
       !frontmatter ||
@@ -346,20 +666,37 @@ export async function validateExpert(
     if (raw.length > 20_000) warnings.push(`Large skill file: ${skillPath}`);
   }
 
-  for (const path of allPaths) {
-    const absolute = join(root, path);
-    const info = await stat(absolute);
-    if (!info.isFile() || info.size > 512_000) continue;
-    const content = await readFile(absolute, "utf8");
-    if (hasPotentialSecret(content)) errors.push(`Potential secret found: ${path}`);
+  for (const [path] of files) {
+    const content = await readPackageBytes(path, files, errors);
+    if (content === null) continue;
+    if (containsForbiddenSecret(content))
+      errors.push(`Potential secret found: ${path}`);
   }
 
   return { name, root, ok: errors.length === 0, errors, warnings };
 }
 
-export async function validateAllExperts(cwd = process.cwd()): Promise<ValidateAllResult> {
+export async function validateAllExperts(
+  cwd = process.cwd()
+): Promise<ValidateAllResult> {
+  const experts = getAvailableExperts(resolve(cwd, "registry", "experts.json"));
   const results = await Promise.all(
-    getAvailableExperts().map((expert) => validateExpert(join(cwd, expert.local_source ?? ""), expert, cwd)),
+    experts.map(async expert => {
+      try {
+        const source = resolveExpertSource(cwd, expert);
+        return await validateExpert(source, expert, cwd);
+      } catch (error) {
+        return {
+          name: expert.name,
+          root: resolve(cwd, `experts/${expert.name}`),
+          ok: false,
+          errors: [
+            `Unsafe registry local_source: ${error instanceof Error ? error.message : String(error)}`,
+          ],
+          warnings: [],
+        };
+      }
+    })
   );
-  return { ok: results.every((result) => result.ok), results };
+  return { ok: results.every(result => result.ok), results };
 }

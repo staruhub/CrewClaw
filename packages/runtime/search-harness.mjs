@@ -9,7 +9,7 @@ export const RESEARCH_FIELDS = [
   { key: "confidence", label: "置信度", required: true },
   { key: "scenario", label: "适用场景", required: false },
   { key: "risk", label: "风险", required: false },
-  { key: "recommendation", label: "建议", required: false }
+  { key: "recommendation", label: "建议", required: false },
 ];
 
 export const FAILURE_PLAYBOOK = [
@@ -23,7 +23,7 @@ export const FAILURE_PLAYBOOK = [
   { step: "community_source", label: "社区来源搜索" },
   { step: "js_render", label: "JS渲染搜索" },
   { step: "screenshot_or_cache", label: "截图或缓存搜索" },
-  { step: "give_up_with_trace", label: "放弃并记录追踪" }
+  { step: "give_up_with_trace", label: "放弃并记录追踪" },
 ];
 
 function pushUnique(out, seen, value) {
@@ -33,7 +33,12 @@ function pushUnique(out, seen, value) {
   out.push(text);
 }
 
-export function generateQueries({ entity, aliases = [], officialDomains = [], productIds = [] } = {}) {
+export function generateQueries({
+  entity,
+  aliases = [],
+  officialDomains = [],
+  productIds = [],
+} = {}) {
   const name = String(entity ?? "").trim();
   if (!name) throw new Error("entity is required");
 

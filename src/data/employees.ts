@@ -52,7 +52,7 @@ export const employees = generated.employees as unknown as Employee[];
 export const availableEmployees = employees;
 
 export function getEmployee(id: string) {
-  return employees.find((employee) => employee.employee_id === id);
+  return employees.find(employee => employee.employee_id === id);
 }
 
 export function searchEmployees(keyword: string) {
@@ -60,7 +60,7 @@ export function searchEmployees(keyword: string) {
 
   if (!query) return employees;
 
-  return employees.filter((employee) => {
+  return employees.filter(employee => {
     const searchable = [
       employee.name,
       employee.role,
@@ -83,8 +83,8 @@ export function byCategory(category: string): Employee[];
 export function byCategory(category?: string) {
   if (category) {
     const normalized = category.toLowerCase();
-    return employees.filter((employee) =>
-      employee.categories.some((item) => item.toLowerCase() === normalized),
+    return employees.filter(employee =>
+      employee.categories.some(item => item.toLowerCase() === normalized)
     );
   }
 

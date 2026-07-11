@@ -82,19 +82,29 @@ function createReviewId(employeeId: string) {
 }
 
 export function useEmployeeReviews(employeeId: string, fallbackRating: number) {
-  const reviews = useSyncExternalStore(subscribeReviews, readReviewSnapshot, () => []);
+  const reviews = useSyncExternalStore(
+    subscribeReviews,
+    readReviewSnapshot,
+    () => []
+  );
   const employeeReviews = useMemo(
     () =>
       reviews
-        .filter((review) => review.employee_id === employeeId)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
-    [employeeId, reviews],
+        .filter(review => review.employee_id === employeeId)
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        ),
+    [employeeId, reviews]
   );
 
   const averageRating = useMemo(() => {
     if (employeeReviews.length === 0) return fallbackRating;
 
-    const total = employeeReviews.reduce((sum, review) => sum + review.rating, 0);
+    const total = employeeReviews.reduce(
+      (sum, review) => sum + review.rating,
+      0
+    );
     return total / employeeReviews.length;
   }, [employeeReviews, fallbackRating]);
 
@@ -127,7 +137,7 @@ export function useEmployeeReviews(employeeId: string, fallbackRating: number) {
         message: "Review added to this employee resume.",
       };
     },
-    [employeeId, reviews],
+    [employeeId, reviews]
   );
 
   return {

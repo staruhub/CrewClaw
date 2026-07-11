@@ -1,9 +1,4 @@
-import {
-  mysqlTable,
-  serial,
-  varchar,
-  timestamp,
-} from "drizzle-orm/mysql-core";
+import { mysqlTable, serial, varchar, timestamp } from "drizzle-orm/mysql-core";
 
 export const waitlist = mysqlTable("waitlist", {
   id: serial("id").primaryKey(),

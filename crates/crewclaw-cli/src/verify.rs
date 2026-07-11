@@ -693,7 +693,7 @@ mod tests {
             kind: Kind::Pass("compiled clean".to_string()),
             elapsed_ms: 3500,
         };
-        assert_eq!(pass.ok(), true);
+        assert!(pass.ok());
         let line = format_report_line(&pass, true);
         assert_eq!(line, "  OK   build-shrimp - compiled clean  (3.5s)");
 
@@ -703,7 +703,7 @@ mod tests {
             kind: Kind::Advisory("passed".to_string(), "2 hints".to_string()),
             elapsed_ms: 2500,
         };
-        assert_eq!(advisory.ok(), true);
+        assert!(advisory.ok());
         assert_eq!(
             format_report_line(&advisory, true),
             "  WARN lint-octopus - passed - 2 hints  (2.5s)"
@@ -715,7 +715,7 @@ mod tests {
             kind: Kind::Fail("exit 1".to_string()),
             elapsed_ms: 1000,
         };
-        assert_eq!(fail.ok(), false);
+        assert!(!fail.ok());
         assert_eq!(
             format_report_line(&fail, true),
             "  FAIL e2e-puffer - exit 1  (1.0s)"

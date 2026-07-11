@@ -106,9 +106,8 @@ pub fn run_standup(args: &[String], root: &Path) -> Result<i32, String> {
 
     let mut outcomes = Vec::new();
     for handle in handles {
-        match handle.join() {
-            Ok(outcome) => outcomes.push(outcome),
-            Err(_) => {}
+        if let Ok(outcome) = handle.join() {
+            outcomes.push(outcome)
         }
     }
     let _ = multi.clear();
@@ -258,10 +257,10 @@ fn print_outcome(outcome: &Outcome, ascii: bool) {
 fn parse_last_json(stdout: &str) -> Option<RunResult> {
     for line in stdout.lines().rev() {
         let trimmed = line.trim();
-        if trimmed.starts_with('{') {
-            if let Ok(result) = serde_json::from_str::<RunResult>(trimmed) {
-                return Some(result);
-            }
+        if trimmed.starts_with('{')
+            && let Ok(result) = serde_json::from_str::<RunResult>(trimmed)
+        {
+            return Some(result);
         }
     }
     None

@@ -1,10 +1,31 @@
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
-import { loadArtifact, markAccepted, newArtifact, saveArtifact } from "../artifact-store.mjs";
+import {
+  loadArtifact,
+  markAccepted,
+  newArtifact,
+  saveArtifact,
+} from "../artifact-store.mjs";
 
-const root = join(os.tmpdir(), "crewclaw-artifact-store-test-" + process.pid + "-" + Date.now());
+const root = join(
+  os.tmpdir(),
+  "crewclaw-artifact-store-test-" + process.pid + "-" + Date.now()
+);
+const linkedRoot = mkdtempSync(
+  join(os.tmpdir(), "crewclaw-artifact-store-link-")
+);
+const outside = mkdtempSync(
+  join(os.tmpdir(), "crewclaw-artifact-store-outside-")
+);
 
 try {
   const a = newArtifact({ taskId: "task_1", title: "T", content: "# body" });
@@ -22,8 +43,38 @@ try {
 
   const loadedAfterAccept = loadArtifact(root, a.id);
   assert.equal(loadedAfterAccept.artifact.status, "accepted");
+  assert.equal(
+    readdirSync(join(root, ".crewclaw", "artifacts")).some(file =>
+      file.includes(".tmp-")
+    ),
+    false,
+    "artifact store leaves no partial temp files"
+  );
+
+  mkdirSync(join(linkedRoot, ".crewclaw"), { recursive: true });
+  writeFileSync(join(outside, "sentinel.txt"), "outside stays unchanged");
+  symlinkSync(
+    outside,
+    join(linkedRoot, ".crewclaw", "artifacts"),
+    process.platform === "win32" ? "junction" : "dir"
+  );
+  const escaped = newArtifact({
+    taskId: "task_escape",
+    title: "Escape",
+    content: "must not be written",
+  });
+  const rejected = saveArtifact(linkedRoot, escaped);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.code, "artifact_link_component");
+  assert.deepEqual(readdirSync(outside), ["sentinel.txt"]);
+  assert.equal(
+    loadArtifact(linkedRoot, escaped.id).code,
+    "artifact_link_component"
+  );
 
   console.log("artifact-store.test.mjs passed");
 } finally {
   rmSync(root, { recursive: true, force: true });
+  rmSync(linkedRoot, { recursive: true, force: true });
+  rmSync(outside, { recursive: true, force: true });
 }

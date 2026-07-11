@@ -43,6 +43,9 @@ function main() {
 }
 
 // tsx runs this file directly; when imported by the drift-guard test, only buildSchemas is used.
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(import.meta.filename)
+) {
   main();
 }

@@ -6,13 +6,41 @@
 // CONTRACT agentLoop must honor in Ink mode: accept onDelta(text), onInvocation(inv),
 // onUsage(u) and, when given them (renderMd:false), NOT draw to stdout itself.
 import { mountChat } from "./chat.mjs";
-export { buildQuickUtilityTurn, buildRunTurn, historyToTurns } from "./turn-runner.mjs";
-import { buildQuickUtilityTurn, buildRunTurn, historyToTurns } from "./turn-runner.mjs";
+export {
+  buildQuickUtilityTurn,
+  buildRunTurn,
+  historyToTurns,
+} from "./turn-runner.mjs";
+import {
+  buildQuickUtilityTurn,
+  buildRunTurn,
+  historyToTurns,
+} from "./turn-runner.mjs";
 
 // Mount the Ink chat and return a promise that resolves when the user exits.
-export function startInkChat({ agentLoop, agentLoopDeps, history = [], agentName, renderLines, saveSession, meta }) {
-  const runTurn = buildRunTurn({ agentLoop, agentLoopDeps, history, saveSession });
+export function startInkChat({
+  agentLoop,
+  agentLoopDeps,
+  history = [],
+  agentName,
+  renderLines,
+  saveSession,
+  meta,
+}) {
+  const runTurn = buildRunTurn({
+    agentLoop,
+    agentLoopDeps,
+    history,
+    saveSession,
+  });
   const runQuickUtility = buildQuickUtilityTurn({ agentLoop, agentLoopDeps });
-  const app = mountChat({ runTurn, runQuickUtility, agentName, renderLines, initialTurns: historyToTurns(history), meta });
+  const app = mountChat({
+    runTurn,
+    runQuickUtility,
+    agentName,
+    renderLines,
+    initialTurns: historyToTurns(history),
+    meta,
+  });
   return app.waitUntilExit();
 }

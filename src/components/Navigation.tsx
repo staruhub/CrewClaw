@@ -38,7 +38,9 @@ export function Navigation({ onGetStarted }: NavigationProps) {
     <>
       <nav
         className={`fixed top-0 left-0 right-0 z-[1000] h-20 transition-all duration-500 ${
-          scrolled ? "bg-[#0B0908]/88 backdrop-blur-xl border-b border-crew-border/70" : "bg-transparent"
+          scrolled
+            ? "bg-[#0B0908]/88 backdrop-blur-xl border-b border-crew-border/70"
+            : "bg-transparent"
         }`}
       >
         <div className="site-container flex h-full items-center justify-between">
@@ -46,14 +48,18 @@ export function Navigation({ onGetStarted }: NavigationProps) {
           <div className="flex items-center gap-3">
             <CrewClawMark className="h-9 w-9 shrink-0" />
             <div className="flex items-baseline gap-1">
-              <span className="font-sans text-[26px] font-light text-crew-heading">CrewClaw</span>
-              <span className="font-sans text-[26px] font-light text-crew-copper">.</span>
+              <span className="font-sans text-[26px] font-light text-crew-heading">
+                CrewClaw
+              </span>
+              <span className="font-sans text-[26px] font-light text-crew-copper">
+                .
+              </span>
             </div>
           </div>
 
           {/* Desktop nav */}
           <div className="hidden md:flex items-center gap-7">
-            {navLinks.map((link) => (
+            {navLinks.map(link => (
               <button
                 key={link.href}
                 onClick={() => scrollTo(link.href)}
@@ -78,7 +84,9 @@ export function Navigation({ onGetStarted }: NavigationProps) {
           <button
             className="md:hidden text-crew-heading"
             onClick={() => setMobileOpen(!mobileOpen)}
-            aria-label={mobileOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-label={
+              mobileOpen ? "Close navigation menu" : "Open navigation menu"
+            }
           >
             {mobileOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
@@ -88,7 +96,7 @@ export function Navigation({ onGetStarted }: NavigationProps) {
         {mobileOpen && (
           <div className="md:hidden bg-[#0B0908]/95 backdrop-blur-xl border-b border-crew-border/70 px-6 pb-6 pt-2">
             <div className="flex flex-col gap-4">
-              {navLinks.map((link) => (
+              {navLinks.map(link => (
                 <button
                   key={link.href}
                   onClick={() => scrollTo(link.href)}
@@ -98,7 +106,10 @@ export function Navigation({ onGetStarted }: NavigationProps) {
                 </button>
               ))}
               <button
-                onClick={() => { onGetStarted(); setMobileOpen(false); }}
+                onClick={() => {
+                  onGetStarted();
+                  setMobileOpen(false);
+                }}
                 className="border border-white/10 bg-white/[0.04] text-crew-heading font-sans text-sm px-6 py-2.5 rounded-sm hover:border-crew-copper/40 hover:bg-white/[0.06] transition-all w-full mt-2"
               >
                 Hire an expert

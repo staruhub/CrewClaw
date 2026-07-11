@@ -58,6 +58,18 @@ pub struct AppState {
     /// v0.8 M6：引擎是否支持结构化 parts（session.ready caps.parts）。true 才发 parts，否则本地展开为文本。
     pub caps_parts: bool,
     task_artifact_start: usize,
+    /// Current task's explicit completion verdict. None means no verdict event yet; Some(None)
+    /// means the event was present but lacked the canonical `valid` boolean.
+    current_task_outcome: Option<Option<bool>>,
+    /// First explicit terminal event for the current task. Derived gate states such as
+    /// `needs_artifact` remain recoverable; explicit terminal events are monotonic/idempotent.
+    current_task_terminal: Option<&'static str>,
+    /// Correlation metadata for the one active approval. Kept beside the legacy display model
+    /// so existing renderers do not become a second protocol parser.
+    approval_kind: Option<String>,
+    approval_task_id: Option<String>,
+    /// Settled approval ids make replay and duplicate delivery events KPI-idempotent.
+    settled_approval_ids: BTreeSet<String>,
     /// 本轮起始时 conversation 的长度（TaskStarted 时记录）。assistant.rendered 下发整轮
     /// 排版文本时，用它界定"本轮的助手分片"，把被工具事件切开的前置分片标记为 superseded。
     turn_conversation_start: usize,
@@ -273,7 +285,7 @@ pub struct UiState {
     /// v0.12：HIRE 屏候选员工（从 MARKET 带入）的列表下标。
     pub hire_cursor: usize,
     /// v0.16 W6.2：DREAM 屏 MEMORY 记忆浏览器的 tab 下标(0=全部/1=K/2=P/3=E)——`f` 键循环。
-    /// 数据是 MOCK 演示(引擎侧无记忆浏览 API)。
+    /// 数据来自 `.crewclaw/memory/<employee>.json` 的安全只读快照。
     pub dream_mem_tab: usize,
     /// v0.16 W6.2：DREAM 屏 MEMORY 列表游标(j/k 移动)。
     pub dream_mem_cursor: usize,
@@ -309,6 +321,12 @@ pub struct UiState {
     pub market: Vec<MarketEntry>,
     /// v0.12 HIRE：与 market 平行的 doctor 体检结论（启动时计算）。
     pub hire_reports: Vec<HireHealth>,
+    /// Live workbench 对 `.crewclaw/{eval,kpi,runs,memory}` 的安全只读投影。离线路径保持
+    /// `persisted_state_active=false`，不会把静态演示冒充成真实状态。
+    pub persisted_state_active: bool,
+    pub persisted_insights: PersistedInsights,
+    /// EVAL/DREAM 的 `r` 手动刷新请求；live loop 消费后清零。另有低频自动刷新。
+    pub persisted_refresh_requested: bool,
     /// v0.13 M1：SESSION 事件选择游标（timeline 下标）。None=跟随流；NORMAL j/k 移动，
     /// EVENT DETAIL 面板跟随（M4 接键位）。
     pub session_cursor: Option<usize>,
@@ -429,6 +447,9 @@ impl Default for UiState {
             publish_step: None,
             market: Vec::new(),
             hire_reports: Vec::new(),
+            persisted_state_active: false,
+            persisted_insights: PersistedInsights::default(),
+            persisted_refresh_requested: false,
             session_cursor: None,
             // 默认关：单测以 μs 级间隔灌按键，若默认开会把测试里的 Enter 误判成粘贴。
             // live loop 启动时按 tui.json 显式置开（配置默认 true）。
@@ -601,13 +622,14 @@ pub struct Employee {
     /// v0.17 P2 C1：跨会话累计 KPI（session.ready employee.kpi_cumulative，engine 从
     /// `.crewclaw/kpi/<agentId>.json` 读入本次会话开始前的历史；旧引擎/无 agentId → 全零)。
     pub kpi_cumulative: KpiCumulative,
-    /// v0.18 B2：上岗考试真评测结果（session.ready employee.eval，eval-runner 落
-    /// `.crewclaw/eval/<agentId>.json`）。None = 从未评测 → EVAL 屏保留 MOCK 占位。
+    /// v0.18 B2：由 Node `readEvalResult` 完整校验后通过 session.ready 下发的评测结果。
+    /// None = 当前 subject contract 下没有可验证评测 → EVAL 屏不显示认证分。
     pub eval: Option<EvalReport>,
 }
 
-/// v0.18 B2：员工评测报告——EVAL 屏"上岗考试"区的真数据源。mock=true 时是机械 harness 跑
-/// (非认证分)，屏上明示;mock=false 是真模型评测的认证分。
+/// 员工评测报告。`mock=false` 不是认证的充分条件：只有经 Node `readEvalResult` 绑定当前
+/// subject/spec/dependency/runtime/execution context 后从 session.ready 下发的记录才会设置
+/// `certified=true`。Rust 直接读到的磁盘记录始终是待验证、不可认证。
 #[derive(Clone, Debug, PartialEq)]
 pub struct EvalReport {
     pub score: u32,
@@ -615,6 +637,7 @@ pub struct EvalReport {
     pub verdict: String,
     pub model: String,
     pub mock: bool,
+    pub certified: bool,
     /// epoch ms；0 = 未知。
     pub evaluated_at: u64,
     pub exams: Vec<ExamEntry>,
@@ -636,6 +659,62 @@ pub struct KpiCumulative {
     pub total_cost: f64,
     /// epoch ms；None = 这个员工在本 root 下从未有过验收终态(真"新人")。
     pub first_hired_ts: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MonthlyMetric {
+    pub month: String,
+    pub tasks: u64,
+    pub accepted: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PersistedMemory {
+    /// K=knowledge, P=playbook, E=evidence/source.
+    pub kind: String,
+    pub category: String,
+    pub text: String,
+    pub confidence: String,
+    pub saved_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DreamSnapshot {
+    pub run_count: u64,
+    pub accepted_count: u64,
+    pub failed_count: u64,
+    pub revision_count: u64,
+    pub dream_candidates: u64,
+    pub confidence: Option<String>,
+    pub last_updated: Option<String>,
+    pub worked: Vec<String>,
+    pub failed: Vec<String>,
+    pub knowledge: Vec<String>,
+    pub playbook_add: Vec<String>,
+    pub playbook_remove: Vec<String>,
+    pub memories: Vec<PersistedMemory>,
+}
+
+impl DreamSnapshot {
+    pub fn has_review_data(&self) -> bool {
+        self.dream_candidates > 0
+            || !self.worked.is_empty()
+            || !self.failed.is_empty()
+            || !self.knowledge.is_empty()
+            || !self.playbook_add.is_empty()
+            || !self.playbook_remove.is_empty()
+            || !self.memories.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PersistedInsights {
+    pub eval: Option<EvalReport>,
+    pub kpi: KpiCumulative,
+    pub monthly: Vec<MonthlyMetric>,
+    pub dream: DreamSnapshot,
+    pub errors: Vec<String>,
+    pub refreshed_at: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -733,10 +812,12 @@ pub struct ToolState {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Artifact {
     pub id: Option<String>,
+    pub task_id: Option<String>,
     pub name: Option<String>,
     pub kind: Option<String>,
     pub artifact_type: Option<String>,
     pub path: Option<String>,
+    pub export_path: Option<String>,
     pub status: String,
     pub summary: Option<String>,
     pub checks: Vec<String>,
@@ -876,6 +957,11 @@ impl Default for AppState {
             command_picker: None,
             caps_parts: false,
             task_artifact_start: 0,
+            current_task_outcome: None,
+            current_task_terminal: None,
+            approval_kind: None,
+            approval_task_id: None,
+            settled_approval_ids: BTreeSet::new(),
             turn_conversation_start: 0,
             superseded_assistant: BTreeSet::new(),
             task_started_at: None,
@@ -923,6 +1009,13 @@ impl AppState {
                 self.reduce_session_ready(data);
             }
             TaskEvent::TaskModeChanged { .. } => {
+                if !self.task_correlation_matches(data, "taskRunId") {
+                    self.debug.push(format!(
+                        "ignored stale or uncorrelated task.mode_changed for {}",
+                        string_field(data, "taskRunId").unwrap_or_else(|| "<missing>".to_string())
+                    ));
+                    return;
+                }
                 if let Some(mode) = string_field(data, "mode") {
                     self.mode = mode.clone();
                     let line_id = self.id_for(data);
@@ -930,16 +1023,21 @@ impl AppState {
                 }
             }
             TaskEvent::TaskStarted { .. } => {
-                let id = string_field(data, "id");
+                let Some(id) = string_field(data, "id").filter(|id| !id.trim().is_empty()) else {
+                    self.debug
+                        .push("ignored task.started without canonical id".to_string());
+                    return;
+                };
+                if self.task.as_ref().and_then(|task| task.id.as_deref()) == Some(id.as_str()) {
+                    return;
+                }
                 let title = string_field(data, "title").unwrap_or_default();
                 self.task = Some(Task {
-                    id: id.clone(),
+                    id: Some(id),
                     title: title.clone(),
                     status: "running".to_string(),
                 });
-                if let Some(mode) = string_field(data, "mode") {
-                    self.mode = mode;
-                }
+                self.mode = string_field(data, "mode").unwrap_or_else(|| "Task".to_string());
                 self.status = "running".to_string();
                 self.answer.clear();
                 // v0.15 P0-1: a new task voids the previous deliverable's digit bindings, even if
@@ -948,6 +1046,11 @@ impl AppState {
                 // v0.16 W3.5：新任务开始清空上一次审批的 verdict 条,不跨任务累留。
                 self.last_verdict = None;
                 self.task_artifact_start = self.artifacts.len();
+                self.current_task_outcome = None;
+                self.current_task_terminal = None;
+                self.approval = None;
+                self.approval_kind = None;
+                self.approval_task_id = None;
                 self.mark_busy();
                 let line_id = self.id_for(data);
                 self.push(
@@ -1030,15 +1133,43 @@ impl AppState {
                 self.mark_tool(&id, detail, true);
             }
             TaskEvent::ArtifactCreated { .. } => {
+                if !self.task_correlation_matches(data, "taskRunId") {
+                    self.debug.push(format!(
+                        "ignored uncorrelated artifact.created {}",
+                        string_field(data, "id").unwrap_or_else(|| "<missing>".to_string())
+                    ));
+                    return;
+                }
+                let Some(id) = string_field(data, "id").filter(|id| !id.trim().is_empty()) else {
+                    self.debug
+                        .push("ignored artifact.created without canonical id".to_string());
+                    return;
+                };
+                if self
+                    .artifacts
+                    .iter()
+                    .any(|artifact| artifact.id.as_deref() == Some(id.as_str()))
+                {
+                    return;
+                }
+                if !self.mode.eq_ignore_ascii_case("chat")
+                    && string_field(data, "path").is_none_or(|path| path.is_empty())
+                {
+                    self.debug
+                        .push("ignored formal artifact.created without path".to_string());
+                    return;
+                }
                 let kind = string_field(data, "kind").or_else(|| string_field(data, "type"));
                 let artifact_type =
                     string_field(data, "type").or_else(|| string_field(data, "kind"));
                 let artifact = Artifact {
-                    id: string_field(data, "id"),
+                    id: Some(id),
+                    task_id: self.task.as_ref().and_then(|task| task.id.clone()),
                     name: string_field(data, "name"),
                     kind,
                     artifact_type,
                     path: string_field(data, "path"),
+                    export_path: None,
                     status: string_field(data, "status").unwrap_or_else(|| "draft".to_string()),
                     summary: string_field(data, "summary"),
                     checks: string_array_field(data, "checks"),
@@ -1053,6 +1184,11 @@ impl AppState {
             }
             TaskEvent::ArtifactUpdated { .. } => {
                 if let Some(id) = string_field(data, "id") {
+                    if !self.artifact_event_targets_current_task(data, &id) {
+                        self.debug
+                            .push(format!("ignored uncorrelated artifact.updated {id}"));
+                        return;
+                    }
                     if let Some(patch) = data.get("patch").and_then(Value::as_object) {
                         for artifact in &mut self.artifacts {
                             if artifact.id.as_deref() == Some(id.as_str()) {
@@ -1087,6 +1223,11 @@ impl AppState {
             }
             TaskEvent::ArtifactSelected { .. } => {
                 if let Some(id) = artifact_id_field(data) {
+                    if !self.artifact_event_targets_current_task(data, &id) {
+                        self.debug
+                            .push(format!("ignored uncorrelated artifact.selected {id}"));
+                        return;
+                    }
                     self.select_artifact(&id);
                     let line_id = self.id_for(data);
                     self.push(line_id, SYM_OK, "选择产物".to_string(), id);
@@ -1094,6 +1235,24 @@ impl AppState {
             }
             TaskEvent::ArtifactDeleted { .. } => {
                 if let Some(id) = artifact_id_field(data) {
+                    if !self.artifact_event_targets_current_task(data, &id) {
+                        self.debug
+                            .push(format!("ignored uncorrelated artifact.deleted {id}"));
+                        return;
+                    }
+                    if bool_field(data, "ok") != Some(true) {
+                        let line_id = self.id_for(data);
+                        self.push(
+                            line_id,
+                            SYM_WARN,
+                            "删除产物失败".to_string(),
+                            string_field(data, "reason")
+                                .or_else(|| string_field(data, "error"))
+                                .or_else(|| string_field(data, "code"))
+                                .unwrap_or_default(),
+                        );
+                        return;
+                    }
                     self.patch_artifact_status(&id, "deleted");
                     let line_id = self.id_for(data);
                     self.push(line_id, SYM_WARN, "删除产物".to_string(), id);
@@ -1101,15 +1260,59 @@ impl AppState {
             }
             TaskEvent::ArtifactRevealed { .. } => {
                 if let Some(id) = artifact_id_field(data) {
+                    if !self.artifact_event_targets_current_task(data, &id) {
+                        self.debug
+                            .push(format!("ignored uncorrelated artifact.revealed {id}"));
+                        return;
+                    }
                     self.select_artifact(&id);
-                    let status = if bool_field(data, "ok") == Some(false) {
-                        SYM_WARN
-                    } else {
-                        SYM_OK
-                    };
+                    let opened = bool_field(data, "ok") == Some(true);
+                    let status = if opened { SYM_OK } else { SYM_WARN };
                     let detail = string_field(data, "path").unwrap_or(id);
                     let line_id = self.id_for(data);
-                    self.push(line_id, status, "打开位置".to_string(), detail);
+                    self.push(
+                        line_id,
+                        status,
+                        if opened {
+                            "打开位置".to_string()
+                        } else {
+                            "无法打开,路径已给".to_string()
+                        },
+                        detail,
+                    );
+                }
+            }
+            TaskEvent::ArtifactExported { .. } => {
+                if let Some(id) = artifact_id_field(data) {
+                    if !self.artifact_event_targets_current_task(data, &id) {
+                        self.debug
+                            .push(format!("ignored uncorrelated artifact.exported {id}"));
+                        return;
+                    }
+                    if bool_field(data, "ok") != Some(true) {
+                        let line_id = self.id_for(data);
+                        self.push(
+                            line_id,
+                            SYM_WARN,
+                            "导出产物失败".to_string(),
+                            string_field(data, "reason")
+                                .or_else(|| string_field(data, "error"))
+                                .or_else(|| string_field(data, "code"))
+                                .unwrap_or_default(),
+                        );
+                        return;
+                    }
+                    self.patch_artifact_status(&id, "exported");
+                    let detail = string_field(data, "path").unwrap_or_else(|| id.clone());
+                    if let Some(artifact) = self
+                        .artifacts
+                        .iter_mut()
+                        .find(|artifact| artifact.id.as_deref() == Some(id.as_str()))
+                    {
+                        artifact.export_path = Some(detail.clone());
+                    }
+                    let line_id = self.id_for(data);
+                    self.push(line_id, SYM_OK, "导出产物".to_string(), detail);
                 }
             }
             TaskEvent::EvidenceCreated { .. } => {
@@ -1140,15 +1343,51 @@ impl AppState {
                 self.push_notice(NoticeKind::Budget, title, body);
             }
             TaskEvent::ApprovalRequired { .. } | TaskEvent::ApprovalRequested { .. } => {
+                if self.current_task_terminal.is_some() {
+                    self.debug
+                        .push(format!("ignored {} after task terminal", ev.event_type()));
+                    return;
+                }
+                let kind = if matches!(ev, TaskEvent::ApprovalRequired { .. }) {
+                    "tool_authorization"
+                } else {
+                    "deliverable_acceptance"
+                };
+                if !self.approval_event_correlation_matches(data, kind) {
+                    self.debug.push(format!(
+                        "ignored uncorrelated {} {}",
+                        ev.event_type(),
+                        string_field(data, "id").unwrap_or_else(|| "<missing>".to_string())
+                    ));
+                    return;
+                }
+                let id = string_field(data, "id").expect("validated approval id");
+                let task_id = string_field(data, "taskRunId")
+                    .or_else(|| self.task.as_ref().and_then(|task| task.id.clone()));
+                if let Some(pending) = &self.approval {
+                    if pending.id.as_deref() == Some(id.as_str())
+                        && self.approval_kind.as_deref() == Some(kind)
+                        && self.approval_task_id == task_id
+                    {
+                        return;
+                    }
+                    self.debug.push(format!(
+                        "ignored {}; approval {} is already pending",
+                        ev.event_type(),
+                        pending.id.as_deref().unwrap_or("<missing>")
+                    ));
+                    return;
+                }
                 self.approval = Some(Approval {
-                    id: string_field(data, "id"),
+                    id: Some(id),
                     tool: string_field(data, "tool"),
                     reason: string_field(data, "reason"),
                     scope: data.get("scope").cloned(),
                 });
+                self.approval_kind = Some(kind.to_string());
+                self.approval_task_id = task_id;
                 self.status = "awaiting_approval".to_string();
                 self.clear_busy();
-                // v0.15 P1-2：真事件 → 通知「等待批准」。
                 let tool = string_field(data, "tool").unwrap_or_default();
                 self.push_notice(
                     NoticeKind::Approval,
@@ -1160,14 +1399,74 @@ impl AppState {
                     },
                 );
             }
-            TaskEvent::ApprovalResolved { .. }
-            | TaskEvent::ApprovalAccepted { .. }
-            | TaskEvent::ApprovalRejected { .. } => {
+            TaskEvent::ApprovalResolved { .. } => {
+                if self.current_task_terminal.is_some() {
+                    self.debug
+                        .push("ignored approval.resolved after task terminal".to_string());
+                    return;
+                }
+                if !self.pending_approval_matches(data, "tool_authorization")
+                    || !matches!(
+                        string_field(data, "decision").as_deref(),
+                        Some("allow" | "deny")
+                    )
+                {
+                    self.debug.push(format!(
+                        "ignored mismatched approval.resolved {}",
+                        string_field(data, "id").unwrap_or_else(|| "<missing>".to_string())
+                    ));
+                    return;
+                }
+                let id = self
+                    .approval
+                    .as_ref()
+                    .and_then(|approval| approval.id.clone())
+                    .expect("pending approval id");
+                if !self.settled_approval_ids.insert(id) {
+                    return;
+                }
+                self.approval = None;
+                self.approval_kind = None;
+                self.approval_task_id = None;
+                if self.current_task_terminal.is_none() && self.task.is_some() {
+                    self.status = "running".to_string();
+                    self.mark_busy();
+                } else if self.task.is_none() {
+                    self.status = "idle".to_string();
+                }
+            }
+            TaskEvent::ApprovalAccepted { .. } | TaskEvent::ApprovalRejected { .. } => {
+                if self.current_task_terminal.is_some() {
+                    self.debug
+                        .push(format!("ignored {} after task terminal", ev.event_type()));
+                    return;
+                }
                 let accepted = matches!(ev, TaskEvent::ApprovalAccepted { .. });
-                let rejected = matches!(ev, TaskEvent::ApprovalRejected { .. });
+                let pending_matches = self.pending_approval_matches(data, "deliverable_acceptance");
+                let trusted_auto = accepted
+                    && bool_field(data, "auto") == Some(true)
+                    && self.approval.is_none()
+                    && self.approval_event_correlation_matches(data, "deliverable_acceptance");
+                if !pending_matches && !trusted_auto {
+                    self.debug.push(format!(
+                        "ignored mismatched {} {}",
+                        ev.event_type(),
+                        string_field(data, "id").unwrap_or_else(|| "<missing>".to_string())
+                    ));
+                    return;
+                }
+                let id = string_field(data, "id")
+                    .or_else(|| {
+                        self.approval
+                            .as_ref()
+                            .and_then(|approval| approval.id.clone())
+                    })
+                    .expect("matched approval id");
+                if !self.settled_approval_ids.insert(id.clone()) {
+                    return;
+                }
                 if accepted {
-                    self.accepted_count += 1; // v0.13 M3：KPI「已验收」真计数
-                    // v0.15 P1-2：真事件 → 通知「已验收」。
+                    self.accepted_count += 1;
                     self.push_notice(
                         NoticeKind::Accepted,
                         "已验收".to_string(),
@@ -1175,35 +1474,33 @@ impl AppState {
                     );
                 }
                 self.approval = None;
-                if self.task.is_some() {
+                self.approval_kind = None;
+                self.approval_task_id = None;
+                if self.current_task_terminal.is_none() && self.task.is_some() {
                     self.status = "running".to_string();
                     self.mark_busy();
-                } else {
+                } else if self.task.is_none() {
                     self.status = "idle".to_string();
                 }
-                if accepted || rejected {
-                    let line_id = self.id_for(data);
-                    self.push(
-                        line_id,
-                        if accepted { SYM_OK } else { SYM_WARN },
-                        if accepted {
-                            "授权已接受".to_string()
-                        } else {
-                            "授权已拒绝".to_string()
-                        },
-                        string_field(data, "id").unwrap_or_default(),
-                    );
-                    // v0.16 W3.5：审批终态结论条(真事件驱动)——原 WAITING APPROVAL 条位置
-                    // 显示一行 verdict,直到下个任务开始(TaskStarted 清空)。
-                    self.last_verdict = Some((
-                        accepted,
-                        if accepted {
-                            format!("★ 已验收 · KPI accept +{}", self.accepted_count)
-                        } else {
-                            "✗ 已驳回 · 等待修订指示".to_string()
-                        },
-                    ));
-                }
+                let line_id = self.id_for(data);
+                self.push(
+                    line_id,
+                    if accepted { SYM_OK } else { SYM_WARN },
+                    if accepted {
+                        "交付已验收".to_string()
+                    } else {
+                        "交付已拒绝".to_string()
+                    },
+                    id,
+                );
+                self.last_verdict = Some((
+                    accepted,
+                    if accepted {
+                        format!("★ 已验收 · KPI accept +{}", self.accepted_count)
+                    } else {
+                        "✗ 已驳回 · 等待修订指示".to_string()
+                    },
+                ));
             }
             TaskEvent::AssistantMessage { .. } => {
                 self.reduce_assistant_message(data);
@@ -1255,6 +1552,9 @@ impl AppState {
                 self.usage.completion_tok += u64_field(data, "completion");
             }
             TaskEvent::TaskCompleted { .. } => {
+                if !self.terminal_transition_allowed(data, "task.completed") {
+                    return;
+                }
                 self.clear_busy();
                 self.finalize_task_meta(data);
                 let line_id = self.id_for(data);
@@ -1273,22 +1573,66 @@ impl AppState {
                         "缺少交付物".to_string(),
                         "正式任务不能在没有 artifact 的情况下 Done".to_string(),
                     );
-                } else if is_chat {
+                } else if !is_chat {
+                    match self.current_task_outcome {
+                        Some(Some(false)) => {
+                            if let Some(task) = &mut self.task {
+                                task.status = "needs_revision".to_string();
+                            }
+                            self.status = "needs_revision".to_string();
+                            self.push(
+                                line_id,
+                                SYM_WARN,
+                                "验收未通过".to_string(),
+                                "正式任务只有 outcome.checked valid=true 才能 Done".to_string(),
+                            );
+                        }
+                        Some(None) | None => {
+                            if let Some(task) = &mut self.task {
+                                task.status = "outcome_unknown".to_string();
+                            }
+                            self.status = "outcome_unknown".to_string();
+                            self.push(
+                                line_id,
+                                SYM_WARN,
+                                "验收结果未知".to_string(),
+                                "事件缺少 canonical valid 字段，不能 Done".to_string(),
+                            );
+                        }
+                        Some(Some(true)) => {
+                            self.current_task_terminal = Some("task.completed");
+                            self.clear_current_approval();
+                            if let Some(task) = &mut self.task {
+                                task.status = "done".to_string();
+                            }
+                            self.status = "done".to_string();
+                            self.push(line_id, SYM_OK, "完成".to_string(), String::new());
+                        }
+                    }
+                } else {
                     // Chat 轮完成：状态回落 idle（不是任务态 done），不留 timeline 完成行——
                     // 聊天回复本身就是结果，不需要额外的「完成」噪音。
+                    self.current_task_terminal = Some("task.completed");
+                    self.clear_current_approval();
                     if let Some(task) = &mut self.task {
                         task.status = "done".to_string();
                     }
                     self.status = "idle".to_string();
-                } else {
-                    if let Some(task) = &mut self.task {
-                        task.status = "done".to_string();
-                    }
-                    self.status = "done".to_string();
-                    self.push(line_id, SYM_OK, "完成".to_string(), String::new());
                 }
             }
             TaskEvent::TaskRejected { .. } => {
+                if !self.terminal_transition_allowed(data, "task.rejected") {
+                    return;
+                }
+                if self.is_formal_task()
+                    && string_field(data, "reason").is_none_or(|reason| reason.trim().is_empty())
+                {
+                    self.debug
+                        .push("ignored task.rejected without canonical reason".to_string());
+                    return;
+                }
+                self.current_task_terminal = Some("task.rejected");
+                self.clear_current_approval();
                 self.clear_busy();
                 self.finalize_task_meta(data);
                 if let Some(task) = &mut self.task {
@@ -1310,6 +1654,18 @@ impl AppState {
                 );
             }
             TaskEvent::TaskBlocked { .. } => {
+                if !self.terminal_transition_allowed(data, "task.blocked") {
+                    return;
+                }
+                if self.is_formal_task()
+                    && string_field(data, "reason").is_none_or(|reason| reason.trim().is_empty())
+                {
+                    self.debug
+                        .push("ignored task.blocked without canonical reason".to_string());
+                    return;
+                }
+                self.current_task_terminal = Some("task.blocked");
+                self.clear_current_approval();
                 self.clear_busy();
                 self.finalize_task_meta(data);
                 if let Some(task) = &mut self.task {
@@ -1324,7 +1680,61 @@ impl AppState {
                     string_field(data, "reason").unwrap_or_default(),
                 );
             }
+            TaskEvent::TaskFailed { .. } => {
+                if !self.terminal_transition_allowed(data, "task.failed") {
+                    return;
+                }
+                if self.is_formal_task()
+                    && string_field(data, "reason").is_none_or(|reason| reason.trim().is_empty())
+                {
+                    self.debug
+                        .push("ignored task.failed without canonical reason".to_string());
+                    return;
+                }
+                self.current_task_terminal = Some("task.failed");
+                self.clear_current_approval();
+                self.clear_busy();
+                self.finalize_task_meta(data);
+                if let Some(task) = &mut self.task {
+                    task.status = "failed".to_string();
+                }
+                self.status = "failed".to_string();
+                let reason = string_field(data, "reason").unwrap_or_default();
+                let line_id = self.id_for(data);
+                self.push(line_id, SYM_FAIL, "任务失败".to_string(), reason.clone());
+                self.push_notice(NoticeKind::Rejected, "任务失败".to_string(), reason);
+            }
+            TaskEvent::TaskRevisionNeeded { .. } => {
+                if !self.terminal_transition_allowed(data, "task.revision_needed") {
+                    return;
+                }
+                if self.is_formal_task()
+                    && string_field(data, "reason").is_none_or(|reason| reason.trim().is_empty())
+                {
+                    self.debug
+                        .push("ignored task.revision_needed without canonical reason".to_string());
+                    return;
+                }
+                self.current_task_terminal = Some("task.revision_needed");
+                self.clear_current_approval();
+                self.clear_busy();
+                self.finalize_task_meta(data);
+                if let Some(task) = &mut self.task {
+                    task.status = "needs_revision".to_string();
+                }
+                self.status = "needs_revision".to_string();
+                let reason = string_field(data, "reason").unwrap_or_default();
+                let line_id = self.id_for(data);
+                self.push(line_id, SYM_WARN, "需要修订".to_string(), reason);
+            }
             TaskEvent::TaskUpgradedFromChat { .. } => {
+                if !self.task_correlation_matches(data, "taskRunId") {
+                    self.debug.push(format!(
+                        "ignored stale or uncorrelated task.upgraded_from_chat for {}",
+                        string_field(data, "taskRunId").unwrap_or_else(|| "<missing>".to_string())
+                    ));
+                    return;
+                }
                 self.mode = "chat-upgraded".to_string();
                 let line_id = self.id_for(data);
                 self.push(
@@ -1424,15 +1834,13 @@ impl AppState {
                 );
             }
             TaskEvent::WorkspaceRevealed { .. } => {
-                let status = if bool_field(data, "ok") == Some(false) {
-                    SYM_WARN
-                } else {
-                    SYM_OK
-                };
-                let label = if bool_field(data, "ok") == Some(false) {
-                    "无法打开,路径已给"
-                } else {
+                let opened = bool_field(data, "ok") == Some(true)
+                    || (data.get("ok").is_none() && bool_field(data, "available") == Some(true));
+                let status = if opened { SYM_OK } else { SYM_WARN };
+                let label = if opened {
                     "打开位置"
+                } else {
+                    "无法打开,路径已给"
                 };
                 let line_id = self.id_for(data);
                 self.push(
@@ -1443,10 +1851,39 @@ impl AppState {
                 );
             }
             TaskEvent::OutcomeChecked { .. } => {
+                if !self.task_correlation_matches(data, "taskRunId") {
+                    self.debug.push(format!(
+                        "ignored uncorrelated outcome.checked for {}",
+                        string_field(data, "taskRunId").unwrap_or_else(|| "<missing>".to_string())
+                    ));
+                    return;
+                }
+                if self.current_task_terminal.is_some() {
+                    self.debug
+                        .push("ignored outcome.checked after task terminal".to_string());
+                    return;
+                }
                 // v0.18 P0-a：缺 valid 字段**不默认成功**——此前 `!= Some(false)` 让批处理路径发的
                 // `{passed:false}`（无 valid 键）显示成"验收：可交付"，是假绿链。三态：
                 // Some(true)=可交付 / Some(false)=未达标 / None=结果未知（旧协议或字段漂移,按存疑处理）。
                 let valid_field = bool_field(data, "valid");
+                if valid_field == Some(true) {
+                    let deliverable = string_field(data, "deliverable");
+                    let has_matching_artifact = self.artifacts.iter().any(|artifact| {
+                        artifact.task_id.as_deref()
+                            == self.task.as_ref().and_then(|task| task.id.as_deref())
+                            && artifact.status != "deleted"
+                            && artifact.path == deliverable
+                    });
+                    if !has_matching_artifact {
+                        self.debug.push(
+                            "ignored valid outcome.checked without matching current-task artifact"
+                                .to_string(),
+                        );
+                        return;
+                    }
+                }
+                self.current_task_outcome = Some(valid_field);
                 let valid = valid_field == Some(true);
                 let status = if valid { SYM_OK } else { SYM_WARN };
                 let label = match valid_field {
@@ -1516,10 +1953,136 @@ impl AppState {
     }
 
     fn current_task_has_artifact(&self) -> bool {
+        let current_task_id = self.task.as_ref().and_then(|task| task.id.as_deref());
         self.artifacts
             .iter()
             .skip(self.task_artifact_start)
-            .any(|artifact| artifact.status != "deleted")
+            .any(|artifact| {
+                artifact.status != "deleted"
+                    && artifact.path.as_ref().is_some_and(|path| !path.is_empty())
+                    && artifact.task_id.as_deref() == current_task_id
+            })
+    }
+
+    fn task_correlation_matches(&self, data: &Value, field: &str) -> bool {
+        let Some(current_id) = self.task.as_ref().and_then(|task| task.id.as_deref()) else {
+            return false;
+        };
+        match string_field(data, field) {
+            Some(event_id) => event_id == current_id,
+            None => self.mode.eq_ignore_ascii_case("chat"),
+        }
+    }
+
+    fn event_targets_current_task(&self, data: &Value) -> bool {
+        let legacy_id = string_field(data, "id");
+        let task_run_id = string_field(data, "taskRunId");
+        if legacy_id.is_some() && task_run_id.is_some() && legacy_id != task_run_id {
+            return false;
+        }
+        // taskRunId is canonical; id remains a legacy fallback for v1 producers.
+        let event_id = task_run_id.or(legacy_id);
+        let Some(current_id) = self.task.as_ref().and_then(|task| task.id.as_deref()) else {
+            return false;
+        };
+        match event_id {
+            Some(event_id) => event_id == current_id,
+            None => self.mode.eq_ignore_ascii_case("chat"),
+        }
+    }
+
+    fn artifact_event_targets_current_task(&self, data: &Value, artifact_id: &str) -> bool {
+        let Some(artifact) = self
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.id.as_deref() == Some(artifact_id))
+        else {
+            return false;
+        };
+        if !self.mode.eq_ignore_ascii_case("chat")
+            && !self.task_correlation_matches(data, "taskRunId")
+        {
+            return false;
+        }
+        match string_field(data, "taskRunId") {
+            Some(event_task_id) => artifact.task_id.as_deref() == Some(event_task_id.as_str()),
+            None => self.mode.eq_ignore_ascii_case("chat"),
+        }
+    }
+
+    fn terminal_transition_allowed(&mut self, data: &Value, event_type: &'static str) -> bool {
+        if !self.event_targets_current_task(data) {
+            self.debug.push(format!(
+                "ignored stale or uncorrelated {event_type} for {}",
+                string_field(data, "taskRunId")
+                    .or_else(|| string_field(data, "id"))
+                    .unwrap_or_else(|| "<missing>".to_string())
+            ));
+            return false;
+        }
+        if let Some(current) = self.current_task_terminal {
+            if current != event_type {
+                self.debug.push(format!(
+                    "ignored conflicting {event_type}; task is already terminal via {current}"
+                ));
+            }
+            return false;
+        }
+        true
+    }
+
+    fn clear_current_approval(&mut self) {
+        self.approval = None;
+        self.approval_kind = None;
+        self.approval_task_id = None;
+    }
+
+    fn is_formal_task(&self) -> bool {
+        self.task.is_some() && !self.mode.eq_ignore_ascii_case("chat")
+    }
+
+    fn approval_event_correlation_matches(&self, data: &Value, expected_kind: &str) -> bool {
+        if string_field(data, "id").is_none_or(|id| id.trim().is_empty()) {
+            return false;
+        }
+        if self.is_formal_task() {
+            return string_field(data, "kind").as_deref() == Some(expected_kind)
+                && self.task_correlation_matches(data, "taskRunId");
+        }
+        if string_field(data, "kind").is_some_and(|kind| kind != expected_kind) {
+            return false;
+        }
+        if data.get("taskRunId").is_some()
+            && self.task.is_some()
+            && !self.task_correlation_matches(data, "taskRunId")
+        {
+            return false;
+        }
+        true
+    }
+
+    fn pending_approval_matches(&self, data: &Value, expected_kind: &str) -> bool {
+        let Some(approval) = self.approval.as_ref() else {
+            return false;
+        };
+        if self.approval_kind.as_deref() != Some(expected_kind) {
+            return false;
+        }
+        let event_id = string_field(data, "id").or_else(|| {
+            (!self.is_formal_task())
+                .then(|| approval.id.clone())
+                .flatten()
+        });
+        let event_kind = string_field(data, "kind")
+            .or_else(|| (!self.is_formal_task()).then(|| expected_kind.to_string()));
+        let event_task_id = string_field(data, "taskRunId").or_else(|| {
+            (!self.is_formal_task())
+                .then(|| self.approval_task_id.clone())
+                .flatten()
+        });
+        event_id == approval.id
+            && event_kind.as_deref() == self.approval_kind.as_deref()
+            && event_task_id == self.approval_task_id
     }
 
     pub fn pending_action_for_key(&self, ch: char) -> Option<&PendingAction> {
@@ -1752,10 +2315,10 @@ impl AppState {
         }
         self.append_assistant(&text);
         let ansi_lines = string_array_field(data, "ansi_lines");
-        if !ansi_lines.is_empty() {
-            if let Some(index) = self.last_assistant_index() {
-                self.rendered_assistant.insert(index, ansi_lines);
-            }
+        if !ansi_lines.is_empty()
+            && let Some(index) = self.last_assistant_index()
+        {
+            self.rendered_assistant.insert(index, ansi_lines);
         }
     }
 
@@ -1838,6 +2401,8 @@ impl AppState {
                 reason: string_field(data, "reason"),
                 scope: data.get("scope").cloned(),
             });
+            self.approval_kind = Some("tool_authorization".to_string());
+            self.approval_task_id = self.task.as_ref().and_then(|task| task.id.clone());
             self.status = "awaiting_approval".to_string();
         }
         let label = string_field(data, "label").or(tool).unwrap_or_default();
@@ -1920,15 +2485,15 @@ impl AppState {
         let tokens = engine_usage.or(if delta == (0, 0) { None } else { Some(delta) });
         // 成本只信引擎 estimateCost（费率在引擎侧）；不在 Rust 里复制费率表。
         let est_cost = data.get("est_cost").and_then(Value::as_f64);
-        if let Some(hdr) = self.task_header_line {
-            if let Some(entry) = self.timeline.get_mut(hdr) {
-                entry.task_meta = Some(TaskMeta {
-                    elapsed_ms,
-                    counts: self.task_activity,
-                    tokens,
-                    est_cost,
-                });
-            }
+        if let Some(hdr) = self.task_header_line
+            && let Some(entry) = self.timeline.get_mut(hdr)
+        {
+            entry.task_meta = Some(TaskMeta {
+                elapsed_ms,
+                counts: self.task_activity,
+                tokens,
+                est_cost,
+            });
         }
         self.task_started_at = None;
         self.task_header_line = None;
@@ -1957,10 +2522,10 @@ impl AppState {
 
         if let Some(index) = index {
             self.timeline[index].status = status.to_string();
-            if let Some(detail) = detail {
-                if !detail.is_empty() {
-                    self.timeline[index].detail = detail;
-                }
+            if let Some(detail) = detail
+                && !detail.is_empty()
+            {
+                self.timeline[index].detail = detail;
             }
         }
     }
@@ -1970,10 +2535,10 @@ impl AppState {
         if let Some(entry) = self.timeline.iter_mut().rev().find(|line| line.id == id) {
             entry.collapsible = true;
             entry.expanded = expanded;
-            if let Some(detail) = detail {
-                if !detail.is_empty() {
-                    entry.detail = detail;
-                }
+            if let Some(detail) = detail
+                && !detail.is_empty()
+            {
+                entry.detail = detail;
             }
         }
     }
@@ -2076,7 +2641,7 @@ fn kpi_cumulative_field(employee: &Value) -> KpiCumulative {
 }
 
 /// v0.18 B2：解析 session.ready 的 `employee.eval`（eval-runner 落盘、bridge readEvalResult 下发）。
-/// 缺键/null（从未评测）→ None，EVAL 屏据此保留 MOCK 占位，不伪造分数。
+/// 缺键/null（从未评测）→ None，EVAL 屏据此显示空态，不伪造分数。
 fn eval_report_field(employee: &Value) -> Option<EvalReport> {
     let eval = employee.get("eval")?;
     if eval.is_null() {
@@ -2103,6 +2668,10 @@ fn eval_report_field(employee: &Value) -> Option<EvalReport> {
         verdict: string_field(eval, "verdict").unwrap_or_else(|| "FAIL".to_string()),
         model: string_field(eval, "model").unwrap_or_else(|| "unknown".to_string()),
         mock: eval.get("mock").and_then(Value::as_bool).unwrap_or(true),
+        // Runtime session.ready is the trust handoff: Node's readEvalResult has already rebound the
+        // stored result to the current subject contract. Never accept a wire-supplied certification
+        // bit; derive it solely from the validated result's mock provenance.
+        certified: eval.get("mock").and_then(Value::as_bool) == Some(false),
         evaluated_at: eval
             .get("evaluated_at")
             .and_then(Value::as_u64)
@@ -2169,16 +2738,61 @@ mod tests {
         state
     }
 
+    #[test]
+    fn shared_golden_jsonl_matches_node_reducer_semantics() {
+        let fixture =
+            include_str!("../../../../packages/runtime/__tests__/fixtures/task-events-v1.jsonl");
+        let expected: Value = serde_json::from_str(include_str!(
+            "../../../../packages/runtime/__tests__/fixtures/task-events-v1.expected.json"
+        ))
+        .expect("shared expected snapshot");
+        let mut state = AppState::default();
+        for line in fixture.lines().filter(|line| !line.trim().is_empty()) {
+            let event: TaskEvent = serde_json::from_str(line).expect("shared TaskEvent JSONL");
+            state.reduce(&event);
+        }
+        let artifact = state
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.id.as_deref() == Some("artifact-golden"))
+            .expect("golden artifact");
+        let snapshot = serde_json::json!({
+            "mode": state.mode.clone(),
+            "task": {
+                "id": state.task.as_ref().and_then(|task| task.id.clone()),
+                "status": state.task.as_ref().map(|task| task.status.clone()),
+            },
+            "status": state.status.clone(),
+            "artifact": {
+                "id": artifact.id.clone(),
+                "task_id": artifact.task_id.clone(),
+                "status": artifact.status.clone(),
+                "path": artifact.path.clone(),
+            },
+            "proof": {
+                "valid": state.current_task_outcome == Some(Some(true)),
+                "deliverable": artifact.path.clone(),
+            },
+            "approval": state.approval.as_ref().map(|approval| approval.id.clone()),
+            "accepted_count": state.accepted_count,
+        });
+        assert_eq!(snapshot, expected);
+    }
+
     /// v0.16 W3.5：审批 accepted/rejected 后 last_verdict 承载真结论;新任务开始后清空,
     /// 不跨任务累留(设计稿 showVerdict 分支的数据源)。
     #[test]
     fn approval_accepted_sets_verdict_then_task_started_clears_it() {
         let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t1","mode":"Task"})),
             ev(
-                "approval.required",
-                serde_json::json!({"id":"ap1","tool":"web.fetch"}),
+                "approval.requested",
+                serde_json::json!({"id":"ap1","taskRunId":"t1","kind":"deliverable_acceptance"}),
             ),
-            ev("approval.accepted", serde_json::json!({"id":"ap1"})),
+            ev(
+                "approval.accepted",
+                serde_json::json!({"id":"ap1","taskRunId":"t1","kind":"deliverable_acceptance"}),
+            ),
         ]);
         let (accepted, text) = state
             .last_verdict
@@ -2201,11 +2815,15 @@ mod tests {
     #[test]
     fn approval_rejected_sets_red_verdict() {
         let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t1","mode":"Task"})),
             ev(
-                "approval.required",
-                serde_json::json!({"id":"ap1","tool":"web.fetch"}),
+                "approval.requested",
+                serde_json::json!({"id":"ap1","taskRunId":"t1","kind":"deliverable_acceptance"}),
             ),
-            ev("approval.rejected", serde_json::json!({"id":"ap1"})),
+            ev(
+                "approval.rejected",
+                serde_json::json!({"id":"ap1","taskRunId":"t1","kind":"deliverable_acceptance","decision":"reject"}),
+            ),
         ]);
         let (accepted, text) = state.last_verdict.expect("verdict set after reject");
         assert!(!accepted, "rejected verdict");
@@ -2237,16 +2855,27 @@ mod tests {
     #[test]
     fn notices_are_derived_from_real_events() {
         let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t1","mode":"Task"})),
             ev(
-                "approval.required",
-                serde_json::json!({"id":"ap1","tool":"web.fetch"}),
+                "approval.requested",
+                serde_json::json!({"id":"ap1","taskRunId":"t1","kind":"deliverable_acceptance"}),
             ),
-            ev("approval.accepted", serde_json::json!({"id":"ap1"})),
+            ev(
+                "approval.accepted",
+                serde_json::json!({"id":"ap1","taskRunId":"t1","kind":"deliverable_acceptance"}),
+            ),
+            ev(
+                "artifact.created",
+                serde_json::json!({"id":"a1","taskRunId":"t1","path":"report.md"}),
+            ),
             ev(
                 "outcome.checked",
-                serde_json::json!({"valid":true,"deliverable":"report.md"}),
+                serde_json::json!({"taskRunId":"t1","valid":true,"deliverable":"report.md"}),
             ),
-            ev("task.rejected", serde_json::json!({"reason":"数据不足"})),
+            ev(
+                "task.rejected",
+                serde_json::json!({"id":"t1","reason":"数据不足"}),
+            ),
         ]);
         assert_eq!(state.notices.len(), 4, "one notice per real event");
         assert_eq!(state.unread_notices(), 4, "all start unread");
@@ -2262,10 +2891,16 @@ mod tests {
     #[test]
     fn outcome_checked_without_valid_is_unknown_not_success() {
         // 无 valid 键（模拟旧批处理协议 {passed:false}）→ 未知态,非可交付,无 Delivered 通知。
-        let missing = reduce_all(vec![ev(
-            "outcome.checked",
-            serde_json::json!({"passed": false, "deliverable": "report.md"}),
-        )]);
+        let missing = reduce_all(vec![
+            ev(
+                "task.started",
+                serde_json::json!({"id":"missing","mode":"Task"}),
+            ),
+            ev(
+                "outcome.checked",
+                serde_json::json!({"taskRunId":"missing","passed": false, "deliverable": "report.md"}),
+            ),
+        ]);
         let line = missing.timeline.last().expect("timeline line");
         assert!(
             line.label.contains("结果未知"),
@@ -2281,17 +2916,33 @@ mod tests {
         );
 
         // 显式 false → 未达标。
-        let invalid = reduce_all(vec![ev(
-            "outcome.checked",
-            serde_json::json!({"valid": false, "reason": "缺来源"}),
-        )]);
+        let invalid = reduce_all(vec![
+            ev(
+                "task.started",
+                serde_json::json!({"id":"invalid","mode":"Task"}),
+            ),
+            ev(
+                "outcome.checked",
+                serde_json::json!({"taskRunId":"invalid","valid": false, "reason": "缺来源"}),
+            ),
+        ]);
         assert!(invalid.timeline.last().unwrap().label.contains("未达标"));
 
         // 显式 true → 可交付（原行为不变）。
-        let valid = reduce_all(vec![ev(
-            "outcome.checked",
-            serde_json::json!({"valid": true, "deliverable": "report.md"}),
-        )]);
+        let valid = reduce_all(vec![
+            ev(
+                "task.started",
+                serde_json::json!({"id":"valid","mode":"Task"}),
+            ),
+            ev(
+                "artifact.created",
+                serde_json::json!({"id":"a1","taskRunId":"valid","path":"report.md"}),
+            ),
+            ev(
+                "outcome.checked",
+                serde_json::json!({"taskRunId":"valid","valid": true, "deliverable": "report.md"}),
+            ),
+        ]);
         assert!(valid.timeline.last().unwrap().label.contains("可交付"));
     }
 
@@ -2554,7 +3205,7 @@ mod tests {
             ev("task.started", serde_json::json!({"id":"t","title":"x"})),
             ev(
                 "artifact.created",
-                serde_json::json!({"id":"a","name":"a.md"}),
+                serde_json::json!({"id":"a","taskRunId":"t","name":"a.md","path":"/tmp/a.md"}),
             ),
             ev("task.completed", serde_json::json!({"id":"t"})),
         ]);
@@ -2563,7 +3214,7 @@ mod tests {
         // Rejected task clears busy.
         let rejected = reduce_all(vec![
             ev("task.started", serde_json::json!({"id":"t","title":"x"})),
-            ev("task.rejected", serde_json::json!({"reason":"no"})),
+            ev("task.rejected", serde_json::json!({"id":"t","reason":"no"})),
         ]);
         assert!(!rejected.is_busy(), "task.rejected clears busy");
 
@@ -2572,7 +3223,7 @@ mod tests {
             ev("task.started", serde_json::json!({"id":"t","title":"x"})),
             ev(
                 "approval.required",
-                serde_json::json!({"id":"ap","tool":"web"}),
+                serde_json::json!({"id":"ap","taskRunId":"t","kind":"tool_authorization","tool":"web"}),
             ),
         ]);
         assert!(!awaiting.is_busy(), "approval.required pauses busy");
@@ -2595,7 +3246,7 @@ mod tests {
             ),
             ev(
                 "approval.resolved",
-                serde_json::json!({"id":"tool1","decision":"approve"}),
+                serde_json::json!({"id":"tool1","taskRunId":"task1","kind":"tool_authorization","decision":"allow"}),
             ),
             ev(
                 "tool.succeeded",
@@ -2612,11 +3263,15 @@ mod tests {
             ),
             ev(
                 "artifact.created",
-                serde_json::json!({"id":"art1","name":"seed-2.1-research.md","type":"report","status":"draft","checks":["≥2 来源"]}),
+                serde_json::json!({"id":"art1","taskRunId":"task1","name":"seed-2.1-research.md","type":"report","path":"/tmp/seed-2.1-research.md","status":"draft","checks":["≥2 来源"]}),
             ),
             ev(
                 "token.usage",
                 serde_json::json!({"prompt":1000,"completion":200}),
+            ),
+            ev(
+                "outcome.checked",
+                serde_json::json!({"taskRunId":"task1","valid":true,"deliverable":"/tmp/seed-2.1-research.md"}),
             ),
             ev("task.completed", serde_json::json!({"id":"task1"})),
         ]);
@@ -2683,7 +3338,7 @@ mod tests {
             ),
             ev(
                 "task.upgraded_from_chat",
-                serde_json::json!({"reason":"需生成报告"}),
+                serde_json::json!({"taskRunId":"t","reason":"需生成报告"}),
             ),
             ev(
                 "pending.actions",
@@ -2695,7 +3350,7 @@ mod tests {
             ),
             ev(
                 "artifact.created",
-                serde_json::json!({"id":"a","name":"roi_report.md","kind":"report","path":"/x/.crewclaw/artifacts/t/roi_report.md"}),
+                serde_json::json!({"id":"a","taskRunId":"t","name":"roi_report.md","kind":"report","path":"/x/.crewclaw/artifacts/t/roi_report.md"}),
             ),
         ]);
 
@@ -2749,10 +3404,12 @@ mod tests {
     #[test]
     fn artifact_events_select_soft_delete_and_reveal_artifacts() {
         let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t","mode":"Task"})),
             ev(
                 "artifact.created",
                 serde_json::json!({
                     "id":"a1",
+                    "taskRunId":"t",
                     "name":"roi_report.md",
                     "kind":"markdown",
                     "path":"/tmp/roi_report.md",
@@ -2760,12 +3417,18 @@ mod tests {
                     "summary":"ROI 报告"
                 }),
             ),
-            ev("artifact.selected", serde_json::json!({"artifact_id":"a1"})),
+            ev(
+                "artifact.selected",
+                serde_json::json!({"artifact_id":"a1","taskRunId":"t"}),
+            ),
             ev(
                 "artifact.revealed",
-                serde_json::json!({"artifact_id":"a1","path":"/tmp/roi_report.md","ok":true}),
+                serde_json::json!({"artifact_id":"a1","taskRunId":"t","path":"/tmp/roi_report.md","ok":true}),
             ),
-            ev("artifact.deleted", serde_json::json!({"artifact_id":"a1"})),
+            ev(
+                "artifact.deleted",
+                serde_json::json!({"artifact_id":"a1","taskRunId":"t","ok":true}),
+            ),
         ]);
 
         assert_eq!(state.selected_artifact.as_deref(), Some("a1"));
@@ -2793,6 +3456,76 @@ mod tests {
     }
 
     #[test]
+    fn artifact_exported_marks_the_artifact_and_records_the_event() {
+        let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t","mode":"Task"})),
+            ev(
+                "artifact.created",
+                serde_json::json!({
+                    "id":"a1",
+                    "taskRunId":"t",
+                    "name":"roi_report.md",
+                    "kind":"markdown",
+                    "path":"/tmp/roi_report.md",
+                    "status":"ready"
+                }),
+            ),
+            ev(
+                "artifact.exported",
+                serde_json::json!({"artifact_id":"a1","taskRunId":"t","path":"/tmp/export/roi_report.md","ok":true}),
+            ),
+        ]);
+
+        assert_eq!(state.artifacts[0].status, "exported");
+        assert_eq!(
+            state.artifacts[0].path.as_deref(),
+            Some("/tmp/roi_report.md"),
+            "export keeps the source path"
+        );
+        assert_eq!(
+            state.artifacts[0].export_path.as_deref(),
+            Some("/tmp/export/roi_report.md")
+        );
+        assert!(state.timeline.iter().any(|line| {
+            line.label == "导出产物" && line.detail == "/tmp/export/roi_report.md"
+        }));
+    }
+
+    #[test]
+    fn failed_artifact_actions_do_not_claim_filesystem_mutation() {
+        let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t","mode":"Task"})),
+            ev(
+                "artifact.created",
+                serde_json::json!({"id":"a1","taskRunId":"t","path":"/tmp/source.md"}),
+            ),
+            ev(
+                "artifact.deleted",
+                serde_json::json!({"artifact_id":"a1","taskRunId":"t","ok":false,"code":"delete_failed"}),
+            ),
+            ev(
+                "artifact.exported",
+                serde_json::json!({"artifact_id":"a1","taskRunId":"t","ok":false,"code":"export_failed"}),
+            ),
+        ]);
+
+        assert_eq!(state.artifacts[0].status, "draft");
+        assert_eq!(state.artifacts[0].export_path, None);
+        assert!(
+            state
+                .timeline
+                .iter()
+                .any(|line| line.label == "删除产物失败")
+        );
+        assert!(
+            state
+                .timeline
+                .iter()
+                .any(|line| line.label == "导出产物失败")
+        );
+    }
+
+    #[test]
     fn long_assistant_markdown_appends_to_answer() {
         let long_markdown = format!("# ROI\n\n{}", "很长的段落。".repeat(140));
         let state = reduce_all(vec![
@@ -2816,23 +3549,28 @@ mod tests {
     #[test]
     fn approval_accept_reject_events_are_visible_in_timeline() {
         let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t","mode":"Task"})),
             ev(
-                "approval.required",
-                serde_json::json!({"id":"ap1","tool":"write","reason":"confirm"}),
+                "approval.requested",
+                serde_json::json!({"id":"ap1","taskRunId":"t","kind":"deliverable_acceptance"}),
             ),
             ev(
                 "approval.accepted",
-                serde_json::json!({"id":"ap1","decision":"accept"}),
+                serde_json::json!({"id":"ap1","taskRunId":"t","kind":"deliverable_acceptance"}),
+            ),
+            ev(
+                "approval.requested",
+                serde_json::json!({"id":"ap2","taskRunId":"t","kind":"deliverable_acceptance"}),
             ),
             ev(
                 "approval.rejected",
-                serde_json::json!({"id":"ap2","decision":"reject"}),
+                serde_json::json!({"id":"ap2","taskRunId":"t","kind":"deliverable_acceptance","decision":"reject"}),
             ),
         ]);
 
         assert_eq!(state.approval, None);
-        assert!(state.timeline.iter().any(|line| line.label == "授权已接受"));
-        assert!(state.timeline.iter().any(|line| line.label == "授权已拒绝"));
+        assert!(state.timeline.iter().any(|line| line.label == "交付已验收"));
+        assert!(state.timeline.iter().any(|line| line.label == "交付已拒绝"));
         assert!(
             state
                 .inspect
@@ -2855,20 +3593,33 @@ mod tests {
 
     #[test]
     fn outcome_checked_pushes_a_verdict_line() {
-        let ok = reduce_all(vec![ev(
-            "outcome.checked",
-            serde_json::json!({"valid":true,"deliverable":"/x/roi.md"}),
-        )]);
+        let ok = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"ok","mode":"Task"})),
+            ev(
+                "artifact.created",
+                serde_json::json!({"id":"a1","taskRunId":"ok","path":"/x/roi.md"}),
+            ),
+            ev(
+                "outcome.checked",
+                serde_json::json!({"taskRunId":"ok","valid":true,"deliverable":"/x/roi.md"}),
+            ),
+        ]);
         assert!(
             ok.timeline
                 .iter()
                 .any(|l| l.status == SYM_OK && l.label.contains("验收"))
         );
 
-        let bad = reduce_all(vec![ev(
-            "outcome.checked",
-            serde_json::json!({"valid":false,"reason":"无可交付文件"}),
-        )]);
+        let bad = reduce_all(vec![
+            ev(
+                "task.started",
+                serde_json::json!({"id":"bad","mode":"Task"}),
+            ),
+            ev(
+                "outcome.checked",
+                serde_json::json!({"taskRunId":"bad","valid":false,"reason":"无可交付文件"}),
+            ),
+        ]);
         let line = bad
             .timeline
             .iter()
@@ -2951,11 +3702,15 @@ mod tests {
     /// v0.13 M1：artifact.created 的 bytes 入库（右栏 meta 的 KB 显示源）。
     #[test]
     fn artifact_created_stores_bytes() {
-        let state = reduce_all(vec![ev(
-            "artifact.created",
-            serde_json::json!({"id":"a1","name":"report.md","kind":"report","path":"/x/report.md","status":"ready","bytes":12_700}),
-        )]);
+        let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t","mode":"Task"})),
+            ev(
+                "artifact.created",
+                serde_json::json!({"id":"a1","taskRunId":"t","name":"report.md","kind":"report","path":"/x/report.md","status":"ready","bytes":12_700}),
+            ),
+        ]);
         assert_eq!(state.artifacts[0].bytes, Some(12_700));
+        assert_eq!(state.artifacts[0].task_id.as_deref(), Some("t"));
     }
 
     /// v0.13 M1：本任务 tokens——引擎 task.completed.usage 优先；缺则会话累计快照差值；
@@ -3053,7 +3808,7 @@ mod tests {
     }
 
     /// v0.18 B2：session.ready 的 employee.eval（eval-runner 落盘、bridge 下发）落进 Employee.eval；
-    /// 缺键/null（从未评测）→ None，EVAL 屏据此保留 MOCK 占位，不伪造分数。
+    /// 缺键/null（从未评测）→ None，EVAL 屏据此显示空态，不伪造分数。
     #[test]
     fn session_ready_parses_eval_report_and_defaults_none_when_absent() {
         let with = reduce_all(vec![ev(
@@ -3067,6 +3822,10 @@ mod tests {
         assert_eq!(rep.score, 84);
         assert_eq!(rep.verdict, "PASS");
         assert!(!rep.mock);
+        assert!(
+            rep.certified,
+            "validated session.ready is the trust handoff"
+        );
         assert_eq!(rep.exams.len(), 1);
         assert_eq!(rep.exams[0].id, "research-seed-2.1");
         assert!(rep.exams[0].passed);
@@ -3229,7 +3988,7 @@ mod tests {
             ),
             ev(
                 "artifact.created",
-                serde_json::json!({"id":"old-art","name":"old.md"}),
+                serde_json::json!({"id":"old-art","taskRunId":"old","name":"old.md","path":"/tmp/old.md"}),
             ),
             ev("task.completed", serde_json::json!({"id":"old"})),
             ev(
@@ -3250,6 +4009,202 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn formal_critical_events_require_current_task_correlation() {
+        let state = reduce_all(vec![
+            ev(
+                "task.started",
+                serde_json::json!({"id":"current","mode":"Task"}),
+            ),
+            ev(
+                "task.mode_changed",
+                serde_json::json!({"taskRunId":"old","mode":"Chat"}),
+            ),
+            ev(
+                "task.upgraded_from_chat",
+                serde_json::json!({"reason":"missing id"}),
+            ),
+            ev(
+                "artifact.created",
+                serde_json::json!({"id":"missing","path":"/tmp/missing.md"}),
+            ),
+            ev(
+                "outcome.checked",
+                serde_json::json!({"valid":true,"deliverable":"/tmp/missing.md"}),
+            ),
+            ev("task.completed", serde_json::json!({})),
+            ev(
+                "task.blocked",
+                serde_json::json!({"id":"old","reason":"stale"}),
+            ),
+        ]);
+
+        assert_eq!(state.task.as_ref().unwrap().status, "running");
+        assert_eq!(state.mode, "Task");
+        assert!(state.artifacts.is_empty());
+        assert_eq!(state.current_task_outcome, None);
+        assert!(
+            state
+                .debug
+                .iter()
+                .filter(|line| line.contains("ignored"))
+                .count()
+                >= 6
+        );
+    }
+
+    #[test]
+    fn explicit_terminal_events_are_monotonic_and_idempotent() {
+        let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t","mode":"Task"})),
+            ev(
+                "task.blocked",
+                serde_json::json!({"id":"t","reason":"缺权限"}),
+            ),
+            ev(
+                "task.blocked",
+                serde_json::json!({"id":"t","reason":"重复"}),
+            ),
+            ev(
+                "task.failed",
+                serde_json::json!({"id":"t","reason":"冲突失败"}),
+            ),
+            ev("task.completed", serde_json::json!({"id":"t"})),
+        ]);
+
+        assert_eq!(state.status, "blocked");
+        assert_eq!(state.current_task_terminal, Some("task.blocked"));
+        assert_eq!(
+            state
+                .timeline
+                .iter()
+                .filter(|line| line.label == "任务阻塞")
+                .count(),
+            1
+        );
+        assert!(
+            state
+                .debug
+                .iter()
+                .any(|line| line.contains("conflicting task.failed"))
+        );
+    }
+
+    #[test]
+    fn approval_settlement_matches_id_kind_task_and_deduplicates_kpi() {
+        let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t","mode":"Task"})),
+            ev(
+                "approval.requested",
+                serde_json::json!({"id":"ap1","taskRunId":"t","kind":"deliverable_acceptance"}),
+            ),
+            ev(
+                "approval.accepted",
+                serde_json::json!({"id":"wrong","taskRunId":"t","kind":"deliverable_acceptance"}),
+            ),
+            ev(
+                "approval.accepted",
+                serde_json::json!({"id":"ap1","taskRunId":"t","kind":"deliverable_acceptance"}),
+            ),
+            ev(
+                "approval.accepted",
+                serde_json::json!({"id":"ap1","taskRunId":"t","kind":"deliverable_acceptance"}),
+            ),
+        ]);
+
+        assert_eq!(state.accepted_count, 1);
+        assert_eq!(state.approval, None);
+        assert_eq!(
+            state
+                .timeline
+                .iter()
+                .filter(|line| line.label == "交付已验收")
+                .count(),
+            1
+        );
+        assert!(state.debug.iter().any(|line| line.contains("wrong")));
+    }
+
+    #[test]
+    fn terminal_correlation_and_late_approval_fail_closed() {
+        let state = reduce_all(vec![
+            ev("task.started", serde_json::json!({"id":"t","mode":"Task"})),
+            ev(
+                "task.failed",
+                serde_json::json!({"id":"t","taskRunId":"other","reason":"wrong task"}),
+            ),
+            ev(
+                "approval.requested",
+                serde_json::json!({"id":"ap1","taskRunId":"t","kind":"deliverable_acceptance"}),
+            ),
+            ev(
+                "task.failed",
+                serde_json::json!({"id":"t","taskRunId":"t","reason":"runtime crashed"}),
+            ),
+            ev(
+                "approval.accepted",
+                serde_json::json!({"id":"ap1","taskRunId":"t","kind":"deliverable_acceptance"}),
+            ),
+        ]);
+
+        assert_eq!(state.status, "failed");
+        assert_eq!(state.current_task_terminal, Some("task.failed"));
+        assert_eq!(state.accepted_count, 0);
+        assert_eq!(state.approval, None);
+        assert!(
+            state
+                .debug
+                .iter()
+                .any(|line| line.contains("ignored stale or uncorrelated task.failed"))
+        );
+        assert!(
+            state
+                .debug
+                .iter()
+                .any(|line| line.contains("approval.accepted after task terminal"))
+        );
+    }
+
+    #[test]
+    fn failed_and_revision_needed_remain_distinct_terminal_states() {
+        let failed = reduce_all(vec![
+            ev(
+                "task.started",
+                serde_json::json!({"id":"failed","mode":"Task"}),
+            ),
+            ev(
+                "task.failed",
+                serde_json::json!({"taskRunId":"failed","reason":"runtime crashed"}),
+            ),
+        ]);
+        assert_eq!(failed.status, "failed");
+        assert_eq!(failed.current_task_terminal, Some("task.failed"));
+
+        let revision = reduce_all(vec![
+            ev(
+                "task.started",
+                serde_json::json!({"id":"revision","mode":"Task"}),
+            ),
+            ev(
+                "task.revision_needed",
+                serde_json::json!({"id":"revision","reason":"补充来源"}),
+            ),
+        ]);
+        assert_eq!(revision.status, "needs_revision");
+        assert_eq!(revision.current_task_terminal, Some("task.revision_needed"));
+    }
+
+    #[test]
+    fn workspace_reveal_available_false_is_not_rendered_as_success() {
+        let state = reduce_all(vec![ev(
+            "workspace.revealed",
+            serde_json::json!({"path":"/tmp/report.md","available":false}),
+        )]);
+        let line = state.timeline.last().expect("workspace reveal line");
+        assert_eq!(line.status, SYM_WARN);
+        assert!(line.label.contains("无法打开"));
     }
 
     #[test]
@@ -3367,11 +4322,6 @@ mod tests {
         ));
 
         let idx = state.timeline.len() - 1;
-        assert!(
-            state
-                .conversation
-                .iter()
-                .any(|item| *item == ConversationItem::Event(idx))
-        );
+        assert!(state.conversation.contains(&ConversationItem::Event(idx)));
     }
 }

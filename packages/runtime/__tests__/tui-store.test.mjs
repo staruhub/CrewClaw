@@ -19,11 +19,16 @@ import { createChatStore } from "../tui/store.mjs";
   assert.equal(s.get().status, "thinking");
   assert.deepEqual(s.get().live, { parts: [] });
 
-  s.appendDelta("我先"); s.appendDelta("搜一下");
+  s.appendDelta("我先");
+  s.appendDelta("搜一下");
   assert.deepEqual(s.get().live.parts, [{ type: "text", text: "我先搜一下" }]);
   assert.equal(s.get().status, "streaming");
 
-  s.addTool({ toolName: "web_search", action: "web_search「最近发布」", status: "success" });
+  s.addTool({
+    toolName: "web_search",
+    action: "web_search「最近发布」",
+    status: "success",
+  });
   s.appendDelta("找到三条……");
   // text → tool → text must stay ordered (the tool is NOT pushed after the prose)
   const parts = s.get().live.parts;
@@ -39,7 +44,11 @@ import { createChatStore } from "../tui/store.mjs";
   s.commitTurn();
   assert.equal(s.get().messages.length, 2);
   assert.equal(s.get().messages[1].role, "assistant");
-  assert.equal(s.get().messages[1].parts.length, 3, "ordered parts preserved on commit");
+  assert.equal(
+    s.get().messages[1].parts.length,
+    3,
+    "ordered parts preserved on commit"
+  );
   assert.equal(s.get().live, null);
   assert.equal(s.get().status, "idle");
   assert.ok(snaps >= 7, "subscribers notified on every change");

@@ -27,8 +27,8 @@ function yamlLines(raw) {
     .replace(/^\uFEFF/, "")
     .split(/\r?\n/)
     .map(stripComment)
-    .filter((line) => line.trim().length > 0)
-    .map((line) => ({
+    .filter(line => line.trim().length > 0)
+    .map(line => ({
       indent: line.match(/^ */)?.[0].length || 0,
       text: line.trim(),
     }));
@@ -81,7 +81,9 @@ function parseScalar(value) {
 function parseValue(lines, index, indent) {
   if (index >= lines.length) return [{}, index];
   if (lines[index].indent < indent) return [{}, index];
-  if (lines[index].text.startsWith("- ")) return parseArray(lines, index, lines[index].indent);
+  if (lines[index].text === "-" || lines[index].text.startsWith("- ")) {
+    return parseArray(lines, index, lines[index].indent);
+  }
   return parseObject(lines, index, lines[index].indent);
 }
 
@@ -109,7 +111,11 @@ function parseObject(lines, index, indent) {
     }
 
     if (cursor + 1 < lines.length && lines[cursor + 1].indent > line.indent) {
-      const [nested, next] = parseValue(lines, cursor + 1, lines[cursor + 1].indent);
+      const [nested, next] = parseValue(
+        lines,
+        cursor + 1,
+        lines[cursor + 1].indent
+      );
       object[key] = nested;
       cursor = next;
     } else {
@@ -127,7 +133,11 @@ function parseArrayObject(lines, cursor, parentIndent, firstPair) {
   object[key] = rest.length > 0 ? parseScalar(rest) : {};
   let next = cursor + 1;
 
-  if (rest.length === 0 && next < lines.length && lines[next].indent > parentIndent) {
+  if (
+    rest.length === 0 &&
+    next < lines.length &&
+    lines[next].indent > parentIndent
+  ) {
     const [nested, nestedNext] = parseValue(lines, next, lines[next].indent);
     object[key] = nested;
     next = nestedNext;
@@ -148,9 +158,13 @@ function parseArray(lines, index, indent) {
 
   while (cursor < lines.length) {
     const line = lines[cursor];
-    if (line.indent !== indent || !line.text.startsWith("- ")) break;
+    if (
+      line.indent !== indent ||
+      (line.text !== "-" && !line.text.startsWith("- "))
+    )
+      break;
 
-    const rest = line.text.slice(2).trim();
+    const rest = line.text.slice(1).trim();
     if (rest.length === 0) {
       const [nested, next] =
         cursor + 1 < lines.length && lines[cursor + 1].indent > indent
@@ -162,7 +176,8 @@ function parseArray(lines, index, indent) {
     }
 
     // A quoted item is always a scalar — `- "0.1.0: note"` must not be split into a mapping.
-    const pair = rest.startsWith('"') || rest.startsWith("'") ? null : splitKeyValue(rest);
+    const pair =
+      rest.startsWith('"') || rest.startsWith("'") ? null : splitKeyValue(rest);
     if (pair) {
       const [item, next] = parseArrayObject(lines, cursor, indent, pair);
       array.push(item);
@@ -185,7 +200,8 @@ function loadFallback(raw) {
 
 function scalarForDump(value) {
   if (value === null || value === undefined) return "";
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   const text = String(value);
   return /[:#\n]|^\s|\s$/.test(text) ? JSON.stringify(text) : text;
 }
@@ -193,7 +209,7 @@ function scalarForDump(value) {
 function dumpValue(value, indent = 0) {
   const pad = "  ".repeat(indent);
   if (Array.isArray(value)) {
-    return value.flatMap((item) => {
+    return value.flatMap(item => {
       if (item && typeof item === "object") {
         const nested = dumpValue(item, indent + 1);
         return [`${pad}-`, ...nested];
@@ -203,7 +219,8 @@ function dumpValue(value, indent = 0) {
   }
   if (value && typeof value === "object") {
     return Object.entries(value).flatMap(([key, item]) => {
-      if (item && typeof item === "object") return [`${pad}${key}:`, ...dumpValue(item, indent + 1)];
+      if (item && typeof item === "object")
+        return [`${pad}${key}:`, ...dumpValue(item, indent + 1)];
       return [`${pad}${key}: ${scalarForDump(item)}`];
     });
   }
@@ -219,6 +236,8 @@ export default {
     return nativeYaml?.load ? nativeYaml.load(raw) : loadFallback(raw);
   },
   dump(value, options) {
-    return nativeYaml?.dump ? nativeYaml.dump(value, options) : dumpFallback(value);
+    return nativeYaml?.dump
+      ? nativeYaml.dump(value, options)
+      : dumpFallback(value);
   },
 };

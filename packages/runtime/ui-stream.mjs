@@ -40,7 +40,7 @@ export function createMdPrinter(render, deps = {}) {
       state.table = [];
     }
   };
-  const emit = (line) => {
+  const emit = line => {
     // buffer consecutive markdown table rows, then render the whole table aligned
     if (!state.inFence && isTableRow(line)) {
       // Keep the current table preview visible while rows are batched; flushTable()
@@ -55,7 +55,13 @@ export function createMdPrinter(render, deps = {}) {
       // line (that blank was the "streams out → disappears → reappears" flicker). \r
       // returns to col 0, the rendered first row overwrites the raw caret, \x1b[K clears
       // the leftover (the ● / longer raw text), and extra wrapped rows flow below.
-      out.write("\r" + rows[0] + "\x1b[K" + (rows.length > 1 ? "\n" + rows.slice(1).join("\n") : "") + "\n");
+      out.write(
+        "\r" +
+          rows[0] +
+          "\x1b[K" +
+          (rows.length > 1 ? "\n" + rows.slice(1).join("\n") : "") +
+          "\n"
+      );
       partialShown = false;
     } else {
       out.write(rows.join("\n") + "\n");
@@ -63,7 +69,8 @@ export function createMdPrinter(render, deps = {}) {
   };
   // Truncate raw text to a display width (ANSI-free, CJK-aware) for the caret line.
   const truncToWidth = (s, max) => {
-    let w = 0, o = "";
+    let w = 0,
+      o = "";
     for (const ch of s) {
       const cw = visibleLen(ch);
       if (w + cw > max) break;
@@ -83,7 +90,8 @@ export function createMdPrinter(render, deps = {}) {
     // A line that would wrap onto >1 row used to be cleared — it VANISHED mid-stream
     // until the \n arrived. Show a truncated single-row preview (head + …) instead;
     // the full wrapped line is re-emitted on the newline.
-    if (visibleLen(text) + 2 > cols()) text = truncToWidth(text, cols() - 4) + "…";
+    if (visibleLen(text) + 2 > cols())
+      text = truncToWidth(text, cols() - 4) + "…";
     // \r overwrite (NO leading \x1b[K) so the growing line never blanks frame-to-frame;
     // the trailing \x1b[K clears any leftover. emit() later overwrites this same row.
     out.write("\r" + text + " \x1b[2m●\x1b[0m\x1b[K");
@@ -92,7 +100,10 @@ export function createMdPrinter(render, deps = {}) {
 
   return {
     push(delta) {
-      if (!render) { out.write(delta); return; }
+      if (!render) {
+        out.write(delta);
+        return;
+      }
       buf += delta;
       let nl;
       while ((nl = buf.indexOf("\n")) >= 0) {
@@ -102,8 +113,9 @@ export function createMdPrinter(render, deps = {}) {
       showPartial();
     },
     end() {
-      if (render && buf.length) emit(buf); // overwrites the caret row in place
-      else clearPartial();                  // no trailing line → just clear the caret
+      if (render && buf.length)
+        emit(buf); // overwrites the caret row in place
+      else clearPartial(); // no trailing line → just clear the caret
       flushTable();
       buf = "";
     },

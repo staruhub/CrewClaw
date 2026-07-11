@@ -8,10 +8,16 @@ interface TerminalProps {
   triggerOnView?: boolean;
 }
 
-export function Terminal({ command, className = "", triggerOnView = false }: TerminalProps) {
+export function Terminal({
+  command,
+  className = "",
+  triggerOnView = false,
+}: TerminalProps) {
   const [displayed, setDisplayed] = useState("");
   const [started, setStarted] = useState(!triggerOnView);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle"
+  );
   const ref = useRef<HTMLDivElement>(null);
 
   const copyCommand = async () => {
@@ -70,7 +76,11 @@ export function Terminal({ command, className = "", triggerOnView = false }: Ter
             aria-label="Copy CrewClaw command"
           >
             {copyState === "copied" ? <Check size={12} /> : <Copy size={12} />}
-            {copyState === "failed" ? "Failed" : copyState === "copied" ? "Copied" : "Copy"}
+            {copyState === "failed"
+              ? "Failed"
+              : copyState === "copied"
+                ? "Copied"
+                : "Copy"}
           </button>
         </div>
         {/* Content */}

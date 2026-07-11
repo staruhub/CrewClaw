@@ -2,14 +2,14 @@
 const BARE_PENDING_ACTION_RE = /^(?:[1-9]|a|b|accept|reject)$/i;
 
 const DEFAULT_SCOPE_KEYWORDS = [
-  'AI落地',
-  '模型选型',
-  'Agent工作流',
-  '知识问答',
-  'LLM',
-  'RAG',
-  'embedding',
-  'prompt',
+  "AI落地",
+  "模型选型",
+  "Agent工作流",
+  "知识问答",
+  "LLM",
+  "RAG",
+  "embedding",
+  "prompt",
 ];
 
 const RULES = {
@@ -33,12 +33,15 @@ export function classifyIntent(message, ctx = {}) {
   const normalizedMessage = normalizeMessage(message);
 
   if (BARE_PENDING_ACTION_RE.test(normalizedMessage)) {
-    const matchedPendingAction = findPendingAction(normalizedMessage, ctx.pendingActions);
+    const matchedPendingAction = findPendingAction(
+      normalizedMessage,
+      ctx.pendingActions
+    );
 
     if (matchedPendingAction) {
       return {
-        type: 'employee_chat',
-        reason: 'bare token matched pending action',
+        type: "employee_chat",
+        reason: "bare token matched pending action",
         matchedPendingAction,
       };
     }
@@ -46,51 +49,60 @@ export function classifyIntent(message, ctx = {}) {
     // 有待办但按错了号 → 这才是真歧义，值得澄清（"或直接选上面的待办编号"此时才成立）。
     if (Array.isArray(ctx.pendingActions) && ctx.pendingActions.length > 0) {
       return {
-        type: 'ambiguous',
-        reason: 'bare action token without matching pending action',
+        type: "ambiguous",
+        reason: "bare action token without matching pending action",
       };
     }
     // 没有任何待办时，裸 "1" 只是普通输入——交给模型，别用不存在的待办去教育用户。
-    return { type: 'employee_chat', reason: 'bare token with no pending actions' };
+    return {
+      type: "employee_chat",
+      reason: "bare token with no pending actions",
+    };
   }
 
   if (RULES.memory.test(normalizedMessage)) {
-    return { type: 'memory_command', reason: 'matched memory keyword' };
+    return { type: "memory_command", reason: "matched memory keyword" };
   }
 
   if (RULES.quickUtility.test(normalizedMessage)) {
-    return { type: 'quick_utility', reason: 'matched quick utility keyword' };
+    return { type: "quick_utility", reason: "matched quick utility keyword" };
   }
 
   if (RULES.artifact.test(normalizedMessage)) {
-    return { type: 'artifact_action', reason: 'matched artifact action keyword' };
+    return {
+      type: "artifact_action",
+      reason: "matched artifact action keyword",
+    };
   }
 
   if (RULES.outOfScope.test(normalizedMessage)) {
-    return { type: 'out_of_scope', reason: 'matched out-of-scope keyword' };
+    return { type: "out_of_scope", reason: "matched out-of-scope keyword" };
   }
 
   if (isDeliverableRequest(normalizedMessage)) {
     return {
-      type: 'employee_task',
-      reason: 'matched deliverable or task keyword',
+      type: "employee_task",
+      reason: "matched deliverable or task keyword",
       upgradeToTaskRun: true,
       needsSearch: RULES.needsSearch.test(normalizedMessage),
     };
   }
 
   if (matchesEmployeeScope(normalizedMessage, ctx.employeeScope)) {
-    return { type: 'employee_chat', reason: 'matched employee scope keyword' };
+    return { type: "employee_chat", reason: "matched employee scope keyword" };
   }
 
   if (RULES.greeting.test(normalizedMessage)) {
-    return { type: 'employee_chat', reason: 'light social greeting' };
+    return { type: "employee_chat", reason: "light social greeting" };
   }
 
   // 默认交给模型（employee_chat），不再回"没太理解"。数字员工的兜底理解能力就是模型
   // 本身——白名单规则只负责把特殊意图（记忆/工具/交付任务/出格）分流，分不出来的
   // 一律让模型接住（"你可以做什么?" 这类开放问题曾被 ambiguous 拒答，是真实用户卡点）。
-  return { type: 'employee_chat', reason: 'default: unmatched message goes to the model' };
+  return {
+    type: "employee_chat",
+    reason: "default: unmatched message goes to the model",
+  };
 }
 
 export function shouldUpgradeToTaskRun(message) {
@@ -98,7 +110,7 @@ export function shouldUpgradeToTaskRun(message) {
 }
 
 function normalizeMessage(message) {
-  return String(message ?? '').trim();
+  return String(message ?? "").trim();
 }
 
 function findPendingAction(token, pendingActions = []) {
@@ -108,9 +120,11 @@ function findPendingAction(token, pendingActions = []) {
 
   const normalizedToken = token.toLowerCase();
 
-  return pendingActions.find((action) => {
+  return pendingActions.find(action => {
     const key = action?.key;
-    return key !== undefined && String(key).trim().toLowerCase() === normalizedToken;
+    return (
+      key !== undefined && String(key).trim().toLowerCase() === normalizedToken
+    );
   });
 }
 
@@ -125,14 +139,18 @@ function matchesEmployeeScope(message, employeeScope = {}) {
     ...toStringArray(employeeScope.keywords),
   ];
 
-  return scopeKeywords.some((keyword) => {
+  return scopeKeywords.some(keyword => {
     const normalizedKeyword = keyword.trim();
-    return normalizedKeyword !== '' && includesIgnoreCase(message, normalizedKeyword);
+    return (
+      normalizedKeyword !== "" && includesIgnoreCase(message, normalizedKeyword)
+    );
   });
 }
 
 function toStringArray(value) {
-  return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
+  return Array.isArray(value)
+    ? value.filter(item => typeof item === "string")
+    : [];
 }
 
 function includesIgnoreCase(source, target) {

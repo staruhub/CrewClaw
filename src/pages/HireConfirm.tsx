@@ -10,9 +10,21 @@ import {
   Undo2,
 } from "lucide-react";
 import { PermissionLevel } from "@/components/employee/PermissionLevel";
-import { PricingBadge, PricingBulletList, PricingPlanIcon } from "@/components/PricingInfo";
-import { getPermissionLevel, permissionLabel, type PermissionRiskLevel } from "@/lib/permissions";
-import { CHECKOUT_PLANS, pricingTone, type CheckoutPlanId } from "@/lib/pricing";
+import {
+  PricingBadge,
+  PricingBulletList,
+  PricingPlanIcon,
+} from "@/components/PricingInfo";
+import {
+  getPermissionLevel,
+  permissionLabel,
+  type PermissionRiskLevel,
+} from "@/lib/permissions";
+import {
+  CHECKOUT_PLANS,
+  pricingTone,
+  type CheckoutPlanId,
+} from "@/lib/pricing";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,7 +60,8 @@ function summarizePermission(permission: string): PermissionSummary {
       label: "Public web research",
       access: "Public websites and open web search results.",
       action,
-      confirmation: "No write action. User still reviews final recommendations.",
+      confirmation:
+        "No write action. User still reviews final recommendations.",
       risk: "Public sources can be outdated, incomplete, or misleading.",
       enabledByDefault: true,
     };
@@ -70,7 +83,8 @@ function summarizePermission(permission: string): PermissionSummary {
     return {
       permission,
       label: "CRM records",
-      access: "CRM records and fields only after explicit future authorization.",
+      access:
+        "CRM records and fields only after explicit future authorization.",
       action,
       confirmation: "Disabled for MVP onboarding.",
       risk: "Incorrect writes could pollute lead records or create follow-up mistakes.",
@@ -93,7 +107,9 @@ function summarizePermission(permission: string): PermissionSummary {
   return {
     permission,
     label: permissionLabel(permission),
-    access: read ? "Requested read access for this task area." : "Requested task access.",
+    access: read
+      ? "Requested read access for this task area."
+      : "Requested task access.",
     action,
     confirmation: humanConfirmation
       ? "Human confirmation is required before the action completes."
@@ -115,7 +131,10 @@ function NotFound() {
   return (
     <main className="min-h-screen bg-crew-bg px-4 py-10 text-crew-heading sm:px-6">
       <section className="mx-auto max-w-3xl">
-        <Badge className="border-white/10 bg-white/[0.04] text-crew-muted" variant="outline">
+        <Badge
+          className="border-white/10 bg-white/[0.04] text-crew-muted"
+          variant="outline"
+        >
           Onboarding
         </Badge>
         <h1 className="mt-5 text-3xl font-light">Employee not found</h1>
@@ -145,7 +164,7 @@ function PermissionCard({
         "block cursor-pointer rounded-[8px] border p-4 transition",
         checked
           ? "border-crew-copper/45 bg-crew-copper/10"
-          : "border-white/10 bg-white/[0.025] hover:border-white/20",
+          : "border-white/10 bg-white/[0.025] hover:border-white/20"
       )}
     >
       <div className="flex items-start gap-3">
@@ -156,9 +175,14 @@ function PermissionCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium text-crew-heading">{summary.label}</span>
+            <span className="font-medium text-crew-heading">
+              {summary.label}
+            </span>
             {!summary.enabledByDefault ? (
-              <Badge className="border-white/10 bg-white/[0.04] text-crew-muted" variant="outline">
+              <Badge
+                className="border-white/10 bg-white/[0.04] text-crew-muted"
+                variant="outline"
+              >
                 Not default
               </Badge>
             ) : null}
@@ -192,18 +216,18 @@ export default function HireConfirm() {
   const team = useTeam();
   const permissionSummaries = useMemo(
     () => employee?.permissions.map(summarizePermission) ?? [],
-    [employee],
+    [employee]
   );
   const defaultPermissions = useMemo(
     () =>
       permissionSummaries
-        .filter((summary) => summary.enabledByDefault)
-        .map((summary) => summary.permission),
-    [permissionSummaries],
+        .filter(summary => summary.enabledByDefault)
+        .map(summary => summary.permission),
+    [permissionSummaries]
   );
   const [permissions, setPermissions] = useState<string[]>(defaultPermissions);
   const [selectedPlan, setSelectedPlan] = useState<CheckoutPlanId>(
-    employee ? defaultPlanForPricing(employee.pricing) : "free",
+    employee ? defaultPlanForPricing(employee.pricing) : "free"
   );
   const [mockCheckoutConfirmed, setMockCheckoutConfirmed] = useState(false);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
@@ -215,7 +239,9 @@ export default function HireConfirm() {
   if (employee?.employee_id !== prevEmployeeId) {
     setPrevEmployeeId(employee?.employee_id);
     setPermissions(defaultPermissions);
-    setSelectedPlan(employee ? defaultPlanForPricing(employee.pricing) : "free");
+    setSelectedPlan(
+      employee ? defaultPlanForPricing(employee.pricing) : "free"
+    );
     setMockCheckoutConfirmed(false);
     setResultMessage(null);
     setHasJoined(false);
@@ -235,13 +261,13 @@ export default function HireConfirm() {
 
   const alreadyHired = team.isHired(employee.employee_id);
   const selectedCheckoutPlan =
-    CHECKOUT_PLANS.find((plan) => plan.id === selectedPlan) ?? CHECKOUT_PLANS[0];
+    CHECKOUT_PLANS.find(plan => plan.id === selectedPlan) ?? CHECKOUT_PLANS[0];
 
   const togglePermission = (permission: string) => {
-    setPermissions((current) =>
+    setPermissions(current =>
       current.includes(permission)
-        ? current.filter((item) => item !== permission)
-        : [...current, permission],
+        ? current.filter(item => item !== permission)
+        : [...current, permission]
     );
   };
 
@@ -256,7 +282,8 @@ export default function HireConfirm() {
             Your new AI employee has joined the crew.
           </h1>
           <p className="mt-4 text-base leading-7 text-crew-body">
-            {employee.name} is active in your team with the {selectedCheckoutPlan.name}
+            {employee.name} is active in your team with the{" "}
+            {selectedCheckoutPlan.name}
             package and the permissions you confirmed.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
@@ -271,7 +298,9 @@ export default function HireConfirm() {
               className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
               variant="outline"
             >
-              <Link to={`/employee/${employee.employee_id}`}>Back to resume</Link>
+              <Link to={`/employee/${employee.employee_id}`}>
+                Back to resume
+              </Link>
             </Button>
           </div>
         </section>
@@ -302,18 +331,20 @@ export default function HireConfirm() {
               Confirm permissions before hiring {employee.name}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              This employee can join your local demo team after you choose a package,
-              confirm the simulated checkout, and review what it can access. No real
-              payment is processed in this prototype.
+              This employee can join your local demo team after you choose a
+              package, confirm the simulated checkout, and review what it can
+              access. No real payment is processed in this prototype.
             </p>
 
             {alreadyHired ? (
               <Alert className="mt-6 rounded-[8px] border-crew-copper/35 bg-crew-copper/10 text-crew-heading">
                 <CheckCircle2 className="size-4 text-crew-copper" />
-                <AlertTitle>This employee has already joined your crew.</AlertTitle>
+                <AlertTitle>
+                  This employee has already joined your crew.
+                </AlertTitle>
                 <AlertDescription className="text-crew-body">
-                  Go to the team dashboard to inspect health, permissions, or fire the
-                  employee when they leave your crew.
+                  Go to the team dashboard to inspect health, permissions, or
+                  fire the employee when they leave your crew.
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -321,16 +352,24 @@ export default function HireConfirm() {
 
           <Card className="h-fit rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <CardHeader>
-              <CardTitle className="text-base font-semibold">How to revoke</CardTitle>
+              <CardTitle className="text-base font-semibold">
+                How to revoke
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm leading-6 text-crew-body">
               <div className="flex gap-3">
                 <Undo2 className="mt-1 size-4 shrink-0 text-crew-copper" />
-                <p>Fire the employee from the team dashboard. History will be kept.</p>
+                <p>
+                  Fire the employee from the team dashboard. History will be
+                  kept.
+                </p>
               </div>
               <div className="flex gap-3">
                 <KeyRound className="mt-1 size-4 shrink-0 text-crew-copper" />
-                <p>Keep optional or disabled permissions off until a task needs them.</p>
+                <p>
+                  Keep optional or disabled permissions off until a task needs
+                  them.
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -340,10 +379,12 @@ export default function HireConfirm() {
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <CardTitle className="text-base font-semibold">Choose a package</CardTitle>
+                <CardTitle className="text-base font-semibold">
+                  Choose a package
+                </CardTitle>
                 <p className="mt-2 text-sm leading-6 text-crew-body">
-                  Pricing is part of the hiring preview. This checkout is simulated and
-                  will not charge a real card.
+                  Pricing is part of the hiring preview. This checkout is
+                  simulated and will not charge a real card.
                 </p>
               </div>
               <PricingBadge pricing={employee.pricing} />
@@ -352,7 +393,7 @@ export default function HireConfirm() {
           <CardContent>
             <RadioGroup
               className="grid gap-4 md:grid-cols-2"
-              onValueChange={(plan) => {
+              onValueChange={plan => {
                 const nextPlan = plan as CheckoutPlanId;
                 setSelectedPlan(nextPlan);
                 setMockCheckoutConfirmed(false);
@@ -365,13 +406,13 @@ export default function HireConfirm() {
               }}
               value={selectedPlan}
             >
-              {CHECKOUT_PLANS.map((plan) => (
+              {CHECKOUT_PLANS.map(plan => (
                 <label
                   className={cn(
                     "block cursor-pointer rounded-[8px] border p-4 transition",
                     selectedPlan === plan.id
                       ? "border-crew-copper/45 bg-crew-copper/10"
-                      : "border-white/10 bg-white/[0.025] hover:border-white/20",
+                      : "border-white/10 bg-white/[0.025] hover:border-white/20"
                   )}
                   key={plan.id}
                 >
@@ -391,7 +432,9 @@ export default function HireConfirm() {
                         <span className="text-2xl font-semibold text-crew-heading">
                           {plan.price}
                         </span>
-                        <span className="text-sm text-crew-muted">{plan.cadence}</span>
+                        <span className="text-sm text-crew-muted">
+                          {plan.cadence}
+                        </span>
                       </div>
                       <p className="mt-3 text-sm leading-6 text-crew-body">
                         {plan.description}
@@ -426,8 +469,9 @@ export default function HireConfirm() {
                     </span>
                   </div>
                   <p className="mt-3 max-w-2xl text-sm leading-6 text-crew-body">
-                    Confirming this step only records your selected package in the demo
-                    flow. There is no payment processor, no card form, and no real charge.
+                    Confirming this step only records your selected package in
+                    the demo flow. There is no payment processor, no card form,
+                    and no real charge.
                   </p>
                 </div>
                 <Button
@@ -445,7 +489,9 @@ export default function HireConfirm() {
                   }}
                   type="button"
                 >
-                  {mockCheckoutConfirmed ? "Checkout simulated" : "Confirm simulated checkout"}
+                  {mockCheckoutConfirmed
+                    ? "Checkout simulated"
+                    : "Confirm simulated checkout"}
                 </Button>
               </div>
               {mockCheckoutConfirmed ? (
@@ -453,7 +499,8 @@ export default function HireConfirm() {
                   <CheckCircle2 className="size-4 text-emerald-200" />
                   <AlertTitle>Simulated checkout confirmed.</AlertTitle>
                   <AlertDescription className="text-crew-body">
-                    Continue reviewing permissions before this employee joins your crew.
+                    Continue reviewing permissions before this employee joins
+                    your crew.
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -467,8 +514,8 @@ export default function HireConfirm() {
               <ShieldCheck className="size-5 text-crew-copper" />
               <h2 className="mt-4 text-sm font-semibold">It wants to access</h2>
               <p className="mt-2 text-sm leading-6 text-crew-body">
-                Public web sources by default. Private contact or CRM access remains off
-                unless explicitly enabled.
+                Public web sources by default. Private contact or CRM access
+                remains off unless explicitly enabled.
               </p>
             </CardContent>
           </Card>
@@ -477,8 +524,8 @@ export default function HireConfirm() {
               <CircleAlert className="size-5 text-crew-copper" />
               <h2 className="mt-4 text-sm font-semibold">It can do</h2>
               <p className="mt-2 text-sm leading-6 text-crew-body">
-                Read research sources and draft recommendations. Sending or external
-                writes require human review.
+                Read research sources and draft recommendations. Sending or
+                external writes require human review.
               </p>
             </CardContent>
           </Card>
@@ -487,8 +534,8 @@ export default function HireConfirm() {
               <AlertTriangle className="size-5 text-crew-copper" />
               <h2 className="mt-4 text-sm font-semibold">Main risk</h2>
               <p className="mt-2 text-sm leading-6 text-crew-body">
-                Sources may be stale and outreach drafts can be wrong. Review names,
-                facts, and messages before acting.
+                Sources may be stale and outreach drafts can be wrong. Review
+                names, facts, and messages before acting.
               </p>
             </CardContent>
           </Card>
@@ -496,10 +543,12 @@ export default function HireConfirm() {
 
         <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
-            <CardTitle className="text-base font-semibold">Permissions requested</CardTitle>
+            <CardTitle className="text-base font-semibold">
+              Permissions requested
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {permissionSummaries.map((summary) => (
+            {permissionSummaries.map(summary => (
               <PermissionCard
                 checked={permissions.includes(summary.permission)}
                 key={summary.permission}
@@ -512,11 +561,13 @@ export default function HireConfirm() {
 
         <Card className="mt-5 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
-            <CardTitle className="text-base font-semibold">Risk boundaries</CardTitle>
+            <CardTitle className="text-base font-semibold">
+              Risk boundaries
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-3 text-sm leading-6 text-crew-body">
-              {employee.limitations.concat(employee.safety_notes).map((item) => (
+              {employee.limitations.concat(employee.safety_notes).map(item => (
                 <li className="flex gap-3" key={item}>
                   <AlertTriangle className="mt-1 size-4 shrink-0 text-crew-copper" />
                   <span>{item}</span>
@@ -529,7 +580,9 @@ export default function HireConfirm() {
         {resultMessage ? (
           <Alert className="mt-6 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <AlertTitle>Hire status</AlertTitle>
-            <AlertDescription className="text-crew-body">{resultMessage}</AlertDescription>
+            <AlertDescription className="text-crew-body">
+              {resultMessage}
+            </AlertDescription>
           </Alert>
         ) : null}
 
@@ -561,7 +614,9 @@ export default function HireConfirm() {
               if (result.ok) setHasJoined(true);
             }}
           >
-            {mockCheckoutConfirmed ? "Confirm and hire" : "Confirm simulated checkout first"}
+            {mockCheckoutConfirmed
+              ? "Confirm and hire"
+              : "Confirm simulated checkout first"}
           </Button>
           <Button
             asChild

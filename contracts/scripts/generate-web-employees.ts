@@ -10,32 +10,15 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import {
+  loadRegistry,
+  resolveExpertSourceFile,
+} from "../../packages/registry/src/index";
 import yaml from "../../packages/runtime/yaml.mjs";
 import { EmployeeSpecSchema } from "../employee-spec";
 import { EmployeeManifestSchema } from "../manifest";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
-
-type RegistryExpert = {
-  name: string;
-  display_name: string;
-  status: string;
-  certification: string;
-  category: string;
-  description: string;
-  repo?: string | null;
-  local_source?: string | null;
-  version?: string;
-  pricing: string;
-  tags: string[];
-  install_command?: string | null;
-  first_task?: string;
-};
-
-type Registry = {
-  updated_at: string;
-  experts: RegistryExpert[];
-};
 
 export type GeneratedEmployee = {
   employee_id: string;
@@ -81,30 +64,39 @@ export type GeneratedDataset = {
   employees: GeneratedEmployee[];
 };
 
-export function buildWebEmployees(): GeneratedDataset {
-  const registry = JSON.parse(
-    readFileSync(path.join(repoRoot, "registry/experts.json"), "utf8"),
-  ) as Registry;
+export function buildWebEmployees(root = repoRoot): GeneratedDataset {
+  const registry = loadRegistry(path.join(root, "registry/experts.json"));
 
   const employees = registry.experts
-    .filter((entry) => entry.status === "available" && entry.local_source)
-    .map((entry) => {
-      const packageDir = path.join(repoRoot, entry.local_source as string);
+    .filter(entry => entry.status === "available")
+    .map(entry => {
       const hire = EmployeeManifestSchema.parse(
-        yaml.load(readFileSync(path.join(packageDir, "hire.yaml"), "utf8")),
+        yaml.load(
+          readFileSync(
+            resolveExpertSourceFile(root, entry, "hire.yaml"),
+            "utf8"
+          )
+        )
       );
       // The runtime spec is not projected onto the website yet, but parsing it here enforces
       // that every published employee ships a valid two-file standard, not just a hire contract.
       EmployeeSpecSchema.parse(
-        yaml.load(readFileSync(path.join(packageDir, "crewclaw.employee.yaml"), "utf8")),
+        yaml.load(
+          readFileSync(
+            resolveExpertSourceFile(root, entry, "crewclaw.employee.yaml"),
+            "utf8"
+          )
+        )
       );
 
       if (hire.metadata.id !== entry.name) {
-        throw new Error(`hire.yaml id ${hire.metadata.id} != registry name ${entry.name}`);
+        throw new Error(
+          `hire.yaml id ${hire.metadata.id} != registry name ${entry.name}`
+        );
       }
       if (entry.version && hire.metadata.version !== entry.version) {
         throw new Error(
-          `${entry.name}: hire.yaml version ${hire.metadata.version} != registry ${entry.version}`,
+          `${entry.name}: hire.yaml version ${hire.metadata.version} != registry ${entry.version}`
         );
       }
       if (!entry.first_task) {
@@ -145,9 +137,14 @@ export function buildWebEmployees(): GeneratedDataset {
     });
 
   return {
-    $comment: "GENERATED — do not edit. Run `pnpm run web:employees` after changing the registry or any hire.yaml.",
+    $comment:
+      "GENERATED — do not edit. Run `pnpm run web:employees` after changing the registry or any hire.yaml.",
     generated_by: "contracts/scripts/generate-web-employees.ts",
-    sources: ["registry/experts.json", "experts/*/hire.yaml", "experts/*/crewclaw.employee.yaml"],
+    sources: [
+      "registry/experts.json",
+      "experts/*/hire.yaml",
+      "experts/*/crewclaw.employee.yaml",
+    ],
     employees,
   };
 }
@@ -156,10 +153,15 @@ function main() {
   const outFile = path.join(repoRoot, "src/data/employees.generated.json");
   const dataset = buildWebEmployees();
   writeFileSync(outFile, `${JSON.stringify(dataset, null, 2)}\n`);
-  console.log(`wrote ${path.relative(process.cwd(), outFile)} (${dataset.employees.length} employees)`);
+  console.log(
+    `wrote ${path.relative(process.cwd(), outFile)} (${dataset.employees.length} employees)`
+  );
 }
 
 // tsx runs this file directly; when imported by the drift-guard test, only buildWebEmployees is used.
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(import.meta.filename)
+) {
   main();
 }

@@ -18,29 +18,72 @@ export function Footer({ onGetStarted }: FooterProps) {
             <div className="flex items-center gap-4">
               <CrewClawMark className="h-14 w-14 shrink-0 md:h-16 md:w-16" />
               <div className="flex items-baseline gap-1">
-                <span className="font-sans text-[40px] font-light text-crew-heading md:text-[56px]">CrewClaw</span>
-                <span className="font-sans text-[40px] font-light text-crew-copper md:text-[56px]">.</span>
+                <span className="font-sans text-[40px] font-light text-crew-heading md:text-[56px]">
+                  CrewClaw
+                </span>
+                <span className="font-sans text-[40px] font-light text-crew-copper md:text-[56px]">
+                  .
+                </span>
               </div>
             </div>
 
             <div className="mt-10 grid grid-cols-2 gap-7 md:mt-14 md:grid-cols-4 md:gap-8">
               <div className="space-y-3">
-                <a href="#why" className="block text-sm text-crew-body transition-colors hover:text-crew-heading">Features</a>
-                <a href="#how-it-works" className="block text-sm text-crew-body transition-colors hover:text-crew-heading">Workflow</a>
-                <a href="#market" className="block text-sm text-crew-body transition-colors hover:text-crew-heading">Package</a>
+                <a
+                  href="#why"
+                  className="block text-sm text-crew-body transition-colors hover:text-crew-heading"
+                >
+                  Features
+                </a>
+                <a
+                  href="#how-it-works"
+                  className="block text-sm text-crew-body transition-colors hover:text-crew-heading"
+                >
+                  Workflow
+                </a>
+                <a
+                  href="#market"
+                  className="block text-sm text-crew-body transition-colors hover:text-crew-heading"
+                >
+                  Package
+                </a>
               </div>
               <div className="space-y-3">
-                <a href="#pricing" className="block text-sm text-crew-body transition-colors hover:text-crew-heading">Pricing</a>
-                <a href="#team" className="block text-sm text-crew-body transition-colors hover:text-crew-heading">Team</a>
-                <a href="#faq" className="block text-sm text-crew-body transition-colors hover:text-crew-heading">FAQ</a>
+                <a
+                  href="#pricing"
+                  className="block text-sm text-crew-body transition-colors hover:text-crew-heading"
+                >
+                  Pricing
+                </a>
+                <a
+                  href="#team"
+                  className="block text-sm text-crew-body transition-colors hover:text-crew-heading"
+                >
+                  Team
+                </a>
+                <a
+                  href="#faq"
+                  className="block text-sm text-crew-body transition-colors hover:text-crew-heading"
+                >
+                  FAQ
+                </a>
               </div>
               <div className="space-y-3">
-                <span className="block text-sm text-crew-body">Style Guide</span>
-                <Link to="/metrics" className="block text-sm text-crew-body transition-colors hover:text-crew-heading">Metrics</Link>
+                <span className="block text-sm text-crew-body">
+                  Style Guide
+                </span>
+                <Link
+                  to="/metrics"
+                  className="block text-sm text-crew-body transition-colors hover:text-crew-heading"
+                >
+                  Metrics
+                </Link>
                 <span className="block text-sm text-crew-body">Changelog</span>
               </div>
               <div>
-                <span className="mb-4 block font-mono text-[11px] uppercase tracking-[0.24em] text-white/38">Social media</span>
+                <span className="mb-4 block font-mono text-[11px] uppercase tracking-[0.24em] text-white/38">
+                  Social media
+                </span>
                 <div className="flex gap-3">
                   {[X, Facebook, Instagram, Linkedin].map((Icon, index) => (
                     <span
@@ -66,7 +109,8 @@ export function Footer({ onGetStarted }: FooterProps) {
               Join Preview
             </button>
             <p className="mt-10 max-w-[320px] text-xs text-white/42 md:mt-16">
-              CrewClaw by ChaoGeek helps crews discover, hire, and manage AI employees for repeated work.
+              CrewClaw by ChaoGeek helps crews discover, hire, and manage AI
+              employees for repeated work.
             </p>
           </div>
         </div>

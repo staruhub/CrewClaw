@@ -8,8 +8,8 @@ import { render, Box, Text } from "ink";
 import htm from "htm";
 
 const html = htm.bind(React.createElement);
-const ansi = "\x1b[1;31m重要\x1b[0m 普通 \x1b[36mcyan蓝\x1b[0m 尾";       // bold-red + cyan + CJK
-const gutter = "\x1b[2m   ─────────\x1b[0m";                              // dim HR-ish line
+const ansi = "\x1b[1;31m重要\x1b[0m 普通 \x1b[36mcyan蓝\x1b[0m 尾"; // bold-red + cyan + CJK
+const gutter = "\x1b[2m   ─────────\x1b[0m"; // dim HR-ish line
 
 function Probe() {
   return html`

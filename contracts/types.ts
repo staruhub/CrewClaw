@@ -6,8 +6,18 @@ const NonEmptyStringSchema = z.string().min(1);
 const StringArraySchema = z.array(NonEmptyStringSchema);
 const DateTimeSchema = z.iso.datetime();
 
-export const EmployeeStatusSchema = z.enum(["draft", "review", "published", "disabled"]);
-export const WorkspaceEmployeeStatusSchema = z.enum(["active", "warning", "broken", "fired"]);
+export const EmployeeStatusSchema = z.enum([
+  "draft",
+  "review",
+  "published",
+  "disabled",
+]);
+export const WorkspaceEmployeeStatusSchema = z.enum([
+  "active",
+  "warning",
+  "broken",
+  "fired",
+]);
 export const HealthStatusSchema = z.enum(["healthy", "warning", "broken"]);
 
 export const AgentEmployeeSchema = z
@@ -68,7 +78,9 @@ export type EmployeePackage = z.infer<typeof EmployeePackageSchema>;
 export type WorkspaceEmployee = z.infer<typeof WorkspaceEmployeeSchema>;
 export type DoctorReport = z.infer<typeof DoctorReportSchema>;
 export type EmployeeStatus = z.infer<typeof EmployeeStatusSchema>;
-export type WorkspaceEmployeeStatus = z.infer<typeof WorkspaceEmployeeStatusSchema>;
+export type WorkspaceEmployeeStatus = z.infer<
+  typeof WorkspaceEmployeeStatusSchema
+>;
 export type HealthStatus = z.infer<typeof HealthStatusSchema>;
 
 export * from "./errors";

@@ -26,9 +26,24 @@ export type ToolInvocation = {
 export type WorkbenchArtifact = {
   id: string;
   name: string;
-  kind: "markdown" | "csv" | "excel" | "docx" | "pptx" | "code" | "json" | "unknown";
+  kind:
+    | "markdown"
+    | "csv"
+    | "excel"
+    | "docx"
+    | "pptx"
+    | "code"
+    | "json"
+    | "unknown";
   path: string | null;
-  status: "draft" | "ready" | "needs_review" | "accepted" | "rejected" | "exported" | "deleted";
+  status:
+    | "draft"
+    | "ready"
+    | "needs_review"
+    | "accepted"
+    | "rejected"
+    | "exported"
+    | "deleted";
   summary: string;
   checks: { label: string; status: "passed" | "warning" | "failed" }[];
   preview: string;
@@ -115,7 +130,7 @@ const SEED_RUN: TaskRun = {
         { label: "包含来源 URL", status: "passed" },
         { label: "包含置信度", status: "passed" },
       ],
-      preview: "{\n  \"confidence\": \"high\",\n  \"source\": \"volcengine.com\"\n}",
+      preview: '{\n  "confidence": "high",\n  "source": "volcengine.com"\n}',
     },
   ],
   pending_actions: [
@@ -141,17 +156,86 @@ const SEED_RUN: TaskRun = {
   started_at: "2026-06-25T09:00:00.000Z",
   updated_at: "2026-06-25T09:01:12.000Z",
   events: [
-    { id: "evt_1", task_id: "task_1719306072000", type: "state_changed", summary: "制定研究计划", tool_name: null, status: null, timestamp: "2026-06-25T09:00:01.000Z" },
-    { id: "evt_2", task_id: "task_1719306072000", type: "tool_called", summary: "正在搜索来源：site:volcengine.com Seed 2.1 定价", tool_name: "web_search", status: "success", timestamp: "2026-06-25T09:00:09.000Z" },
-    { id: "evt_3", task_id: "task_1719306072000", type: "tool_called", summary: "正在阅读 www.volcengine.com", tool_name: "web_fetch", status: "success", timestamp: "2026-06-25T09:00:24.000Z" },
-    { id: "evt_4", task_id: "task_1719306072000", type: "tool_called", summary: "已拦截越权操作：write_crm", tool_name: "write_crm", status: "blocked", timestamp: "2026-06-25T09:00:38.000Z" },
-    { id: "evt_5", task_id: "task_1719306072000", type: "state_changed", summary: "提取证据，交叉验证官方来源", tool_name: null, status: null, timestamp: "2026-06-25T09:00:52.000Z" },
-    { id: "evt_6", task_id: "task_1719306072000", type: "state_changed", summary: "通过验收，交付", tool_name: null, status: null, timestamp: "2026-06-25T09:01:10.000Z" },
+    {
+      id: "evt_1",
+      task_id: "task_1719306072000",
+      type: "state_changed",
+      summary: "制定研究计划",
+      tool_name: null,
+      status: null,
+      timestamp: "2026-06-25T09:00:01.000Z",
+    },
+    {
+      id: "evt_2",
+      task_id: "task_1719306072000",
+      type: "tool_called",
+      summary: "正在搜索来源：site:volcengine.com Seed 2.1 定价",
+      tool_name: "web_search",
+      status: "success",
+      timestamp: "2026-06-25T09:00:09.000Z",
+    },
+    {
+      id: "evt_3",
+      task_id: "task_1719306072000",
+      type: "tool_called",
+      summary: "正在阅读 www.volcengine.com",
+      tool_name: "web_fetch",
+      status: "success",
+      timestamp: "2026-06-25T09:00:24.000Z",
+    },
+    {
+      id: "evt_4",
+      task_id: "task_1719306072000",
+      type: "tool_called",
+      summary: "已拦截越权操作：write_crm",
+      tool_name: "write_crm",
+      status: "blocked",
+      timestamp: "2026-06-25T09:00:38.000Z",
+    },
+    {
+      id: "evt_5",
+      task_id: "task_1719306072000",
+      type: "state_changed",
+      summary: "提取证据，交叉验证官方来源",
+      tool_name: null,
+      status: null,
+      timestamp: "2026-06-25T09:00:52.000Z",
+    },
+    {
+      id: "evt_6",
+      task_id: "task_1719306072000",
+      type: "state_changed",
+      summary: "通过验收，交付",
+      tool_name: null,
+      status: null,
+      timestamp: "2026-06-25T09:01:10.000Z",
+    },
   ],
   tool_invocations: [
-    { tool_name: "web_search", input_summary: "site:volcengine.com Seed 2.1 定价", permission_level: "L0", decision: "allow", status: "success", action: "正在搜索来源：Seed 2.1 定价" },
-    { tool_name: "web_fetch", input_summary: "https://www.volcengine.com/product/ark", permission_level: "L0", decision: "allow", status: "success", action: "正在阅读 www.volcengine.com" },
-    { tool_name: "write_crm", input_summary: "把联系人写入 CRM", permission_level: "L3", decision: "deny", status: "blocked", action: "已拦截越权操作：write_crm" },
+    {
+      tool_name: "web_search",
+      input_summary: "site:volcengine.com Seed 2.1 定价",
+      permission_level: "L0",
+      decision: "allow",
+      status: "success",
+      action: "正在搜索来源：Seed 2.1 定价",
+    },
+    {
+      tool_name: "web_fetch",
+      input_summary: "https://www.volcengine.com/product/ark",
+      permission_level: "L0",
+      decision: "allow",
+      status: "success",
+      action: "正在阅读 www.volcengine.com",
+    },
+    {
+      tool_name: "write_crm",
+      input_summary: "把联系人写入 CRM",
+      permission_level: "L3",
+      decision: "deny",
+      status: "blocked",
+      action: "已拦截越权操作：write_crm",
+    },
   ],
   sources: ["https://www.volcengine.com/product/ark"],
   grade: { passed: true, missing: [] },

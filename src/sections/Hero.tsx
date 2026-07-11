@@ -2,6 +2,7 @@ import { Link } from "react-router";
 import { Terminal } from "@/components/Terminal";
 import { ScrollReveal } from "@/components/ScrollReveal";
 import { AsciiCanvas } from "@/components/AsciiCanvas";
+import { SourceSetup } from "@/components/SourceSetup";
 import { findInstallCommand } from "@/data/experts";
 
 interface HeroProps {
@@ -9,7 +10,7 @@ interface HeroProps {
 }
 
 export function Hero({ onGetStarted }: HeroProps) {
-  const installCommand = findInstallCommand("code-review-shrimp") ?? "pnpm --silent run crewclaw";
+  const installCommand = findInstallCommand("code-review-shrimp");
 
   return (
     <section className="relative isolate flex min-h-[760px] flex-col items-center justify-center overflow-hidden bg-crew-bg px-4 pt-24 pb-14 sm:px-6 lg:min-h-[820px]">
@@ -60,12 +61,16 @@ export function Hero({ onGetStarted }: HeroProps) {
 
         <ScrollReveal delay={0.1} className="relative z-10">
           <p className="mx-auto mt-5 max-w-[calc(100vw-2rem)] px-1 text-[15px] leading-7 text-[#D8CEC5] drop-shadow-[0_4px_18px_rgba(0,0,0,0.95)] sm:max-w-[560px] md:text-[16px]">
-            Hire ChaoGeek-certified Hermes experts in 60 seconds. Skip hand-writing
-            SOUL.md, stitching skills, and wiring MCP from scratch.
+            {installCommand
+              ? "Hire ChaoGeek-certified Hermes experts in 60 seconds. Skip hand-writing SOUL.md, stitching skills, and wiring MCP from scratch."
+              : "Explore ChaoGeek-certified Hermes experts. Public package distribution is pending, so setup remains source-based and explicit."}
           </p>
         </ScrollReveal>
 
-        <ScrollReveal delay={0.2} className="relative z-10 mt-8 flex w-full flex-wrap justify-center gap-3">
+        <ScrollReveal
+          delay={0.2}
+          className="relative z-10 mt-8 flex w-full flex-wrap justify-center gap-3"
+        >
           <Link
             to="/marketplace"
             className="inline-flex w-full max-w-[260px] items-center justify-center rounded-[8px] bg-gradient-to-r from-crew-copper to-crew-bronze px-8 py-3.5 font-mono text-sm font-semibold text-white shadow-[0_18px_48px_rgba(0,0,0,0.28)] transition-all hover:-translate-y-0.5 hover:brightness-110 sm:w-auto"
@@ -83,7 +88,8 @@ export function Hero({ onGetStarted }: HeroProps) {
               const el = document.querySelector("#market");
               if (el) {
                 const offset = 80;
-                const top = el.getBoundingClientRect().top + window.scrollY - offset;
+                const top =
+                  el.getBoundingClientRect().top + window.scrollY - offset;
                 window.scrollTo({ top, behavior: "smooth" });
               }
             }}
@@ -104,7 +110,11 @@ export function Hero({ onGetStarted }: HeroProps) {
           }}
         />
         <ScrollReveal delay={0.3} className="w-full min-w-0">
-          <Terminal command={installCommand} className="mx-auto" />
+          {installCommand ? (
+            <Terminal command={installCommand} className="mx-auto" />
+          ) : (
+            <SourceSetup className="mx-auto max-w-[620px]" />
+          )}
         </ScrollReveal>
       </div>
     </section>

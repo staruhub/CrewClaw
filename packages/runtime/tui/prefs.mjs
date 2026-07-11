@@ -2,8 +2,9 @@
 // .crewclaw/prefs.json (workbench/config.rs Prefs::save). v0.18 C4: the approval-policy row was
 // "存而不用" (stored but ignored) — this makes the engine actually honor it. Missing/corrupt file →
 // defaults, so behavior is unchanged unless the user explicitly changed a setting.
-import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { readStateFileGuarded, resolveStatePath } from "../state-lock.mjs";
 
 // Mirrors overlay_settings.rs APPROVAL_OPTS = ["所有交付", "信任后自动"] by index (v0.18 收束:
 // dropped the no-op "仅产出物" middle tier that behaved identically to "所有交付").
@@ -16,7 +17,11 @@ export const TRUST_AUTO_THRESHOLD = 3;
 
 export function readPrefs(root) {
   try {
-    return JSON.parse(readFileSync(join(root, ".crewclaw", "prefs.json"), "utf8")) ?? {};
+    const path = resolveStatePath(join(root, ".crewclaw", "prefs.json"), root);
+    if (!existsSync(path)) return {};
+    return (
+      JSON.parse(readStateFileGuarded(path, { root }).toString("utf8")) ?? {}
+    );
   } catch {
     return {};
   }
@@ -28,7 +33,9 @@ export function readPrefs(root) {
  * 3-tier scheme (old 信任后自动=2 → still trust), so no separate migration table is needed.
  */
 export function readApprovalPolicy(root) {
-  return Number(readPrefs(root).approval) >= 1 ? APPROVAL_TRUST_AUTO : APPROVAL_ALL_DELIVERIES;
+  return Number(readPrefs(root).approval) >= 1
+    ? APPROVAL_TRUST_AUTO
+    : APPROVAL_ALL_DELIVERIES;
 }
 
 /** The monthly-budget option index (0..3 → $20/$50/$100/$200). Default 0. */

@@ -2,12 +2,23 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadEmployeePackage, validateEmployeePackage } from "../employee-package.mjs";
+import {
+  loadEmployeePackage,
+  validateEmployeePackage,
+} from "../employee-package.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..", "..", "..");
-const whalePackagePath = join(repoRoot, "experts", "ai-adoption-whale", "crewclaw.employee.yaml");
-const tmpRoot = join(process.cwd(), ".employee-package-test-" + process.pid + "-" + Date.now());
+const whalePackagePath = join(
+  repoRoot,
+  "experts",
+  "ai-adoption-whale",
+  "crewclaw.employee.yaml"
+);
+const tmpRoot = join(
+  process.cwd(),
+  ".employee-package-test-" + process.pid + "-" + Date.now()
+);
 
 function writePackage(name, yaml) {
   mkdirSync(tmpRoot, { recursive: true });
@@ -16,7 +27,10 @@ function writePackage(name, yaml) {
   return filePath;
 }
 
-function validPackageYaml({ permissionLevel = "P1", compatibilityLevel = "L4" } = {}) {
+function validPackageYaml({
+  permissionLevel = "P1",
+  compatibilityLevel = "L4",
+} = {}) {
   return `
 identity:
   id: test-employee
@@ -74,7 +88,9 @@ try {
       role_contract: { responsibilities: ["Research"] },
       soul: { style: "Direct" },
       deliverables: ["report"],
-      tool_needs: { "web.search": { necessity: "required", permission: "readonly" } },
+      tool_needs: {
+        "web.search": { necessity: "required", permission: "readonly" },
+      },
       permission_policy: { default_level: "P1" },
       eval_suite: { smoke_tests: [{ id: "smoke" }] },
       outcome_rubric: ["verified"],

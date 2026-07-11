@@ -42,7 +42,9 @@ function visitStrings(value, visitor, path = []) {
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((item, index) => visitStrings(item, visitor, path.concat(String(index))));
+    value.forEach((item, index) =>
+      visitStrings(item, visitor, path.concat(String(index)))
+    );
     return;
   }
   if (value && typeof value === "object") {
@@ -55,10 +57,13 @@ function visitStrings(value, visitor, path = []) {
 
 function collectBlockedToolProviders(toolNeeds) {
   const found = new Set();
-  visitStrings(toolNeeds, (value) => {
+  visitStrings(toolNeeds, value => {
     const normalized = String(value).toLowerCase();
     for (const provider of BLOCKED_TOOL_PROVIDERS) {
-      const pattern = new RegExp(`(^|[^a-z0-9_-])${provider}([^a-z0-9_-]|$)`, "i");
+      const pattern = new RegExp(
+        `(^|[^a-z0-9_-])${provider}([^a-z0-9_-]|$)`,
+        "i"
+      );
       if (pattern.test(normalized)) found.add(provider);
     }
   });
@@ -70,7 +75,9 @@ function collectLevelErrors(value, allowed, label) {
   visitStrings(value, (raw, path) => {
     const level = String(raw).trim();
     if (/^[LP]\d+$/.test(level) && !allowed.has(level)) {
-      errors.push(`${label} has invalid level ${level} at ${path.join(".") || "<root>"}`);
+      errors.push(
+        `${label} has invalid level ${level} at ${path.join(".") || "<root>"}`
+      );
     }
   });
   return errors;
@@ -86,22 +93,38 @@ export function validateEmployeePackage(pkg) {
     if (!hasValue(pkg[field])) errors.push(`Missing required field: ${field}`);
   }
 
-  if (!hasValue(pkg.deliverables)) errors.push("deliverables must be non-empty");
-  if (!hasValue(pkg.outcome_rubric)) errors.push("outcome_rubric must be non-empty");
+  if (!hasValue(pkg.deliverables))
+    errors.push("deliverables must be non-empty");
+  if (!hasValue(pkg.outcome_rubric))
+    errors.push("outcome_rubric must be non-empty");
 
   if (hasValue(pkg.tool_needs)) {
     const blocked = collectBlockedToolProviders(pkg.tool_needs);
     if (blocked.length > 0) {
-      errors.push(`tool_needs must use abstract tools, not provider names: ${blocked.join(", ")}`);
+      errors.push(
+        `tool_needs must use abstract tools, not provider names: ${blocked.join(", ")}`
+      );
     }
   }
 
   if (hasValue(pkg.compatibility_targets)) {
-    errors.push(...collectLevelErrors(pkg.compatibility_targets, COMPATIBILITY_LEVELS, "compatibility_targets"));
+    errors.push(
+      ...collectLevelErrors(
+        pkg.compatibility_targets,
+        COMPATIBILITY_LEVELS,
+        "compatibility_targets"
+      )
+    );
   }
 
   if (hasValue(pkg.permission_policy)) {
-    errors.push(...collectLevelErrors(pkg.permission_policy, PERMISSION_LEVELS, "permission_policy"));
+    errors.push(
+      ...collectLevelErrors(
+        pkg.permission_policy,
+        PERMISSION_LEVELS,
+        "permission_policy"
+      )
+    );
   }
 
   return { ok: errors.length === 0, errors };
@@ -111,7 +134,8 @@ export function loadEmployeePackage(path) {
   try {
     const parsed = yaml.load(readFileSync(path, "utf8")) || {};
     const validation = validateEmployeePackage(parsed);
-    if (!validation.ok) return { ok: false, errors: validation.errors, package: parsed, path };
+    if (!validation.ok)
+      return { ok: false, errors: validation.errors, package: parsed, path };
     return { ok: true, package: parsed, path };
   } catch (error) {
     return { ok: false, errors: [error?.message ?? String(error)], path };
@@ -122,7 +146,9 @@ export function toLegacyProfile(pkg) {
   const identity = pkg?.identity || {};
   const role = pkg?.role_contract || {};
   const skills = Array.isArray(pkg?.playbooks)
-    ? pkg.playbooks.map((playbook) => playbook?.id || playbook?.name || playbook).filter(Boolean)
+    ? pkg.playbooks
+        .map(playbook => playbook?.id || playbook?.name || playbook)
+        .filter(Boolean)
     : [];
 
   return {

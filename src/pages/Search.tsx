@@ -51,10 +51,10 @@ export default function Search() {
   const results = useMemo(() => {
     const byQuery = searchEmployees(initialQuery);
     const categoryIds = selectedCategory
-      ? new Set(byCategory(selectedCategory).map((item) => item.employee_id))
+      ? new Set(byCategory(selectedCategory).map(item => item.employee_id))
       : null;
     const filtered = categoryIds
-      ? byQuery.filter((employee) => categoryIds.has(employee.employee_id))
+      ? byQuery.filter(employee => categoryIds.has(employee.employee_id))
       : byQuery;
 
     return sortEmployees(filtered, selectedSort);
@@ -83,7 +83,8 @@ export default function Search() {
               Find your next AI employee
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-crew-body">
-              Search by role, field, task, category, or local expertise before you hire.
+              Search by role, field, task, category, or local expertise before
+              you hire.
             </p>
           </div>
           <Button asChild className="rounded-[8px]" variant="outline">
@@ -93,7 +94,7 @@ export default function Search() {
 
         <form
           className="mt-8 flex flex-col gap-3 sm:flex-row"
-          onSubmit={(event) => {
+          onSubmit={event => {
             event.preventDefault();
             const formData = new FormData(event.currentTarget);
             const nextParams: Record<string, string> = {};
@@ -125,19 +126,21 @@ export default function Search() {
               <SlidersHorizontal className="size-3.5" />
               Category
             </span>
-            {categoryLinks.map((category) => (
+            {categoryLinks.map(category => (
               <Button
                 asChild
                 className={cn(
                   "h-9 rounded-[8px] border-white/10 px-3 text-xs",
                   selectedCategory === category.value
                     ? "border-crew-copper/40 bg-crew-copper/12 text-crew-heading"
-                    : "text-crew-muted hover:text-crew-heading",
+                    : "text-crew-muted hover:text-crew-heading"
                 )}
                 key={category.value || "all"}
                 variant="outline"
               >
-                <Link to={toSearchUrl(initialQuery, category.value, selectedSort)}>
+                <Link
+                  to={toSearchUrl(initialQuery, category.value, selectedSort)}
+                >
                   {category.label}
                 </Link>
               </Button>
@@ -148,7 +151,7 @@ export default function Search() {
               Sort
             </span>
             <Select
-              onValueChange={(value) => {
+              onValueChange={value => {
                 if (!isEmployeeSort(value)) return;
 
                 const nextParams: Record<string, string> = {};
@@ -167,7 +170,7 @@ export default function Search() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
-                {EMPLOYEE_SORT_OPTIONS.map((option) => (
+                {EMPLOYEE_SORT_OPTIONS.map(option => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -184,7 +187,10 @@ export default function Search() {
             {selectedCategory ? ` in ${selectedCategory}` : ""}.
           </p>
           {(initialQuery || selectedCategory) && (
-            <Link className="text-sm text-crew-copper hover:text-crew-heading" to="/search">
+            <Link
+              className="text-sm text-crew-copper hover:text-crew-heading"
+              to="/search"
+            >
               Clear search
             </Link>
           )}
@@ -192,18 +198,23 @@ export default function Search() {
 
         {results.length > 0 ? (
           <section className="mt-8 grid gap-5 md:grid-cols-3">
-            {results.map((employee) => (
+            {results.map(employee => (
               <EmployeeCard employee={employee} key={employee.employee_id} />
             ))}
           </section>
         ) : (
           <section className="mt-8 rounded-[8px] border border-white/10 bg-white/[0.03] p-8">
-            <p className="text-xl font-light text-crew-heading">No employees found</p>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-crew-body">
-              Try a broader role, task, or category. Macao, research, review, and PRD all
-              match available employees.
+            <p className="text-xl font-light text-crew-heading">
+              No employees found
             </p>
-            <Button asChild className="mt-5 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze">
+            <p className="mt-3 max-w-xl text-sm leading-6 text-crew-body">
+              Try a broader role, task, or category. Macao, research, review,
+              and PRD all match available employees.
+            </p>
+            <Button
+              asChild
+              className="mt-5 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
+            >
               <Link to="/marketplace">Back to marketplace</Link>
             </Button>
           </section>

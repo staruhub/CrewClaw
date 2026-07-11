@@ -82,15 +82,16 @@ pub(crate) fn build_report(
                     .push("Align registry/experts.json with the employee manifest id.".to_string());
             }
 
-            if let Some(version) = expert.version.as_ref() {
-                if !manifest.metadata.version.is_empty() && manifest.metadata.version != *version {
-                    warning = true;
-                    issues.push(format!(
-                        "Version mismatch: registry={} hire.yaml={}",
-                        version, manifest.metadata.version
-                    ));
-                    suggestions.push("Update either registry/experts.json or hire.yaml so the published version is unambiguous.".to_string());
-                }
+            if let Some(version) = expert.version.as_ref()
+                && !manifest.metadata.version.is_empty()
+                && manifest.metadata.version != *version
+            {
+                warning = true;
+                issues.push(format!(
+                    "Version mismatch: registry={} hire.yaml={}",
+                    version, manifest.metadata.version
+                ));
+                suggestions.push("Update either registry/experts.json or hire.yaml so the published version is unambiguous.".to_string());
             }
 
             if workspace_employee.is_none() {
@@ -116,15 +117,15 @@ pub(crate) fn build_report(
                     suggestions.push("Re-hire or update the team record after reviewing the required permissions.".to_string());
                 }
 
-                if let Some(version) = expert.version.as_ref() {
-                    if employee.version != *version {
-                        warning = true;
-                        issues.push(format!(
-                            "Hired version is out of date: team={} registry={}",
-                            employee.version, version
-                        ));
-                        suggestions.push(format!("Run crew hire {} again after firing the old record, or add crew update when available.", expert.name));
-                    }
+                if let Some(version) = expert.version.as_ref()
+                    && employee.version != *version
+                {
+                    warning = true;
+                    issues.push(format!(
+                        "Hired version is out of date: team={} registry={}",
+                        employee.version, version
+                    ));
+                    suggestions.push(format!("Run crew hire {} again after firing the old record, or add crew update when available.", expert.name));
                 }
 
                 if employee.status != WorkspaceEmployeeStatus::Active {

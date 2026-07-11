@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 
-import { assembleProofPack, costSummary, validateCompletion } from "../proofpack.mjs";
+import {
+  assembleProofPack,
+  costSummary,
+  validateCompletion,
+} from "../proofpack.mjs";
 
 const proofPackKeys = [
   "task_run_id",
@@ -92,7 +96,11 @@ const proofPackKeys = [
 {
   const summary = costSummary({ prompt_tokens: 1_000, completion_tokens: 500 });
 
-  assert.deepEqual(Object.keys(summary), ["prompt_tokens", "completion_tokens", "cost"]);
+  assert.deepEqual(Object.keys(summary), [
+    "prompt_tokens",
+    "completion_tokens",
+    "cost",
+  ]);
   assert.equal(summary.prompt_tokens, 1_000);
   assert.equal(summary.completion_tokens, 500);
   assert.equal(typeof summary.cost, "number");

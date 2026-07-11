@@ -45,16 +45,20 @@ function toolFix(tool, code) {
   if (tool === "browser.render") {
     return "安装并配置 Playwright，或接入 Firecrawl/Browserbase 渲染 provider";
   }
-  if (tool.startsWith("artifact.")) return `配置 ${tool} 的 Artifact 写入目录和权限`;
-  if (tool.startsWith("evidence.") || tool === "source.verify") return `配置 ${tool} 的证据库读写能力`;
+  if (tool.startsWith("artifact."))
+    return `配置 ${tool} 的 Artifact 写入目录和权限`;
+  if (tool.startsWith("evidence.") || tool === "source.verify")
+    return `配置 ${tool} 的证据库读写能力`;
   return `为 Runtime 配置必需工具 ${tool}`;
 }
 
 function capabilityRuntimeTool(capability) {
   if (capability === "web.search") return "web.search";
   if (capability === "browser.render") return "browser.render";
-  if (capability === "web.extract" || capability === "web.fetch_extract") return "web.fetch";
-  if (capability === "source.verify" || capability.startsWith("evidence.")) return "evidence";
+  if (capability === "web.extract" || capability === "web.fetch_extract")
+    return "web.fetch";
+  if (capability === "source.verify" || capability.startsWith("evidence."))
+    return "evidence";
   return capability;
 }
 
@@ -64,7 +68,13 @@ function capabilityAvailable(capability, statusByTool) {
   const mapped = statusByTool.get(capabilityRuntimeTool(capability));
   if (mapped) return mapped;
   if (capability.startsWith("artifact.")) {
-    return { tool: capability, ok: true, label: "assumed", reason: "", code: "" };
+    return {
+      tool: capability,
+      ok: true,
+      label: "assumed",
+      reason: "",
+      code: "",
+    };
   }
   return {
     tool: capability,
@@ -94,17 +104,26 @@ function isResearchEmployee(pkg) {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
-  return tools.has("web.search") || tools.has("source.verify") || /research|调研|研究/.test(text);
+  return (
+    tools.has("web.search") ||
+    tools.has("source.verify") ||
+    /research|调研|研究/.test(text)
+  );
 }
 
 function compatibilityFix(reason) {
   const text = String(reason);
-  const missingPackage = text.match(/missing required package capability\s+(.+)$/i);
-  if (missingPackage) return `为目标 Runtime 接入必需 capability：${missingPackage[1]}`;
+  const missingPackage = text.match(
+    /missing required package capability\s+(.+)$/i
+  );
+  if (missingPackage)
+    return `为目标 Runtime 接入必需 capability：${missingPackage[1]}`;
   const runtimeLacks = text.match(/runtime lacks\s+(.+)$/i);
   if (runtimeLacks) return `启用目标 Runtime 的 ${runtimeLacks[1]} 能力`;
-  if (/tools is false/i.test(text)) return "启用 Runtime 工具执行能力，或选择支持工具调用的 Runtime";
-  if (/cannot be enforced/i.test(text)) return "部署到能强制执行员工包必需工具的 Runtime";
+  if (/tools is false/i.test(text))
+    return "启用 Runtime 工具执行能力，或选择支持工具调用的 Runtime";
+  if (/cannot be enforced/i.test(text))
+    return "部署到能强制执行员工包必需工具的 Runtime";
   return `处理兼容性降级原因：${reason}`;
 }
 
@@ -119,15 +138,23 @@ function permissionPolicyChecks(pkg) {
   checks.push({
     name: "permission_policy.default_level",
     ok: !p4Default,
-    detail: p4Default ? "permission_policy default_level 不能默认允许 P4 高危权限" : "未默认允许 P4 高危权限",
+    detail: p4Default
+      ? "permission_policy default_level 不能默认允许 P4 高危权限"
+      : "未默认允许 P4 高危权限",
   });
   if (p4Default) {
-    missing.push("将 permission_policy.default_level 调整为 P0/P1，并让 P4 动作默认禁止");
+    missing.push(
+      "将 permission_policy.default_level 调整为 P0/P1，并让 P4 动作默认禁止"
+    );
     fixes.push("把 P4 外部副作用动作放入 denied，并要求人工确认");
   }
 
-  const denied = policy.denied && typeof policy.denied === "object" ? Object.keys(policy.denied) : [];
-  const grants = policy.grants && typeof policy.grants === "object" ? policy.grants : {};
+  const denied =
+    policy.denied && typeof policy.denied === "object"
+      ? Object.keys(policy.denied)
+      : [];
+  const grants =
+    policy.grants && typeof policy.grants === "object" ? policy.grants : {};
   const riskyGranted = Object.entries(grants)
     .filter(([, level]) => String(level).trim() === "P4")
     .map(([tool]) => tool);
@@ -140,8 +167,12 @@ function permissionPolicyChecks(pkg) {
       : "P4 高危工具必须默认禁止，不能直接 grant",
   });
   if (!highRiskDisabled) {
-    missing.push("在 permission_policy.denied 中列出 notify/email/payments/production.deploy 等外部副作用工具");
-    fixes.push("删除 P4 grant，把外发、付款、采购、生产部署改为 denied + human authorization");
+    missing.push(
+      "在 permission_policy.denied 中列出 notify/email/payments/production.deploy 等外部副作用工具"
+    );
+    fixes.push(
+      "删除 P4 grant，把外发、付款、采购、生产部署改为 denied + human authorization"
+    );
   }
 
   return { checks, missing, fixes };
@@ -154,16 +185,20 @@ export function packageDoctor(pkg) {
     {
       name: "package.validation",
       ok: validation.ok,
-      detail: validation.ok ? "员工包完整性和字段合法性通过" : validation.errors.join("; "),
+      detail: validation.ok
+        ? "员工包完整性和字段合法性通过"
+        : validation.errors.join("; "),
     },
     {
       name: "package.eval_suite",
       ok: evalPresent,
-      detail: evalPresent ? "eval_suite 已声明" : "缺少 eval_suite，无法做上架前验收",
+      detail: evalPresent
+        ? "eval_suite 已声明"
+        : "缺少 eval_suite，无法做上架前验收",
     },
   ];
   const errors = [...(validation.errors || [])];
-  if (!evalPresent && !errors.some((error) => /eval_suite/.test(error))) {
+  if (!evalPresent && !errors.some(error => /eval_suite/.test(error))) {
     errors.push("Missing required field: eval_suite");
   }
 
@@ -178,7 +213,9 @@ export function packageDoctor(pkg) {
     fixes:
       errors.length > 0
         ? errors.map(validationFix)
-        : ["保持 eval_suite 与 outcome_rubric 同步，变更员工职责后重新运行 Package Doctor"],
+        : [
+            "保持 eval_suite 与 outcome_rubric 同步，变更员工职责后重新运行 Package Doctor",
+          ],
     allow_degrade: false,
     degraded_level: null,
   });
@@ -188,7 +225,8 @@ export function compatibilityDoctor(pkg, runtimeCapabilities = {}) {
   const compatibility = computeCompatibility(pkg, runtimeCapabilities);
   const rank = LEVEL_RANK[compatibility.level] ?? 0;
   const research = isResearchEmployee(pkg);
-  const status = rank >= 3 ? "healthy" : rank === 0 && research ? "broken" : "warning";
+  const status =
+    rank >= 3 ? "healthy" : rank === 0 && research ? "broken" : "warning";
   const checks =
     compatibility.reasons.length > 0
       ? compatibility.reasons.map((reason, index) => ({
@@ -224,7 +262,7 @@ export function compatibilityDoctor(pkg, runtimeCapabilities = {}) {
 
 export function onboardingDoctor(pkg, env = process.env) {
   const toolStatus = getToolStatus(env);
-  const statusByTool = new Map(toolStatus.map((status) => [status.tool, status]));
+  const statusByTool = new Map(toolStatus.map(status => [status.tool, status]));
   const checks = [];
   const missing = [];
   const fixes = [];
@@ -272,9 +310,16 @@ export function onboardingDoctor(pkg, env = process.env) {
     detail: "当前员工包未声明强制模型或预算字段，入职阶段不阻塞",
   });
 
-  const permissionBroken = permissions.checks.some((check) => !check.ok);
-  const status = hasRequiredFailure || permissionBroken ? "broken" : hasOptionalFailure ? "warning" : "healthy";
-  const searchMissing = checks.some((check) => check.name === "tool.web.search" && !check.ok);
+  const permissionBroken = permissions.checks.some(check => !check.ok);
+  const status =
+    hasRequiredFailure || permissionBroken
+      ? "broken"
+      : hasOptionalFailure
+        ? "warning"
+        : "healthy";
+  const searchMissing = checks.some(
+    check => check.name === "tool.web.search" && !check.ok
+  );
 
   return doctorResult({
     status,
@@ -288,7 +333,9 @@ export function onboardingDoctor(pkg, env = process.env) {
     fixes:
       fixes.length > 0
         ? fixes
-        : ["保持 Search Provider、证据库和权限策略可用，任务开始前重跑 Onboarding Doctor"],
+        : [
+            "保持 Search Provider、证据库和权限策略可用，任务开始前重跑 Onboarding Doctor",
+          ],
     allow_degrade: searchMissing || hasOptionalFailure,
     degraded_level: searchMissing ? "L0" : hasOptionalFailure ? "L2" : null,
   });
@@ -299,17 +346,21 @@ export function runtimeDoctor(taskRun = {}) {
   const missing = [];
   const fixes = [];
 
-  const toolFailures = Array.isArray(taskRun.tool_failures) ? taskRun.tool_failures : [];
+  const toolFailures = Array.isArray(taskRun.tool_failures)
+    ? taskRun.tool_failures
+    : [];
   const toolOk = toolFailures.length === 0;
   checks.push({
     name: "runtime.tool_failures",
     ok: toolOk,
     detail: toolOk
       ? "任务中没有记录工具失败"
-      : `任务中有 ${toolFailures.length} 个工具失败：${toolFailures.map((failure) => failure.tool || failure).join(", ")}`,
+      : `任务中有 ${toolFailures.length} 个工具失败：${toolFailures.map(failure => failure.tool || failure).join(", ")}`,
   });
   if (!toolOk) {
-    missing.push("重试失败工具或切换 provider，并把失败 URL/工具调用加入诊断记录");
+    missing.push(
+      "重试失败工具或切换 provider，并把失败 URL/工具调用加入诊断记录"
+    );
     fixes.push("检查失败工具的 key、网络、权限和 provider 配置后重跑相关步骤");
   }
 
@@ -320,11 +371,15 @@ export function runtimeDoctor(taskRun = {}) {
   checks.push({
     name: "runtime.cost_budget",
     ok: costOk,
-    detail: costOk ? `成本 ${cost} 未超过预算 ${hasBudget ? budget : "未设置"}` : `成本 ${cost} 超过预算 ${budget}`,
+    detail: costOk
+      ? `成本 ${cost} 未超过预算 ${hasBudget ? budget : "未设置"}`
+      : `成本 ${cost} 超过预算 ${budget}`,
   });
   if (!costOk) {
     missing.push("暂停继续调用高成本工具，调整预算或降低模型/搜索深度后再继续");
-    fixes.push("设置更低成本的模型路由、减少 max_searches，或申请更高预算后恢复任务");
+    fixes.push(
+      "设置更低成本的模型路由、减少 max_searches，或申请更高预算后恢复任务"
+    );
   }
 
   const stuckOk = !taskRun.stuck;
@@ -343,20 +398,27 @@ export function runtimeDoctor(taskRun = {}) {
   checks.push({
     name: "runtime.evidence_count",
     ok: evidenceOk,
-    detail: evidenceOk ? `证据数量 ${evidenceCount} 满足最低要求` : `证据数量 ${evidenceCount} 少于最低要求 2`,
+    detail: evidenceOk
+      ? `证据数量 ${evidenceCount} 满足最低要求`
+      : `证据数量 ${evidenceCount} 少于最低要求 2`,
   });
   if (!evidenceOk) {
     missing.push("补充至少 2 条可核验来源证据，并绑定到最终结论");
     fixes.push("继续搜索官方或权威来源，生成 evidence card 后再提交交付物");
   }
 
-  const broken = checks.some((check) => !check.ok);
+  const broken = checks.some(check => !check.ok);
   return doctorResult({
     status: broken ? "warning" : "healthy",
     checks,
     missing,
-    impact: broken ? "当前任务产物不应直接计为有效任务，需要先处理运行期风险。" : "任务运行指标满足基础健康检查。",
-    fixes: fixes.length > 0 ? fixes : ["保留 cost、events、evidence 和 artifact 记录用于验收"],
+    impact: broken
+      ? "当前任务产物不应直接计为有效任务，需要先处理运行期风险。"
+      : "任务运行指标满足基础健康检查。",
+    fixes:
+      fixes.length > 0
+        ? fixes
+        : ["保留 cost、events、evidence 和 artifact 记录用于验收"],
     allow_degrade: broken,
     degraded_level: broken ? "L2" : null,
   });

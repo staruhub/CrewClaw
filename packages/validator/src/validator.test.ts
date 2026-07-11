@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { link, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -9,40 +9,55 @@ const createdRoots: string[] = [];
 async function makeExpertRoot() {
   const root = await mkdtemp(join(tmpdir(), "crewclaw-validator-"));
   createdRoots.push(root);
-  await mkdir(join(root, "skills", "review", "code-review-checklist"), { recursive: true });
+  await mkdir(join(root, "skills", "review", "code-review-checklist"), {
+    recursive: true,
+  });
   await writeFile(
     join(root, "distribution.yaml"),
     [
       "name: test-expert",
       "version: 0.1.0",
       "description: Test expert for validator coverage.",
-      "hermes_requires: \">=0.12.0\"",
+      'hermes_requires: ">=0.12.0"',
       "author: ChaoGeek / Pong",
       "license: Commercial Preview",
       "env_requires:",
       "  - name: OPENAI_API_KEY",
       "    description: Optional model provider key.",
       "    required: false",
-      "    default: \"\"",
+      '    default: ""',
       "distribution_owned:",
       "  - SOUL.md",
       "  - config.yaml",
       "  - mcp.json",
       "  - skills/",
       "  - CERTIFICATION.md",
-    ].join("\n"),
+    ].join("\n")
   );
   await writeFile(join(root, "README.md"), "# Test Expert\n");
   await writeFile(join(root, "SOUL.md"), "# Soul\nYou are a test expert.\n");
-  await writeFile(join(root, "config.yaml"), "model:\n  default: \"\"\ntemperature: 0.2\n");
+  await writeFile(
+    join(root, "config.yaml"),
+    'model:\n  default: ""\ntemperature: 0.2\n'
+  );
   await writeFile(
     join(root, "mcp.json"),
-    JSON.stringify({ mcp_servers: { github: { tools: { include: ["search_code"] } } } }, null, 2),
+    JSON.stringify(
+      { mcp_servers: { github: { tools: { include: ["search_code"] } } } },
+      null,
+      2
+    )
   );
   await writeFile(join(root, ".env.EXAMPLE"), "OPENAI_API_KEY=\n");
   await writeFile(join(root, "CERTIFICATION.md"), "# Certification\nC2\n");
-  await writeFile(join(root, "EXAMPLES.md"), "# Examples\n\n## 1. First task\n\n## 2. Common workflow\n\n## 3. Advanced workflow\n");
-  await writeFile(join(root, "EVALS.md"), "# Evals\n\ncase-001\ncase-002\ncase-003\n");
+  await writeFile(
+    join(root, "EXAMPLES.md"),
+    "# Examples\n\n## 1. First task\n\n## 2. Common workflow\n\n## 3. Advanced workflow\n"
+  );
+  await writeFile(
+    join(root, "EVALS.md"),
+    "# Evals\n\ncase-001\ncase-002\ncase-003\n"
+  );
   await writeFile(join(root, "CHANGELOG.md"), "# Changelog\n");
   await writeFile(
     join(root, "skills", "review", "code-review-checklist", "SKILL.md"),
@@ -70,7 +85,7 @@ async function makeExpertRoot() {
       "",
       "## Verification Checklist",
       "- [ ] Blocking issues are separated.",
-    ].join("\n"),
+    ].join("\n")
   );
   // v0.18 A4: the two-file employee standard is mandatory for a complete distribution — write a
   // valid default hire.yaml + crewclaw.employee.yaml. Tests that exercise hire.yaml overwrite it.
@@ -146,7 +161,13 @@ function makeSpecYaml() {
   ].join("\n");
 }
 
-function makeHireYaml(overrides: { version?: string; permissions?: string[]; omitIdentity?: boolean } = {}) {
+function makeHireYaml(
+  overrides: {
+    version?: string;
+    permissions?: string[];
+    omitIdentity?: boolean;
+  } = {}
+) {
   const permissions = overrides.permissions ?? ["browser:read"];
   const lines = [
     "apiVersion: crewclaw/v1",
@@ -166,7 +187,7 @@ function makeHireYaml(overrides: { version?: string; permissions?: string[]; omi
       "  title: Test Expert",
       "  description: Test expert for validator coverage.",
       "  reports_to: User",
-      "  location: Local",
+      "  location: Local"
     );
   }
   lines.push(
@@ -176,9 +197,9 @@ function makeHireYaml(overrides: { version?: string; permissions?: string[]; omi
     "tools:",
     "  - browser",
     "permissions:",
-    ...permissions.map((permission) => `  - ${permission}`),
+    ...permissions.map(permission => `  - ${permission}`),
     "requires:",
-    "  hermes: \">=0.12.0\"",
+    '  hermes: ">=0.12.0"',
     "  runtime: node",
     "  env:",
     "    - OPENAI_API_KEY",
@@ -200,13 +221,15 @@ function makeHireYaml(overrides: { version?: string; permissions?: string[]; omi
     "categories:",
     "  - engineering",
     "tags:",
-    "  - test",
+    "  - test"
   );
   return lines.join("\n");
 }
 
 afterEach(async () => {
-  await Promise.all(createdRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  for (const root of createdRoots.splice(0).reverse()) {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 describe("validateExpert", () => {
@@ -235,17 +258,25 @@ describe("validateExpert", () => {
 
   it("fails when hire.yaml is missing required manifest fields", async () => {
     const root = await makeExpertRoot();
-    await writeFile(join(root, "hire.yaml"), makeHireYaml({ omitIdentity: true }));
+    await writeFile(
+      join(root, "hire.yaml"),
+      makeHireYaml({ omitIdentity: true })
+    );
 
     const result = await validateExpert(root);
 
     expect(result.ok).toBe(false);
-    expect(result.errors.some((error) => error.startsWith("Invalid hire.yaml:"))).toBe(true);
+    expect(
+      result.errors.some(error => error.startsWith("Invalid hire.yaml:"))
+    ).toBe(true);
   });
 
   it("fails when registry name, version, or local_source disagree with hire.yaml", async () => {
     const root = await makeExpertRoot();
-    await writeFile(join(root, "hire.yaml"), makeHireYaml({ version: "0.1.0" }));
+    await writeFile(
+      join(root, "hire.yaml"),
+      makeHireYaml({ version: "0.1.0" })
+    );
 
     const result = await validateExpert(root, {
       name: "different-expert",
@@ -254,39 +285,151 @@ describe("validateExpert", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.errors).toContain("Registry name mismatch: registry=different-expert hire.yaml=test-expert");
-    expect(result.errors).toContain("Registry version mismatch: registry=0.2.0 hire.yaml=0.1.0");
-    expect(result.errors).toContain(`Registry local_source mismatch: registry=experts/different-expert package=${root}`);
+    expect(result.errors).toContain(
+      "Registry name mismatch: registry=different-expert hire.yaml=test-expert"
+    );
+    expect(result.errors).toContain(
+      "Registry version mismatch: registry=0.2.0 hire.yaml=0.1.0"
+    );
+    expect(result.errors).toContain(
+      `Registry local_source mismatch: registry=experts/different-expert package=${root}`
+    );
   });
 
   it("warns without failing for high-risk permissions in hire.yaml", async () => {
     const root = await makeExpertRoot();
-    await writeFile(join(root, "hire.yaml"), makeHireYaml({ permissions: ["mailbox:send", "files:delete", "payments:charge"] }));
+    await writeFile(
+      join(root, "hire.yaml"),
+      makeHireYaml({
+        permissions: ["mailbox:send", "files:delete", "payments:charge"],
+      })
+    );
 
     const result = await validateExpert(root);
 
     expect(result.ok).toBe(true);
-    expect(result.warnings).toContain("High-risk permissions declared in hire.yaml: mailbox:send, files:delete, payments:charge");
+    expect(result.warnings).toContain(
+      "High-risk permissions declared in hire.yaml: mailbox:send, files:delete, payments:charge"
+    );
   });
 
   it("fails when required files, forbidden local state, frontmatter, or secrets are present", async () => {
     const missingSoul = await makeExpertRoot();
     await rm(join(missingSoul, "SOUL.md"));
-    expect((await validateExpert(missingSoul)).errors).toContain("Missing required file: SOUL.md");
+    expect((await validateExpert(missingSoul)).errors).toContain(
+      "Missing required file: SOUL.md"
+    );
 
     const envLeak = await makeExpertRoot();
     await writeFile(join(envLeak, ".env"), "OPENAI_API_KEY=\n");
-    expect((await validateExpert(envLeak)).errors).toContain("Forbidden path found: .env");
+    expect((await validateExpert(envLeak)).errors).toContain(
+      "Forbidden path found: .env"
+    );
 
     const badSkill = await makeExpertRoot();
-    await writeFile(join(badSkill, "skills", "review", "code-review-checklist", "SKILL.md"), "# Missing frontmatter\n");
+    await writeFile(
+      join(badSkill, "skills", "review", "code-review-checklist", "SKILL.md"),
+      "# Missing frontmatter\n"
+    );
     expect((await validateExpert(badSkill)).errors).toContain(
-      "Invalid skill frontmatter: skills/review/code-review-checklist/SKILL.md",
+      "Invalid skill frontmatter: skills/review/code-review-checklist/SKILL.md"
     );
 
     const secretLeak = await makeExpertRoot();
-    await writeFile(join(secretLeak, "README.md"), "Token ghp_123456789012345678901234567890123456\n");
-    expect((await validateExpert(secretLeak)).errors.some((error) => error.includes("Potential secret"))).toBe(true);
+    await writeFile(
+      join(secretLeak, "README.md"),
+      "Token ghp_123456789012345678901234567890123456\n"
+    );
+    expect(
+      (await validateExpert(secretLeak)).errors.some(error =>
+        error.includes("Potential secret")
+      )
+    ).toBe(true);
+
+    const utf16SecretLeak = await makeExpertRoot();
+    await writeFile(
+      join(utf16SecretLeak, "NOTES.md"),
+      Buffer.from(`TAVILY_API_KEY=tvly-prod-${"A".repeat(24)}`, "utf16le")
+    );
+    expect(
+      (await validateExpert(utf16SecretLeak)).errors.some(error =>
+        error.includes("Potential secret found: NOTES.md")
+      )
+    ).toBe(true);
+  });
+
+  it("rejects package paths that collide on case-insensitive filesystems", async () => {
+    if (process.platform === "win32") return;
+    const root = await makeExpertRoot();
+    await mkdir(join(root, "Docs"));
+    await mkdir(join(root, "docs"));
+    await writeFile(join(root, "Docs", "A.txt"), "first\n");
+    await writeFile(join(root, "docs", "a.TXT"), "second\n");
+
+    const result = await validateExpert(root);
+
+    expect(
+      result.errors.some(error =>
+        error.includes("Case-folding package path collision")
+      )
+    ).toBe(true);
+  });
+
+  it("rejects a symlink or junction used as the direct validation root", async () => {
+    const root = await makeExpertRoot();
+    const container = await mkdtemp(join(tmpdir(), "crewclaw-validator-link-"));
+    createdRoots.push(container);
+    const linkedRoot = join(container, "linked-expert");
+    await symlink(
+      root,
+      linkedRoot,
+      process.platform === "win32" ? "junction" : "dir"
+    );
+
+    const result = await validateExpert(linkedRoot);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      "Expert root must not be a symlink or junction"
+    );
+  });
+
+  it("rejects a symlink or junction nested inside a directly validated package", async () => {
+    const root = await makeExpertRoot();
+    const outside = await mkdtemp(
+      join(tmpdir(), "crewclaw-validator-outside-")
+    );
+    createdRoots.push(outside);
+    await symlink(
+      outside,
+      join(root, "linked-outside"),
+      process.platform === "win32" ? "junction" : "dir"
+    );
+
+    const result = await validateExpert(root);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      "Unsafe symlink or junction found: linked-outside"
+    );
+  });
+
+  it("rejects a hardlink to a file outside a directly validated package", async () => {
+    const root = await makeExpertRoot();
+    const outside = await mkdtemp(
+      join(tmpdir(), "crewclaw-validator-hardlink-")
+    );
+    createdRoots.push(outside);
+    const outsideFile = join(outside, "outside.txt");
+    await writeFile(outsideFile, "outside\n");
+    await link(outsideFile, join(root, "hardlinked-outside.txt"));
+
+    const result = await validateExpert(root);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      "Unsafe hardlink found: hardlinked-outside.txt"
+    );
   });
 });
 
@@ -295,8 +438,12 @@ describe("validateAllExperts", () => {
     const result = await validateAllExperts();
 
     expect(result.ok).toBe(true);
-    expect(result.results.map((entry) => entry.name)).toEqual(
-      expect.arrayContaining(["code-review-shrimp", "product-prd-crab", "macao-networking-agent"]),
+    expect(result.results.map(entry => entry.name)).toEqual(
+      expect.arrayContaining([
+        "code-review-shrimp",
+        "product-prd-crab",
+        "macao-networking-agent",
+      ])
     );
   });
 });

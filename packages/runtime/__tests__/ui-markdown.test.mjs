@@ -18,12 +18,27 @@ const input = [
 ].join("\n");
 
 const rows = renderMessage(input);
-const nonEmptyRows = rows.filter((row) => row.trim() !== "");
+const nonEmptyRows = rows.filter(row => row.trim() !== "");
 
 assert.ok(Array.isArray(rows), "renderMessage returns an array");
 assert.ok(rows.length > 0, "renderMessage returns rendered rows");
-assert.ok(rows.some((row) => row.startsWith("   ")), "gutter is present");
-assert.ok(rows.some((row) => row.includes("heading")), "heading text is rendered");
-assert.ok(rows.some((row) => / {2,}/.test(row) || row.includes("│")), "table-like cell separator is rendered");
-assert.ok(rows.some((row) => row.includes("answer")), "code block content is rendered");
-assert.ok(nonEmptyRows.length >= 10, "no logical line dropped below expected rendered minimum");
+assert.ok(
+  rows.some(row => row.startsWith("   ")),
+  "gutter is present"
+);
+assert.ok(
+  rows.some(row => row.includes("heading")),
+  "heading text is rendered"
+);
+assert.ok(
+  rows.some(row => / {2,}/.test(row) || row.includes("│")),
+  "table-like cell separator is rendered"
+);
+assert.ok(
+  rows.some(row => row.includes("answer")),
+  "code block content is rendered"
+);
+assert.ok(
+  nonEmptyRows.length >= 10,
+  "no logical line dropped below expected rendered minimum"
+);

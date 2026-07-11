@@ -1,5 +1,5 @@
 model:
-  default: ""          # falls back to the runtime default (HERMES_MODEL)
+  default: "" # falls back to the runtime default (HERMES_MODEL)
 
 temperature: 0.4
 

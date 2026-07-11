@@ -1,5 +1,6 @@
 import { Terminal } from "@/components/Terminal";
 import { ScrollReveal } from "@/components/ScrollReveal";
+import { SourceSetup } from "@/components/SourceSetup";
 import { findInstallCommand } from "@/data/experts";
 
 interface CTAProps {
@@ -7,7 +8,7 @@ interface CTAProps {
 }
 
 export function CTA({ onGetStarted }: CTAProps) {
-  const installCommand = findInstallCommand("product-prd-crab") ?? "pnpm --silent run crewclaw";
+  const installCommand = findInstallCommand("product-prd-crab");
 
   return (
     <section className="relative overflow-hidden bg-crew-bg-dark py-[110px]">
@@ -17,27 +18,37 @@ export function CTA({ onGetStarted }: CTAProps) {
       <div className="relative mx-auto max-w-[880px] px-6 text-center">
         <ScrollReveal>
           <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-white/38">
-            ( READY TO HIRE )
+            {installCommand ? "( READY TO HIRE )" : "( LOCAL SETUP )"}
           </span>
         </ScrollReveal>
 
         <ScrollReveal delay={0.08}>
           <h2 className="mt-5 font-sans text-[38px] md:text-[62px] font-light tracking-[-0.04em] leading-[0.96] text-crew-heading">
             <span className="text-white/75">( </span>
-            <span>Install A Certified Expert</span>
+            <span>
+              {installCommand
+                ? "Install A Certified Expert"
+                : "Explore A Certified Expert"}
+            </span>
             <span className="text-crew-copper/90"> )</span>
           </h2>
         </ScrollReveal>
 
         <ScrollReveal delay={0.14}>
           <p className="mx-auto mt-5 max-w-[460px] text-sm md:text-[15px] leading-relaxed text-crew-body">
-            Start with Code Review Shrimp or Product PRD Crab, then reuse the profile as the work repeats.
+            {installCommand
+              ? "Start with Code Review Shrimp or Product PRD Crab, then reuse the profile as the work repeats."
+              : "Review the source and local setup guide now. A one-command public package will only appear after its distribution path is published and verified."}
           </p>
         </ScrollReveal>
 
         <ScrollReveal delay={0.22} className="mt-10 flex justify-center">
           <div className="w-full max-w-[620px] rounded-[20px] border border-white/8 bg-white/[0.02] p-3 shadow-[0_22px_70px_rgba(0,0,0,0.28)]">
-            <Terminal command={installCommand} triggerOnView />
+            {installCommand ? (
+              <Terminal command={installCommand} triggerOnView />
+            ) : (
+              <SourceSetup />
+            )}
           </div>
         </ScrollReveal>
 

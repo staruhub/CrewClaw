@@ -34,10 +34,16 @@ test("memoryCommandResponse is session-only when persistent store is missing", (
 });
 
 test("previewMemoryWrite returns MemoryRecord-shaped dry run without writing", () => {
-  const root = join(tmpdir(), "crewclaw-memory-harness-preview-" + process.pid + "-" + Date.now());
+  const root = join(
+    tmpdir(),
+    "crewclaw-memory-harness-preview-" + process.pid + "-" + Date.now()
+  );
 
   try {
-    const preview = previewMemoryWrite({ content: "Remember this preference", scope: "session" });
+    const preview = previewMemoryWrite({
+      content: "Remember this preference",
+      scope: "session",
+    });
 
     assert.equal(preview.scope, "session");
     assert.equal(preview.content, "Remember this preference");
@@ -53,7 +59,7 @@ test("previewMemoryWrite returns MemoryRecord-shaped dry run without writing", (
 test("commitMemoryWrite returns ok false for unavailable scope", () => {
   const result = commitMemoryWrite(
     previewMemoryWrite({ content: "Org fact", scope: "org" }),
-    { env: {}, root: tmpdir(), employeeId: "tester" },
+    { env: {}, root: tmpdir(), employeeId: "tester" }
   );
 
   assert.equal(result.ok, false);

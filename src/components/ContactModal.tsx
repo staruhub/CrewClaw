@@ -30,12 +30,19 @@ export function ContactModal({ open, onClose }: ContactModalProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
-    submit.mutate({ name: name.trim(), email: email.trim(), message: message.trim() || undefined });
+    submit.mutate({
+      name: name.trim(),
+      email: email.trim(),
+      message: message.trim() || undefined,
+    });
   };
 
   return (
     <div className="fixed inset-0 z-[900] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
@@ -49,36 +56,49 @@ export function ContactModal({ open, onClose }: ContactModalProps) {
         >
           <X size={20} />
         </button>
-        <h3 id="contact-title" className="font-mono text-xl font-bold text-crew-heading mb-2">Contact Us</h3>
-        <p className="text-crew-body text-sm mb-6">Tell us about your enterprise needs.</p>
+        <h3
+          id="contact-title"
+          className="font-mono text-xl font-bold text-crew-heading mb-2"
+        >
+          Contact Us
+        </h3>
+        <p className="text-crew-body text-sm mb-6">
+          Tell us about your enterprise needs.
+        </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">Name *</label>
+            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">
+              Name *
+            </label>
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={e => setName(e.target.value)}
               required
               className="w-full bg-crew-bg border border-crew-border rounded-lg px-4 py-3 text-crew-heading text-sm focus:outline-none focus:border-crew-copper transition-colors"
               placeholder="Your name"
             />
           </div>
           <div>
-            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">Email *</label>
+            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">
+              Email *
+            </label>
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={e => setEmail(e.target.value)}
               required
               className="w-full bg-crew-bg border border-crew-border rounded-lg px-4 py-3 text-crew-heading text-sm focus:outline-none focus:border-crew-copper transition-colors"
               placeholder="you@company.com"
             />
           </div>
           <div>
-            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">Message</label>
+            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">
+              Message
+            </label>
             <textarea
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={e => setMessage(e.target.value)}
               rows={3}
               className="w-full bg-crew-bg border border-crew-border rounded-lg px-4 py-3 text-crew-heading text-sm focus:outline-none focus:border-crew-blue transition-colors resize-none"
               placeholder="How can we help?"

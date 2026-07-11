@@ -1,6 +1,13 @@
 import { Link } from "react-router";
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Heart, Search, Sparkles, Trophy, Users } from "lucide-react";
+import {
+  BarChart3,
+  Heart,
+  Search,
+  Sparkles,
+  Trophy,
+  Users,
+} from "lucide-react";
 import { EmployeeCard } from "@/components/employee/EmployeeCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,15 +70,23 @@ export default function Marketplace() {
   const categoryGroups = byCategory();
   // Real-value picks (rating/hire_count were fabricated and are gone): featured = recommended
   // order, certified = employees that passed ChaoGeek certification with a published spec.
-  const featuredEmployees = sortEmployees(availableEmployees, "recommended").slice(0, 2);
+  const featuredEmployees = sortEmployees(
+    availableEmployees,
+    "recommended"
+  ).slice(0, 2);
   const certifiedEmployees = sortEmployees(
-    availableEmployees.filter((employee) => employee.verified),
-    "recommended",
+    availableEmployees.filter(employee => employee.verified),
+    "recommended"
   ).slice(0, 3);
-  const sortedEmployees = useMemo(() => sortEmployees(availableEmployees, sortBy), [sortBy]);
+  const sortedEmployees = useMemo(
+    () => sortEmployees(availableEmployees, sortBy),
+    [sortBy]
+  );
   const savedEmployees = useMemo(() => {
     const savedIds = new Set(saved.savedIds);
-    return sortedEmployees.filter((employee) => savedIds.has(employee.employee_id));
+    return sortedEmployees.filter(employee =>
+      savedIds.has(employee.employee_id)
+    );
   }, [saved.savedIds, sortedEmployees]);
 
   useEffect(() => {
@@ -97,22 +112,38 @@ export default function Marketplace() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Button asChild className="rounded-[8px] border-white/15" variant="outline">
+            <Button
+              asChild
+              className="rounded-[8px] border-white/15"
+              variant="outline"
+            >
               <Link to="/crew">
                 <Users className="size-4" />
                 Crew Mode
               </Link>
             </Button>
-            <Button asChild className="rounded-[8px] border-white/15" variant="outline">
+            <Button
+              asChild
+              className="rounded-[8px] border-white/15"
+              variant="outline"
+            >
               <Link to="/performance">
                 <BarChart3 className="size-4" />
                 Performance
               </Link>
             </Button>
-            <Button asChild className="rounded-[8px] border-white/15" variant="outline">
+            <Button
+              asChild
+              className="rounded-[8px] border-white/15"
+              variant="outline"
+            >
               <Link to="/creator">Submit</Link>
             </Button>
-            <Button asChild className="rounded-[8px] border-white/15" variant="outline">
+            <Button
+              asChild
+              className="rounded-[8px] border-white/15"
+              variant="outline"
+            >
               <Link to="/review">Review</Link>
             </Button>
             <Button
@@ -127,7 +158,7 @@ export default function Marketplace() {
         <form
           action="/search"
           className="mt-8 flex flex-col gap-3 sm:flex-row"
-          onSubmit={(event) => {
+          onSubmit={event => {
             const formData = new FormData(event.currentTarget);
             const query = String(formData.get("q") ?? "").trim();
 
@@ -155,7 +186,7 @@ export default function Marketplace() {
             description="Platform picks for high-signal work: local research, product judgment, and code review."
           />
           <div className="mt-6 grid gap-5 md:grid-cols-2">
-            {featuredEmployees.map((employee) => (
+            {featuredEmployees.map(employee => (
               <EmployeeCard employee={employee} key={employee.employee_id} />
             ))}
           </div>
@@ -169,7 +200,7 @@ export default function Marketplace() {
               description="Employees you bookmarked before deciding who should join the crew."
             />
             <div className="mt-6 grid gap-5 md:grid-cols-3">
-              {savedEmployees.map((employee) => (
+              {savedEmployees.map(employee => (
                 <EmployeeCard employee={employee} key={employee.employee_id} />
               ))}
             </div>
@@ -183,7 +214,8 @@ export default function Marketplace() {
                   Save employees before you hire
                 </h2>
                 <p className="mt-1 text-sm leading-6 text-crew-body">
-                  Use the heart button on any resume card to build a shortlist for your crew.
+                  Use the heart button on any resume card to build a shortlist
+                  for your crew.
                 </p>
               </div>
             </div>
@@ -197,14 +229,14 @@ export default function Marketplace() {
             description="Filter the marketplace by the kind of employee your team needs next."
           />
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {categoryLinks.map((category) => {
+            {categoryLinks.map(category => {
               const count = categoryGroups[category.value]?.length ?? 0;
 
               return (
                 <Link
                   className={cn(
                     "group flex min-h-24 flex-col justify-between rounded-[8px] border border-white/10 bg-white/[0.025] p-4 transition-colors hover:border-crew-copper/35 hover:bg-crew-copper/10",
-                    count > 0 && "border-crew-copper/20",
+                    count > 0 && "border-crew-copper/20"
                   )}
                   key={category.value}
                   to={`/search?category=${category.value}`}
@@ -233,7 +265,7 @@ export default function Marketplace() {
                 Sort
               </span>
               <Select
-                onValueChange={(value) => {
+                onValueChange={value => {
                   if (!isEmployeeSort(value)) return;
 
                   setSortBy(value);
@@ -248,7 +280,7 @@ export default function Marketplace() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
-                  {EMPLOYEE_SORT_OPTIONS.map((option) => (
+                  {EMPLOYEE_SORT_OPTIONS.map(option => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -258,7 +290,7 @@ export default function Marketplace() {
             </div>
           </div>
           <div className="mt-6 grid gap-5 md:grid-cols-3">
-            {sortedEmployees.map((employee) => (
+            {sortedEmployees.map(employee => (
               <EmployeeCard employee={employee} key={employee.employee_id} />
             ))}
           </div>
@@ -271,7 +303,7 @@ export default function Marketplace() {
             description="Employees that passed ChaoGeek certification and ship the full two-file spec with an eval suite."
           />
           <div className="mt-6 grid gap-5 md:grid-cols-3">
-            {certifiedEmployees.map((employee) => (
+            {certifiedEmployees.map(employee => (
               <EmployeeCard
                 className="bg-[linear-gradient(180deg,rgba(200,121,65,0.08),rgba(255,255,255,0.025))]"
                 employee={employee}
@@ -282,9 +314,7 @@ export default function Marketplace() {
                     className="w-full rounded-[8px] border-crew-copper/30 bg-crew-copper/10 text-crew-heading hover:bg-crew-copper/16 sm:w-auto"
                     variant="outline"
                   >
-                    <Link
-                      to={`/employee/${employee.employee_id}`}
-                    >
+                    <Link to={`/employee/${employee.employee_id}`}>
                       <Trophy className="size-4" />
                       View
                     </Link>

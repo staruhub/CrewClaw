@@ -8,7 +8,14 @@ export function CrewClawMark({ title = "CrewClaw", ...props }: MarkProps) {
   return (
     <svg viewBox="0 0 96 96" role="img" aria-label={title} {...props}>
       <defs>
-        <linearGradient id="crew-mark-wing" x1="12" x2="84" y1="16" y2="84" gradientUnits="userSpaceOnUse">
+        <linearGradient
+          id="crew-mark-wing"
+          x1="12"
+          x2="84"
+          y1="16"
+          y2="84"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop stopColor="#FFEEE4" />
           <stop offset="0.42" stopColor="#E36E35" />
           <stop offset="1" stopColor="#6E2415" />
@@ -18,7 +25,13 @@ export function CrewClawMark({ title = "CrewClaw", ...props }: MarkProps) {
           <stop offset="0.72" stopColor="#FFF3EC" />
           <stop offset="1" stopColor="#D37B4C" />
         </radialGradient>
-        <filter id="crew-mark-glow" x="-30%" y="-30%" width="160%" height="160%">
+        <filter
+          id="crew-mark-glow"
+          x="-30%"
+          y="-30%"
+          width="160%"
+          height="160%"
+        >
           <feGaussianBlur stdDeviation="5" result="blur" />
           <feColorMatrix
             in="blur"
@@ -35,7 +48,11 @@ export function CrewClawMark({ title = "CrewClaw", ...props }: MarkProps) {
         <path d="M14 18h24v60H14z" fill="url(#crew-mark-wing)" />
         <path d="M58 18h24v60H58z" fill="url(#crew-mark-wing)" opacity="0.92" />
         <circle cx="48" cy="48" r="30" fill="url(#crew-mark-core)" />
-        <path d="M26 23h9v50h-9zM61 23h9v50h-9z" fill="#0D0A08" opacity="0.18" />
+        <path
+          d="M26 23h9v50h-9zM61 23h9v50h-9z"
+          fill="#0D0A08"
+          opacity="0.18"
+        />
       </g>
     </svg>
   );
@@ -53,7 +70,14 @@ export function FeatureIcon({ name, ...props }: FeatureIconProps) {
   return (
     <svg viewBox="0 0 96 96" role="img" aria-label={name} {...props}>
       <defs>
-        <linearGradient id={`${id}-stroke`} x1="20" x2="76" y1="18" y2="78" gradientUnits="userSpaceOnUse">
+        <linearGradient
+          id={`${id}-stroke`}
+          x1="20"
+          x2="76"
+          y1="18"
+          y2="78"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop stopColor="#FFFFFF" />
           <stop offset="0.45" stopColor="#F0A16B" />
           <stop offset="1" stopColor="#DB5F2B" />
@@ -72,7 +96,13 @@ export function FeatureIcon({ name, ...props }: FeatureIconProps) {
         </filter>
       </defs>
       <circle cx="48" cy="48" r="34" fill={`url(#${id}-glow)`} />
-      <g fill="none" stroke={`url(#${id}-stroke)`} strokeLinecap="round" strokeLinejoin="round" filter={`url(#${id}-soft)`}>
+      <g
+        fill="none"
+        stroke={`url(#${id}-stroke)`}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        filter={`url(#${id}-soft)`}
+      >
         {name === "review" && (
           <>
             <path d="M26 48 48 26l22 22-22 22-22-22Z" strokeWidth="4" />
@@ -81,8 +111,14 @@ export function FeatureIcon({ name, ...props }: FeatureIconProps) {
         )}
         {name === "devops" && (
           <>
-            <path d="M25 47c8 0 10-8 18-8 9 0 9 8 18 8 4 0 7-1 10-4" strokeWidth="4" />
-            <path d="M25 57c8 0 10-8 18-8 9 0 9 8 18 8 4 0 7-1 10-4" strokeWidth="4" />
+            <path
+              d="M25 47c8 0 10-8 18-8 9 0 9 8 18 8 4 0 7-1 10-4"
+              strokeWidth="4"
+            />
+            <path
+              d="M25 57c8 0 10-8 18-8 9 0 9 8 18 8 4 0 7-1 10-4"
+              strokeWidth="4"
+            />
             <path d="M38 35h20M38 69h20" strokeWidth="3" opacity="0.72" />
           </>
         )}

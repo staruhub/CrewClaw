@@ -11,7 +11,7 @@ export function serveStaticFiles(app: App) {
 
   app.use("*", serveStatic({ root: "./dist/public" }));
 
-  app.notFound((c) => {
+  app.notFound(c => {
     const accept = c.req.header("accept") ?? "";
     if (!accept.includes("text/html")) {
       return c.json({ error: "Not Found" }, 404);

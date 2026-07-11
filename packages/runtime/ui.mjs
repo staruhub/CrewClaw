@@ -10,7 +10,8 @@ export const theme = {
   err: "\x1b[31m",
 };
 
-const paint = (code, s, color = true) => (color ? `${code}${s}${theme.reset}` : String(s));
+const paint = (code, s, color = true) =>
+  color ? `${code}${s}${theme.reset}` : String(s);
 
 export const c = {
   accent: (s, color = true) => paint(theme.accent, s, color),
@@ -37,8 +38,8 @@ export function visibleLen(s) {
 
 function isWide(cp) {
   return (
-    cp >= 0x1100 && (
-      cp <= 0x115f ||
+    cp >= 0x1100 &&
+    (cp <= 0x115f ||
       cp === 0x2329 ||
       cp === 0x232a ||
       (cp >= 0x2e80 && cp <= 0xa4cf && cp !== 0x303f) ||
@@ -48,12 +49,14 @@ function isWide(cp) {
       (cp >= 0xfe30 && cp <= 0xfe6f) ||
       (cp >= 0xff00 && cp <= 0xff60) ||
       (cp >= 0xffe0 && cp <= 0xffe6) ||
-      (cp >= 0x1f000 && cp <= 0x1faff)
-    )
+      (cp >= 0x1f000 && cp <= 0x1faff))
   );
 }
 
-export function agentBadge({ name, title, model, skillCount }, { color = true } = {}) {
+export function agentBadge(
+  { name, title, model, skillCount },
+  { color = true } = {}
+) {
   const displayName = name || "CrewClaw";
   const displayTitle = title || "Hermes Expert";
   const displayModel = model || "unknown-model";
@@ -87,7 +90,7 @@ export function userLabel({ color = true } = {}) {
 export function userBubble(text, { color = true } = {}) {
   const rail = color ? c.accent("▎") : "▎";
   return wrapText(text, contentWidth())
-    .map((line) => `${rail} ${line}`)
+    .map(line => `${rail} ${line}`)
     .join("\n");
 }
 

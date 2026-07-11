@@ -29,7 +29,8 @@ const validManifest: EmployeeManifest = {
   },
   identity: {
     title: "Conference Networking Specialist",
-    description: "Helps teams discover Macao events, leads, and outreach angles.",
+    description:
+      "Helps teams discover Macao events, leads, and outreach angles.",
     reports_to: "pong",
     location: "Macao",
   },
@@ -82,7 +83,7 @@ describe("EmployeeManifestSchema", () => {
       EmployeeManifestSchema.parse({
         ...validManifest,
         kind: "Plugin",
-      }),
+      })
     ).toThrow();
   });
 });
@@ -93,7 +94,8 @@ describe("CrewClaw contract model schemas", () => {
     name: "Macao Networking Agent",
     role: "Conference Networking Specialist",
     creator_id: "crewclaw-labs",
-    description: "Helps teams discover Macao events, leads, and outreach angles.",
+    description:
+      "Helps teams discover Macao events, leads, and outreach angles.",
     status: "published",
     verified: true,
     categories: ["Local Expert"],
@@ -107,7 +109,8 @@ describe("CrewClaw contract model schemas", () => {
     employee_id: "macao-networking-agent",
     version: "0.1.0",
     manifest: validManifest,
-    package_url: "https://crewclaw.example/packages/macao-networking-agent-0.1.0.tgz",
+    package_url:
+      "https://crewclaw.example/packages/macao-networking-agent-0.1.0.tgz",
     checksum: "sha256:abc123",
     release_notes: "Initial release.",
   };
@@ -135,15 +138,25 @@ describe("CrewClaw contract model schemas", () => {
 
   it("accepts valid AgentEmployee, EmployeePackage, WorkspaceEmployee, and DoctorReport payloads", () => {
     expect(AgentEmployeeSchema.parse(agentEmployee)).toEqual(agentEmployee);
-    expect(EmployeePackageSchema.parse(employeePackage)).toEqual(employeePackage);
-    expect(WorkspaceEmployeeSchema.parse(workspaceEmployee)).toEqual(workspaceEmployee);
+    expect(EmployeePackageSchema.parse(employeePackage)).toEqual(
+      employeePackage
+    );
+    expect(WorkspaceEmployeeSchema.parse(workspaceEmployee)).toEqual(
+      workspaceEmployee
+    );
     expect(DoctorReportSchema.parse(doctorReport)).toEqual(doctorReport);
   });
 
   it("rejects entity status values outside the contract enums", () => {
-    expect(() => AgentEmployeeSchema.parse({ ...agentEmployee, status: "available" })).toThrow();
-    expect(() => WorkspaceEmployeeSchema.parse({ ...workspaceEmployee, status: "paused" })).toThrow();
-    expect(() => DoctorReportSchema.parse({ ...doctorReport, health_status: "ok" })).toThrow();
+    expect(() =>
+      AgentEmployeeSchema.parse({ ...agentEmployee, status: "available" })
+    ).toThrow();
+    expect(() =>
+      WorkspaceEmployeeSchema.parse({ ...workspaceEmployee, status: "paused" })
+    ).toThrow();
+    expect(() =>
+      DoctorReportSchema.parse({ ...doctorReport, health_status: "ok" })
+    ).toThrow();
   });
 
   it("rejects missing required model fields", () => {

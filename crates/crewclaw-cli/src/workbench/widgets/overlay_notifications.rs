@@ -113,7 +113,7 @@ pub(crate) fn render_notifications(frame: &mut Frame<'_>, state: &AppState, ui_s
         let time = fmt_hhmm(n.ts);
         let head = format!("{marker}{} {} ", n.kind.icon(), n.title);
         let tail = format!("{dot} {time}");
-        let pad = width.saturating_sub(head.width() + tail.width()).max(0);
+        let pad = width.saturating_sub(head.width() + tail.width());
         let row_style = if selected {
             Style::default().bg(config::bg2())
         } else {

@@ -38,8 +38,12 @@ export function Testimonials() {
               <ScrollReveal key={workflow.title} delay={index * 0.08}>
                 <article className="h-full rounded-[8px] border border-white/10 bg-white/[0.018] p-6">
                   <Icon className="text-crew-copper" size={24} />
-                  <h3 className="mt-6 font-sans text-[25px] text-crew-heading">{workflow.title}</h3>
-                  <p className="mt-4 text-sm leading-7 text-crew-body">{workflow.desc}</p>
+                  <h3 className="mt-6 font-sans text-[25px] text-crew-heading">
+                    {workflow.title}
+                  </h3>
+                  <p className="mt-4 text-sm leading-7 text-crew-body">
+                    {workflow.desc}
+                  </p>
                 </article>
               </ScrollReveal>
             );

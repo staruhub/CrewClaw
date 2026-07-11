@@ -28,13 +28,27 @@ export async function expandPartsToContent(message, { root } = {}) {
   const fileTexts = [];
   for (const part of parts) {
     if (!part || typeof part !== "object") continue;
-    if (part.type === "image" && typeof part.data_url === "string" && part.data_url) {
-      imageBlocks.push({ type: "image_url", image_url: { url: part.data_url } });
-    } else if (part.type === "file" && typeof part.path === "string" && part.path) {
+    if (
+      part.type === "image" &&
+      typeof part.data_url === "string" &&
+      part.data_url
+    ) {
+      imageBlocks.push({
+        type: "image_url",
+        image_url: { url: part.data_url },
+      });
+    } else if (
+      part.type === "file" &&
+      typeof part.path === "string" &&
+      part.path
+    ) {
       if (isImagePath(part.path)) {
-        const img = await readImageDataUrl(part.path);
+        const img = await readImageDataUrl(part.path, { root });
         if (img.ok) {
-          imageBlocks.push({ type: "image_url", image_url: { url: img.dataUrl } });
+          imageBlocks.push({
+            type: "image_url",
+            image_url: { url: img.dataUrl },
+          });
         } else {
           fileTexts.push(`（读取图片失败 ${part.path}：${img.error}）`);
         }

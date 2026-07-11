@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { computeDiff, diffCard } from "../ui-diff.mjs";
 
-const stripAnsi = (text) => text.replace(/\x1b\[[0-9;]*m/g, "");
+const stripAnsi = text => text.replace(/\x1b\[[0-9;]*m/g, "");
 
 const pureAdd = computeDiff("", "one\ntwo");
 assert.deepEqual(pureAdd, [
@@ -16,14 +16,20 @@ assert.deepEqual(pureDel, [
 ]);
 
 const changed = computeDiff("alpha\nbeta\ngamma", "alpha\nbravo\ngamma\ndelta");
-assert.deepEqual(changed.map((part) => part.type), ["ctx", "del", "add", "ctx", "add"]);
-assert.deepEqual(changed.map((part) => [part.oldNo, part.newNo]), [
-  [1, 1],
-  [2, null],
-  [null, 2],
-  [3, 3],
-  [null, 4],
-]);
+assert.deepEqual(
+  changed.map(part => part.type),
+  ["ctx", "del", "add", "ctx", "add"]
+);
+assert.deepEqual(
+  changed.map(part => [part.oldNo, part.newNo]),
+  [
+    [1, 1],
+    [2, null],
+    [null, 2],
+    [3, 3],
+    [null, 4],
+  ]
+);
 
 const card = diffCard(
   {
@@ -31,7 +37,7 @@ const card = diffCard(
     oldText: "alpha\nbeta\ngamma",
     newText: "alpha\nbravo\ngamma\ndelta",
   },
-  { color: true },
+  { color: true }
 );
 console.log(card);
 assert.match(card, /╭─/);
@@ -47,8 +53,12 @@ const longOld = Array.from({ length: 24 }, (_, i) => `same ${i + 1}`);
 const longNew = [...longOld];
 longNew.splice(12, 0, "inserted");
 const foldedCard = diffCard(
-  { path: "long.txt", oldText: longOld.join("\n"), newText: longNew.join("\n") },
-  { color: false, context: 2 },
+  {
+    path: "long.txt",
+    oldText: longOld.join("\n"),
+    newText: longNew.join("\n"),
+  },
+  { color: false, context: 2 }
 );
 console.log(foldedCard);
 assert.doesNotMatch(foldedCard, /\x1b\[/);
@@ -59,7 +69,7 @@ assert.match(foldedCard, /╰─ \+1 -0/);
 const longLine = "x".repeat(230);
 const truncated = diffCard(
   { title: "custom title", oldText: "", newText: longLine },
-  { color: false },
+  { color: false }
 );
 console.log(truncated);
 assert.match(truncated, /✎ custom title/);

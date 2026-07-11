@@ -1,0 +1,16 @@
+{"protocol_version":1,"type":"session.ready","ts":1,"data":{"employee":{"name":"Golden Employee","mode":"Task"}}}
+{"protocol_version":1,"type":"task.started","ts":2,"data":{"id":"task-golden","title":"Golden task","mode":"Task"}}
+{"protocol_version":1,"type":"plan.created","ts":3,"data":{"id":"plan-golden","steps":["draft","verify"]}}
+{"protocol_version":1,"type":"artifact.created","ts":4,"data":{"id":"artifact-golden","taskRunId":"task-golden","name":"report.md","kind":"report","path":"/workspace/report.md","status":"ready","bytes":128}}
+{"protocol_version":1,"type":"outcome.checked","ts":5,"data":{"taskRunId":"task-golden","valid":true,"deliverable":"/workspace/report.md"}}
+{"protocol_version":1,"type":"approval.requested","ts":6,"data":{"id":"approval-golden","taskRunId":"task-golden","kind":"deliverable_acceptance"}}
+{"protocol_version":1,"type":"artifact.updated","ts":7,"data":{"id":"artifact-golden","taskRunId":"task-golden","patch":{"status":"accepted"}}}
+{"protocol_version":1,"type":"approval.accepted","ts":8,"data":{"id":"approval-golden","taskRunId":"task-golden","kind":"deliverable_acceptance","proofpack":"/workspace/proof.json"}}
+{"protocol_version":1,"type":"approval.accepted","ts":9,"data":{"id":"approval-golden","taskRunId":"task-golden","kind":"deliverable_acceptance","proofpack":"/workspace/proof.json"}}
+{"protocol_version":1,"type":"future.additive_event","ts":10,"data":{"value":1}}
+{"protocol_version":1,"type":"task.failed","ts":11,"data":{"id":"task-golden","taskRunId":"other-task","reason":"contradictory correlation"}}
+{"protocol_version":1,"type":"task.completed","ts":12,"data":{"id":"task-golden","taskRunId":"task-golden"}}
+{"protocol_version":1,"type":"task.completed","ts":13,"data":{"id":"task-golden","taskRunId":"task-golden"}}
+{"protocol_version":1,"type":"task.failed","ts":14,"data":{"id":"task-golden","taskRunId":"task-golden","reason":"late conflicting terminal"}}
+{"protocol_version":1,"type":"approval.requested","ts":15,"data":{"id":"approval-after-terminal","taskRunId":"task-golden","kind":"deliverable_acceptance"}}
+{"protocol_version":1,"type":"approval.accepted","ts":16,"data":{"id":"approval-after-terminal","taskRunId":"task-golden","kind":"deliverable_acceptance","proofpack":"/workspace/late-proof.json"}}

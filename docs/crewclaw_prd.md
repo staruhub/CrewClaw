@@ -1,6 +1,10 @@
 # CrewClaw PRD
 
-版本：v0.1  
+> Historical v0.1 discovery document. The authoritative current product contract is
+> [`docs/prd_v0.18.md`](./prd_v0.18.md); do not use this file to decide current boundaries.
+
+版本：v0.1（历史归档）
+
 状态：Draft  
 日期：2026-06-22  
 产品定位：AI 员工人才市场  
@@ -40,13 +44,13 @@ CrewClaw 的核心对象不是工具，而是 Employee Package，也就是 AI �
 
 一个 AI 员工包由五层组成：
 
-| 层级 | 含义 | 用户感知 |
-|---|---|---|
-| Identity | 它是谁 | 名字、头像、职位、所属领域 |
-| Soul | 它怎么工作 | 性格、语气、工作原则、边界 |
-| Skills | 它会什么 | 研究、写作、外联、分析、客服等能力 |
-| Tools | 它能调用什么 | 浏览器、数据库、日历、邮件、API、RAG 等 |
-| Manifest | 它的说明书 | 安装要求、权限、版本、输入输出、限制 |
+| 层级     | 含义         | 用户感知                                |
+| -------- | ------------ | --------------------------------------- |
+| Identity | 它是谁       | 名字、头像、职位、所属领域              |
+| Soul     | 它怎么工作   | 性格、语气、工作原则、边界              |
+| Skills   | 它会什么     | 研究、写作、外联、分析、客服等能力      |
+| Tools    | 它能调用什么 | 浏览器、数据库、日历、邮件、API、RAG 等 |
+| Manifest | 它的说明书   | 安装要求、权限、版本、输入输出、限制    |
 
 产品要让用户感受到：我不是装了个插件，我是真的招了一个 AI 员工进团队。
 
@@ -82,13 +86,13 @@ MVP 阶段不做“大而全 Agent IDE”。
 
 暂时不做以下事情：
 
-| 非目标 | 原因 |
-|---|---|
-| 完整在线 Agent 编排器 | 太重，容易拖慢 Demo |
+| 非目标                | 原因                         |
+| --------------------- | ---------------------------- |
+| 完整在线 Agent 编排器 | 太重，容易拖慢 Demo          |
 | 复杂多 Agent 自动协作 | 先证明单个员工可雇佣、可管理 |
-| 完整支付结算系统 | 先做免费/模拟价格/内测白名单 |
-| 企业级权限体系 | MVP 先做基础权限确认 |
-| 通用 Agent 托管云 | 先支持包安装和运行配置 |
+| 完整支付结算系统      | 先做免费/模拟价格/内测白名单 |
+| 企业级权限体系        | MVP 先做基础权限确认         |
+| 通用 Agent 托管云     | 先支持包安装和运行配置       |
 
 ---
 
@@ -100,12 +104,12 @@ MVP 阶段不做“大而全 Agent IDE”。
 
 典型需求：
 
-| 需求 | 例子 |
-|---|---|
+| 需求             | 例子                                   |
+| ---------------- | -------------------------------------- |
 | 找到合适 AI 员工 | “我需要一个帮我做澳门人脉拓展的 Agent” |
-| 快速判断能不能用 | 看岗位、技能、评价、工具权限 |
-| 一键雇佣 | 不想复杂配置 |
-| 管理 AI 团队 | 查看、体检、更新、解雇 |
+| 快速判断能不能用 | 看岗位、技能、评价、工具权限           |
+| 一键雇佣         | 不想复杂配置                           |
+| 管理 AI 团队     | 查看、体检、更新、解雇                 |
 
 ### 6.2 Agent 创作者 Creator
 
@@ -113,12 +117,12 @@ MVP 阶段不做“大而全 Agent IDE”。
 
 典型需求：
 
-| 需求 | 例子 |
-|---|---|
-| 上传员工包 | 发布一个 Research Agent |
-| 说明员工能力 | 写清楚适用场景和限制 |
-| 获得用户 | 被搜索、被推荐、被雇佣 |
-| 获取反馈 | 看安装量、评分、失败原因 |
+| 需求         | 例子                     |
+| ------------ | ------------------------ |
+| 上传员工包   | 发布一个 Research Agent  |
+| 说明员工能力 | 写清楚适用场景和限制     |
+| 获得用户     | 被搜索、被推荐、被雇佣   |
+| 获取反馈     | 看安装量、评分、失败原因 |
 
 ### 6.3 平台运营者 Operator
 
@@ -126,11 +130,11 @@ MVP 阶段不做“大而全 Agent IDE”。
 
 典型需求：
 
-| 需求 | 例子 |
-|---|---|
-| 审核员工包 | 检查恶意权限、虚假描述 |
-| 管理推荐 | 推荐高质量员工 |
-| 处理投诉 | 下架危险或低质量员工 |
+| 需求         | 例子                   |
+| ------------ | ---------------------- |
+| 审核员工包   | 检查恶意权限、虚假描述 |
+| 管理推荐     | 推荐高质量员工         |
+| 处理投诉     | 下架危险或低质量员工   |
 | 查看平台指标 | 雇佣数、活跃数、失败率 |
 
 ---
@@ -165,39 +169,39 @@ MVP 阶段不做“大而全 Agent IDE”。
 
 ### 8.1 P0 必须做
 
-| 模块 | 功能 | 说明 |
-|---|---|---|
-| 市场首页 | 展示 AI 员工列表 | 支持推荐、分类、搜索 |
-| 员工详情页 | 查看员工能力 | 展示身份、职责、技能、工具、权限、版本 |
-| 雇佣流程 | Hire | 一键加入用户团队 |
-| 团队页 | List | 查看已雇佣员工 |
-| 体检能力 | Doctor | 检查员工状态、权限、版本、依赖 |
-| 解雇能力 | Fire | 从团队移除员工 |
-| 员工包标准 | Manifest | 定义 AI 员工包字段 |
-| 发布入口 | Submit | 创作者可提交员工包 |
-| 基础审核 | Review | 平台可标记 verified / unverified |
+| 模块       | 功能             | 说明                                   |
+| ---------- | ---------------- | -------------------------------------- |
+| 市场首页   | 展示 AI 员工列表 | 支持推荐、分类、搜索                   |
+| 员工详情页 | 查看员工能力     | 展示身份、职责、技能、工具、权限、版本 |
+| 雇佣流程   | Hire             | 一键加入用户团队                       |
+| 团队页     | List             | 查看已雇佣员工                         |
+| 体检能力   | Doctor           | 检查员工状态、权限、版本、依赖         |
+| 解雇能力   | Fire             | 从团队移除员工                         |
+| 员工包标准 | Manifest         | 定义 AI 员工包字段                     |
+| 发布入口   | Submit           | 创作者可提交员工包                     |
+| 基础审核   | Review           | 平台可标记 verified / unverified       |
 
 ### 8.2 P1 可以做
 
-| 模块 | 功能 | 说明 |
-|---|---|---|
-| 评分评价 | Reviews | 用户评价 AI 员工 |
-| 版本升级 | Update | 员工包有新版本时提醒 |
-| 推荐排序 | Ranking | 根据雇佣量、评分、成功率排序 |
-| 运行日志 | Logs | 查看员工执行记录 |
-| 使用模板 | Demo Task | 每个员工提供示例任务 |
-| 收藏 | Save | 用户先收藏，之后再雇佣 |
+| 模块     | 功能      | 说明                         |
+| -------- | --------- | ---------------------------- |
+| 评分评价 | Reviews   | 用户评价 AI 员工             |
+| 版本升级 | Update    | 员工包有新版本时提醒         |
+| 推荐排序 | Ranking   | 根据雇佣量、评分、成功率排序 |
+| 运行日志 | Logs      | 查看员工执行记录             |
+| 使用模板 | Demo Task | 每个员工提供示例任务         |
+| 收藏     | Save      | 用户先收藏，之后再雇佣       |
 
 ### 8.3 P2 未来做
 
-| 模块 | 功能 | 说明 |
-|---|---|---|
-| 付费市场 | Pricing | 免费、订阅、按次付费 |
-| 企业团队 | Workspace | 多成员共享 AI 员工 |
-| 多员工协作 | Crew Mode | 多个 AI 员工一起完成任务 |
-| 排班和职责 | Role Assignment | 给不同员工分配长期职责 |
-| 员工绩效 | Performance | 成功率、响应速度、任务贡献 |
-| 创作者收益 | Revenue Share | 平台分成和创作者结算 |
+| 模块       | 功能            | 说明                       |
+| ---------- | --------------- | -------------------------- |
+| 付费市场   | Pricing         | 免费、订阅、按次付费       |
+| 企业团队   | Workspace       | 多成员共享 AI 员工         |
+| 多员工协作 | Crew Mode       | 多个 AI 员工一起完成任务   |
+| 排班和职责 | Role Assignment | 给不同员工分配长期职责     |
+| 员工绩效   | Performance     | 成功率、响应速度、任务贡献 |
+| 创作者收益 | Revenue Share   | 平台分成和创作者结算       |
 
 ---
 
@@ -205,16 +209,16 @@ MVP 阶段不做“大而全 Agent IDE”。
 
 CrewClaw 的命令要故意做得像管理团队，而不是像装插件。
 
-| 命令 | 含义 | 用户感知 |
-|---|---|---|
-| crew search | 搜索 AI 员工 | 去人才市场找人 |
-| crew hire | 雇佣 AI 员工 | 员工入职 |
-| crew list | 查看团队成员 | 看当前团队 |
-| crew doctor | 体检员工状态 | 检查是否能正常工作 |
-| crew fire | 解雇 AI 员工 | 移出团队 |
-| crew update | 更新员工版本 | 给员工升级 |
-| crew inspect | 查看员工详情 | 看员工简历 |
-| crew submit | 发布员工包 | 创作者投递员工 |
+| 命令         | 含义         | 用户感知           |
+| ------------ | ------------ | ------------------ |
+| crew search  | 搜索 AI 员工 | 去人才市场找人     |
+| crew hire    | 雇佣 AI 员工 | 员工入职           |
+| crew list    | 查看团队成员 | 看当前团队         |
+| crew doctor  | 体检员工状态 | 检查是否能正常工作 |
+| crew fire    | 解雇 AI 员工 | 移出团队           |
+| crew update  | 更新员工版本 | 给员工升级         |
+| crew inspect | 查看员工详情 | 看员工简历         |
+| crew submit  | 发布员工包   | 创作者投递员工     |
 
 Demo 阶段最重要的命令是：
 
@@ -245,12 +249,12 @@ Demo 阶段最重要的命令是：
 
 验收标准：
 
-| 编号 | 标准 |
-|---|---|
-| AC-HIRE-001 | 用户能在 3 步内从员工详情页完成雇佣 |
-| AC-HIRE-002 | 雇佣前必须展示工具权限和数据访问范围 |
-| AC-HIRE-003 | 雇佣成功后，团队列表必须出现该员工 |
-| AC-HIRE-004 | 重复雇佣同一员工时，系统要提示已雇佣 |
+| 编号        | 标准                                     |
+| ----------- | ---------------------------------------- |
+| AC-HIRE-001 | 用户能在 3 步内从员工详情页完成雇佣      |
+| AC-HIRE-002 | 雇佣前必须展示工具权限和数据访问范围     |
+| AC-HIRE-003 | 雇佣成功后，团队列表必须出现该员工       |
+| AC-HIRE-004 | 重复雇佣同一员工时，系统要提示已雇佣     |
 | AC-HIRE-005 | 雇佣失败时，系统要说明失败原因和修复建议 |
 
 ### 10.2 体检 AI 员工流程
@@ -269,20 +273,20 @@ Demo 阶段最重要的命令是：
 
 健康状态分三类：
 
-| 状态 | 含义 |
-|---|---|
-| Healthy | 正常可用 |
+| 状态    | 含义                           |
+| ------- | ------------------------------ |
+| Healthy | 正常可用                       |
 | Warning | 可以运行，但存在风险或配置缺失 |
-| Broken | 无法正常运行 |
+| Broken  | 无法正常运行                   |
 
 验收标准：
 
-| 编号 | 标准 |
-|---|---|
-| AC-DOC-001 | doctor 能返回员工整体状态 |
-| AC-DOC-002 | doctor 能指出缺失权限 |
-| AC-DOC-003 | doctor 能指出缺失依赖 |
-| AC-DOC-004 | doctor 能指出版本过期 |
+| 编号       | 标准                          |
+| ---------- | ----------------------------- |
+| AC-DOC-001 | doctor 能返回员工整体状态     |
+| AC-DOC-002 | doctor 能指出缺失权限         |
+| AC-DOC-003 | doctor 能指出缺失依赖         |
+| AC-DOC-004 | doctor 能指出版本过期         |
 | AC-DOC-005 | doctor 必须给出下一步修复建议 |
 
 ### 10.3 解雇 AI 员工流程
@@ -299,12 +303,12 @@ Demo 阶段最重要的命令是：
 
 验收标准：
 
-| 编号 | 标准 |
-|---|---|
-| AC-FIRE-001 | 解雇前必须二次确认 |
+| 编号        | 标准                                  |
+| ----------- | ------------------------------------- |
+| AC-FIRE-001 | 解雇前必须二次确认                    |
 | AC-FIRE-002 | 解雇后团队列表不再展示该员工为 Active |
-| AC-FIRE-003 | 历史日志仍然可查 |
-| AC-FIRE-004 | 解雇后的员工不能继续调用工具 |
+| AC-FIRE-003 | 历史日志仍然可查                      |
+| AC-FIRE-004 | 解雇后的员工不能继续调用工具          |
 
 ### 10.4 发布 AI 员工流程
 
@@ -322,13 +326,13 @@ Demo 阶段最重要的命令是：
 
 验收标准：
 
-| 编号 | 标准 |
-|---|---|
-| AC-SUBMIT-001 | 必填字段缺失时不能提交 |
-| AC-SUBMIT-002 | 高风险权限必须被标记 |
+| 编号          | 标准                           |
+| ------------- | ------------------------------ |
+| AC-SUBMIT-001 | 必填字段缺失时不能提交         |
+| AC-SUBMIT-002 | 高风险权限必须被标记           |
 | AC-SUBMIT-003 | 审核通过前不能公开出现在主市场 |
-| AC-SUBMIT-004 | 发布后能通过搜索找到 |
-| AC-SUBMIT-005 | 发布后能被正常雇佣 |
+| AC-SUBMIT-004 | 发布后能通过搜索找到           |
+| AC-SUBMIT-005 | 发布后能被正常雇佣             |
 
 ---
 
@@ -338,34 +342,34 @@ Demo 阶段最重要的命令是：
 
 ### 11.1 页面核心信息
 
-| 区域 | 内容 |
-|---|---|
-| 顶部信息 | 员工名、头像、职位、创作者、认证状态 |
-| 一句话介绍 | 这个员工最适合做什么 |
-| 适用场景 | 它能帮用户解决哪些问题 |
-| 核心技能 | 能力列表 |
-| 工具权限 | 需要调用哪些工具和数据 |
-| 示例任务 | 用户可以直接试的 Demo Task |
-| 入职要求 | 环境、依赖、API Key、账号连接 |
-| 风险提示 | 不能做什么、可能出错的地方 |
-| 评价数据 | 评分、雇佣数、成功率 |
-| 版本信息 | 当前版本、更新时间、变更说明 |
-| Hire 按钮 | 主转化按钮 |
+| 区域       | 内容                                 |
+| ---------- | ------------------------------------ |
+| 顶部信息   | 员工名、头像、职位、创作者、认证状态 |
+| 一句话介绍 | 这个员工最适合做什么                 |
+| 适用场景   | 它能帮用户解决哪些问题               |
+| 核心技能   | 能力列表                             |
+| 工具权限   | 需要调用哪些工具和数据               |
+| 示例任务   | 用户可以直接试的 Demo Task           |
+| 入职要求   | 环境、依赖、API Key、账号连接        |
+| 风险提示   | 不能做什么、可能出错的地方           |
+| 评价数据   | 评分、雇佣数、成功率                 |
+| 版本信息   | 当前版本、更新时间、变更说明         |
+| Hire 按钮  | 主转化按钮                           |
 
 ### 11.2 员工卡片信息
 
 市场列表里的员工卡片要足够快地帮用户判断“要不要点进去”。
 
-| 字段 | 示例 |
-|---|---|
-| 员工名 | Macao Networking Agent |
-| 职位 | 澳门人脉拓展助手 |
-| 标签 | BD、Networking、Research、Macao |
-| 简介 | 帮你整理澳门本地人脉、会议、行业线索和外联话术 |
-| 认证 | Verified |
-| 评分 | 4.8 |
-| 雇佣数 | 1.2k |
-| 价格 | Free / Pro / Custom |
+| 字段   | 示例                                           |
+| ------ | ---------------------------------------------- |
+| 员工名 | Macao Networking Agent                         |
+| 职位   | 澳门人脉拓展助手                               |
+| 标签   | BD、Networking、Research、Macao                |
+| 简介   | 帮你整理澳门本地人脉、会议、行业线索和外联话术 |
+| 认证   | Verified                                       |
+| 评分   | 4.8                                            |
+| 雇佣数 | 1.2k                                           |
+| 价格   | Free / Pro / Custom                            |
 
 ---
 
@@ -375,38 +379,38 @@ Manifest 是 AI 员工的说明书，也是 CrewClaw 和普通 Agent 市场拉�
 
 ### 12.1 必填字段
 
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| id | 员工唯一标识 | macao-networking-agent |
-| name | 员工名称 | Macao Networking Agent |
-| role | 员工岗位 | 澳门人脉拓展助手 |
-| version | 版本号 | 1.0.0 |
-| creator | 创作者 | CrewClaw Labs |
-| description | 一句话介绍 | 帮你做澳门市场人脉拓展 |
-| identity | 员工身份设定 | 本地市场拓展型 AI 员工 |
-| soul | 工作风格和行为原则 | 主动、克制、重视事实核查 |
-| skills | 技能列表 | 线索整理、外联话术、会议分析 |
-| tools | 工具权限 | browser、contacts、calendar |
-| permissions | 数据和操作权限 | read-only / write-with-confirmation |
-| input_examples | 示例输入 | “帮我找澳门金融科技活动” |
-| output_examples | 示例输出 | 活动列表、人脉建议、外联模板 |
-| limitations | 能力边界 | 不保证联系人真实可触达 |
-| install_requirements | 入职要求 | 需要浏览器权限 |
+| 字段                 | 含义               | 示例                                |
+| -------------------- | ------------------ | ----------------------------------- |
+| id                   | 员工唯一标识       | macao-networking-agent              |
+| name                 | 员工名称           | Macao Networking Agent              |
+| role                 | 员工岗位           | 澳门人脉拓展助手                    |
+| version              | 版本号             | 1.0.0                               |
+| creator              | 创作者             | CrewClaw Labs                       |
+| description          | 一句话介绍         | 帮你做澳门市场人脉拓展              |
+| identity             | 员工身份设定       | 本地市场拓展型 AI 员工              |
+| soul                 | 工作风格和行为原则 | 主动、克制、重视事实核查            |
+| skills               | 技能列表           | 线索整理、外联话术、会议分析        |
+| tools                | 工具权限           | browser、contacts、calendar         |
+| permissions          | 数据和操作权限     | read-only / write-with-confirmation |
+| input_examples       | 示例输入           | “帮我找澳门金融科技活动”            |
+| output_examples      | 示例输出           | 活动列表、人脉建议、外联模板        |
+| limitations          | 能力边界           | 不保证联系人真实可触达              |
+| install_requirements | 入职要求           | 需要浏览器权限                      |
 
 ### 12.2 可选字段
 
-| 字段 | 含义 |
-|---|---|
-| pricing | 价格策略 |
-| categories | 市场分类 |
-| tags | 搜索标签 |
-| screenshots | 展示图 |
-| demo_tasks | 可一键运行的示例任务 |
-| changelog | 版本变更 |
-| support_url | 支持链接 |
-| privacy_policy | 隐私说明 |
-| benchmark_results | 测试结果 |
-| safety_notes | 安全说明 |
+| 字段              | 含义                 |
+| ----------------- | -------------------- |
+| pricing           | 价格策略             |
+| categories        | 市场分类             |
+| tags              | 搜索标签             |
+| screenshots       | 展示图               |
+| demo_tasks        | 可一键运行的示例任务 |
+| changelog         | 版本变更             |
+| support_url       | 支持链接             |
+| privacy_policy    | 隐私说明             |
+| benchmark_results | 测试结果             |
+| safety_notes      | 安全说明             |
 
 ---
 
@@ -416,64 +420,64 @@ Manifest 是 AI 员工的说明书，也是 CrewClaw 和普通 Agent 市场拉�
 
 代表市场里的一个 AI 员工。
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| employee_id | string | 员工唯一 ID |
-| name | string | 员工名称 |
-| role | string | 岗位名称 |
-| creator_id | string | 创作者 ID |
-| description | string | 简介 |
-| status | enum | draft / review / published / disabled |
-| verified | boolean | 是否认证 |
-| categories | array | 分类 |
-| tags | array | 标签 |
-| rating | number | 平均评分 |
-| hire_count | number | 雇佣次数 |
-| created_at | datetime | 创建时间 |
-| updated_at | datetime | 更新时间 |
+| 字段        | 类型     | 说明                                  |
+| ----------- | -------- | ------------------------------------- |
+| employee_id | string   | 员工唯一 ID                           |
+| name        | string   | 员工名称                              |
+| role        | string   | 岗位名称                              |
+| creator_id  | string   | 创作者 ID                             |
+| description | string   | 简介                                  |
+| status      | enum     | draft / review / published / disabled |
+| verified    | boolean  | 是否认证                              |
+| categories  | array    | 分类                                  |
+| tags        | array    | 标签                                  |
+| rating      | number   | 平均评分                              |
+| hire_count  | number   | 雇佣次数                              |
+| created_at  | datetime | 创建时间                              |
+| updated_at  | datetime | 更新时间                              |
 
 ### 13.2 EmployeePackage
 
 代表员工包本体。
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| package_id | string | 包 ID |
-| employee_id | string | 对应员工 ID |
-| version | string | 版本 |
-| manifest | object | 员工说明书 |
-| package_url | string | 包地址 |
-| checksum | string | 完整性校验 |
-| release_notes | string | 发布说明 |
+| 字段          | 类型   | 说明        |
+| ------------- | ------ | ----------- |
+| package_id    | string | 包 ID       |
+| employee_id   | string | 对应员工 ID |
+| version       | string | 版本        |
+| manifest      | object | 员工说明书  |
+| package_url   | string | 包地址      |
+| checksum      | string | 完整性校验  |
+| release_notes | string | 发布说明    |
 
 ### 13.3 WorkspaceEmployee
 
 代表某个用户团队里已经雇佣的员工。
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| workspace_employee_id | string | 团队员工 ID |
-| workspace_id | string | 团队 ID |
-| employee_id | string | 员工 ID |
-| version | string | 当前使用版本 |
-| status | enum | active / warning / broken / fired |
-| hired_by | string | 雇佣者 |
-| hired_at | datetime | 雇佣时间 |
-| fired_at | datetime | 解雇时间 |
-| permissions_granted | array | 已授权权限 |
+| 字段                  | 类型     | 说明                              |
+| --------------------- | -------- | --------------------------------- |
+| workspace_employee_id | string   | 团队员工 ID                       |
+| workspace_id          | string   | 团队 ID                           |
+| employee_id           | string   | 员工 ID                           |
+| version               | string   | 当前使用版本                      |
+| status                | enum     | active / warning / broken / fired |
+| hired_by              | string   | 雇佣者                            |
+| hired_at              | datetime | 雇佣时间                          |
+| fired_at              | datetime | 解雇时间                          |
+| permissions_granted   | array    | 已授权权限                        |
 
 ### 13.4 DoctorReport
 
 代表体检报告。
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| report_id | string | 报告 ID |
-| workspace_employee_id | string | 被检查员工 |
-| health_status | enum | healthy / warning / broken |
-| issues | array | 问题列表 |
-| suggestions | array | 修复建议 |
-| checked_at | datetime | 检查时间 |
+| 字段                  | 类型     | 说明                       |
+| --------------------- | -------- | -------------------------- |
+| report_id             | string   | 报告 ID                    |
+| workspace_employee_id | string   | 被检查员工                 |
+| health_status         | enum     | healthy / warning / broken |
+| issues                | array    | 问题列表                   |
+| suggestions           | array    | 修复建议                   |
+| checked_at            | datetime | 检查时间                   |
 
 ---
 
@@ -483,13 +487,13 @@ Manifest 是 AI 员工的说明书，也是 CrewClaw 和普通 Agent 市场拉�
 
 用户要能快速找到合适的 AI 员工。
 
-| 编号 | 需求 | 优先级 |
-|---|---|---|
-| FR-001 | 支持关键词搜索员工 | P0 |
-| FR-002 | 支持按分类浏览员工 | P0 |
-| FR-003 | 支持按标签筛选员工 | P1 |
-| FR-004 | 支持按评分、雇佣数、更新时间排序 | P1 |
-| FR-005 | 支持推荐员工专区 | P0 |
+| 编号   | 需求                             | 优先级 |
+| ------ | -------------------------------- | ------ |
+| FR-001 | 支持关键词搜索员工               | P0     |
+| FR-002 | 支持按分类浏览员工               | P0     |
+| FR-003 | 支持按标签筛选员工               | P1     |
+| FR-004 | 支持按评分、雇佣数、更新时间排序 | P1     |
+| FR-005 | 支持推荐员工专区                 | P0     |
 
 验收标准：搜索 “Macao” 时，能找到 Macao Networking Agent；搜索结果卡片展示名称、职位、简介、认证状态和 Hire 入口。
 
@@ -497,15 +501,15 @@ Manifest 是 AI 员工的说明书，也是 CrewClaw 和普通 Agent 市场拉�
 
 用户要能判断这个员工是否值得雇。
 
-| 编号 | 需求 | 优先级 |
-|---|---|---|
-| FR-006 | 展示员工身份和岗位 | P0 |
-| FR-007 | 展示技能列表 | P0 |
-| FR-008 | 展示工具权限 | P0 |
-| FR-009 | 展示示例任务 | P0 |
-| FR-010 | 展示限制和风险 | P0 |
-| FR-011 | 展示评分和雇佣数 | P1 |
-| FR-012 | 展示版本和更新日志 | P1 |
+| 编号   | 需求               | 优先级 |
+| ------ | ------------------ | ------ |
+| FR-006 | 展示员工身份和岗位 | P0     |
+| FR-007 | 展示技能列表       | P0     |
+| FR-008 | 展示工具权限       | P0     |
+| FR-009 | 展示示例任务       | P0     |
+| FR-010 | 展示限制和风险     | P0     |
+| FR-011 | 展示评分和雇佣数   | P1     |
+| FR-012 | 展示版本和更新日志 | P1     |
 
 验收标准：用户不需要读文档，只看详情页就能知道这个员工能干什么、需要什么权限、适不适合自己。
 
@@ -513,13 +517,13 @@ Manifest 是 AI 员工的说明书，也是 CrewClaw 和普通 Agent 市场拉�
 
 用户要能把市场里的 AI 员工加入自己的团队。
 
-| 编号 | 需求 | 优先级 |
-|---|---|---|
-| FR-013 | 支持一键 Hire | P0 |
-| FR-014 | Hire 前展示权限确认 | P0 |
-| FR-015 | Hire 成功后加入团队列表 | P0 |
-| FR-016 | Hire 失败时展示错误原因 | P0 |
-| FR-017 | 支持重复雇佣防重 | P0 |
+| 编号   | 需求                    | 优先级 |
+| ------ | ----------------------- | ------ |
+| FR-013 | 支持一键 Hire           | P0     |
+| FR-014 | Hire 前展示权限确认     | P0     |
+| FR-015 | Hire 成功后加入团队列表 | P0     |
+| FR-016 | Hire 失败时展示错误原因 | P0     |
+| FR-017 | 支持重复雇佣防重        | P0     |
 
 验收标准：用户从详情页点击 Hire 后，确认权限，即可在团队页看到员工。
 
@@ -527,13 +531,13 @@ Manifest 是 AI 员工的说明书，也是 CrewClaw 和普通 Agent 市场拉�
 
 用户要能管理自己已经雇佣的 AI 员工。
 
-| 编号 | 需求 | 优先级 |
-|---|---|---|
-| FR-018 | 展示已雇佣员工列表 | P0 |
-| FR-019 | 展示员工状态 | P0 |
-| FR-020 | 支持查看员工详情 | P0 |
-| FR-021 | 支持 Fire 解雇员工 | P0 |
-| FR-022 | 支持 Update 更新员工 | P1 |
+| 编号   | 需求                 | 优先级 |
+| ------ | -------------------- | ------ |
+| FR-018 | 展示已雇佣员工列表   | P0     |
+| FR-019 | 展示员工状态         | P0     |
+| FR-020 | 支持查看员工详情     | P0     |
+| FR-021 | 支持 Fire 解雇员工   | P0     |
+| FR-022 | 支持 Update 更新员工 | P1     |
 
 验收标准：团队页能回答三个问题：我雇了谁、谁能正常干活、谁需要处理。
 
@@ -541,13 +545,13 @@ Manifest 是 AI 员工的说明书，也是 CrewClaw 和普通 Agent 市场拉�
 
 用户要能知道员工能不能正常运行。
 
-| 编号 | 需求 | 优先级 |
-|---|---|---|
-| FR-023 | 检查 Manifest 完整性 | P0 |
-| FR-024 | 检查权限是否授权 | P0 |
-| FR-025 | 检查工具依赖是否存在 | P0 |
-| FR-026 | 检查版本是否过期 | P1 |
-| FR-027 | 返回修复建议 | P0 |
+| 编号   | 需求                 | 优先级 |
+| ------ | -------------------- | ------ |
+| FR-023 | 检查 Manifest 完整性 | P0     |
+| FR-024 | 检查权限是否授权     | P0     |
+| FR-025 | 检查工具依赖是否存在 | P0     |
+| FR-026 | 检查版本是否过期     | P1     |
+| FR-027 | 返回修复建议         | P0     |
 
 验收标准：一个权限缺失的员工必须被标记为 Warning 或 Broken，并明确告诉用户缺什么。
 
@@ -555,14 +559,14 @@ Manifest 是 AI 员工的说明书，也是 CrewClaw 和普通 Agent 市场拉�
 
 创作者要能把自己的 AI 员工发布到市场。
 
-| 编号 | 需求 | 优先级 |
-|---|---|---|
-| FR-028 | 支持创建员工草稿 | P0 |
-| FR-029 | 支持提交 Manifest | P0 |
-| FR-030 | 支持系统基础校验 | P0 |
-| FR-031 | 支持进入审核队列 | P0 |
-| FR-032 | 支持发布成功后上架 | P0 |
-| FR-033 | 支持版本更新 | P1 |
+| 编号   | 需求               | 优先级 |
+| ------ | ------------------ | ------ |
+| FR-028 | 支持创建员工草稿   | P0     |
+| FR-029 | 支持提交 Manifest  | P0     |
+| FR-030 | 支持系统基础校验   | P0     |
+| FR-031 | 支持进入审核队列   | P0     |
+| FR-032 | 支持发布成功后上架 | P0     |
+| FR-033 | 支持版本更新       | P1     |
 
 验收标准：创作者提交一个字段完整的员工包后，平台可以审核并发布，用户能搜索和雇佣。
 
@@ -570,13 +574,13 @@ Manifest 是 AI 员工的说明书，也是 CrewClaw 和普通 Agent 市场拉�
 
 平台要防止恶意员工包进入市场。
 
-| 编号 | 需求 | 优先级 |
-|---|---|---|
-| FR-034 | 标记高风险权限 | P0 |
-| FR-035 | 禁止未说明的数据写入权限 | P0 |
-| FR-036 | 审核通过后才显示 Verified | P0 |
-| FR-037 | 支持下架员工 | P0 |
-| FR-038 | 支持用户举报 | P1 |
+| 编号   | 需求                      | 优先级 |
+| ------ | ------------------------- | ------ |
+| FR-034 | 标记高风险权限            | P0     |
+| FR-035 | 禁止未说明的数据写入权限  | P0     |
+| FR-036 | 审核通过后才显示 Verified | P0     |
+| FR-037 | 支持下架员工              | P0     |
+| FR-038 | 支持用户举报              | P1     |
 
 验收标准：任何请求邮件发送、联系人写入、支付操作、删除数据的员工，都必须被标为高风险权限，并在 Hire 前明确提示。
 
@@ -588,12 +592,12 @@ CrewClaw 的信任感很关键。用户雇佣 AI 员工时，最怕它乱动数�
 
 ### 15.1 权限等级
 
-| 等级 | 含义 | 示例 |
-|---|---|---|
-| Read-only | 只读 | 读取网页、读取公开资料 |
-| Write with confirmation | 写入前确认 | 起草邮件但不自动发送 |
-| Autonomous write | 可自动写入 | 自动更新 CRM 字段 |
-| Sensitive action | 高风险操作 | 发邮件、付款、删除数据 |
+| 等级                    | 含义       | 示例                   |
+| ----------------------- | ---------- | ---------------------- |
+| Read-only               | 只读       | 读取网页、读取公开资料 |
+| Write with confirmation | 写入前确认 | 起草邮件但不自动发送   |
+| Autonomous write        | 可自动写入 | 自动更新 CRM 字段      |
+| Sensitive action        | 高风险操作 | 发邮件、付款、删除数据 |
 
 MVP 默认只支持前两类。高风险权限可以展示，但不默认开放。
 
@@ -601,13 +605,13 @@ MVP 默认只支持前两类。高风险权限可以展示，但不默认开放�
 
 雇佣前必须展示：
 
-| 信息 | 说明 |
-|---|---|
-| 它要访问什么 | 数据范围 |
-| 它能做什么动作 | 只读、写入、发送、删除 |
-| 哪些动作需要确认 | 用户确认点 |
-| 风险是什么 | 可能的错误或误操作 |
-| 如何撤销 | 解雇或关闭权限 |
+| 信息             | 说明                   |
+| ---------------- | ---------------------- |
+| 它要访问什么     | 数据范围               |
+| 它能做什么动作   | 只读、写入、发送、删除 |
+| 哪些动作需要确认 | 用户确认点             |
+| 风险是什么       | 可能的错误或误操作     |
+| 如何撤销         | 解雇或关闭权限         |
 
 ---
 
@@ -615,19 +619,19 @@ MVP 默认只支持前两类。高风险权限可以展示，但不默认开放�
 
 AI 员工从创建到被使用，有完整生命周期。
 
-| 状态 | 含义 |
-|---|---|
-| Draft | 创作者草稿 |
-| Submitted | 已提交审核 |
-| Rejected | 审核未通过 |
-| Published | 已上架 |
-| Verified | 已认证 |
-| Hired | 被用户雇佣 |
-| Active | 在用户团队中可用 |
-| Warning | 可用但有问题 |
-| Broken | 不可用 |
-| Fired | 已被解雇 |
-| Disabled | 平台下架或禁用 |
+| 状态      | 含义             |
+| --------- | ---------------- |
+| Draft     | 创作者草稿       |
+| Submitted | 已提交审核       |
+| Rejected  | 审核未通过       |
+| Published | 已上架           |
+| Verified  | 已认证           |
+| Hired     | 被用户雇佣       |
+| Active    | 在用户团队中可用 |
+| Warning   | 可用但有问题     |
+| Broken    | 不可用           |
+| Fired     | 已被解雇         |
+| Disabled  | 平台下架或禁用   |
 
 生命周期最重要的体验点是：
 
@@ -639,16 +643,16 @@ AI 员工从创建到被使用，有完整生命周期。
 
 MVP 页面结构如下：
 
-| 页面 | 目的 |
-|---|---|
-| Marketplace 首页 | 发现 AI 员工 |
-| Search Results | 搜索和筛选员工 |
-| Employee Detail | 判断是否雇佣 |
-| Hire Confirmation | 确认权限并雇佣 |
-| Team Dashboard | 查看自己的 AI 团队 |
-| Employee Status | 查看员工状态和体检结果 |
-| Creator Console | 发布和管理员工包 |
-| Review Queue | 平台审核员工包 |
+| 页面              | 目的                   |
+| ----------------- | ---------------------- |
+| Marketplace 首页  | 发现 AI 员工           |
+| Search Results    | 搜索和筛选员工         |
+| Employee Detail   | 判断是否雇佣           |
+| Hire Confirmation | 确认权限并雇佣         |
+| Team Dashboard    | 查看自己的 AI 团队     |
+| Employee Status   | 查看员工状态和体检结果 |
+| Creator Console   | 发布和管理员工包       |
+| Review Queue      | 平台审核员工包         |
 
 ---
 
@@ -660,14 +664,14 @@ MVP 页面结构如下：
 
 核心模块：
 
-| 模块 | 内容 |
-|---|---|
-| Hero | Hire AI employees for your crew |
-| 搜索框 | 搜索岗位、领域、任务 |
-| 推荐员工 | 平台精选 |
-| 热门分类 | Sales、Research、Ops、Coding、Local Expert |
-| 新员工 | 最近发布 |
-| 高评分员工 | 可信推荐 |
+| 模块       | 内容                                       |
+| ---------- | ------------------------------------------ |
+| Hero       | Hire AI employees for your crew            |
+| 搜索框     | 搜索岗位、领域、任务                       |
+| 推荐员工   | 平台精选                                   |
+| 热门分类   | Sales、Research、Ops、Coding、Local Expert |
+| 新员工     | 最近发布                                   |
+| 高评分员工 | 可信推荐                                   |
 
 ### 18.2 Employee Detail 页面
 
@@ -675,13 +679,13 @@ MVP 页面结构如下：
 
 用户需要看到：
 
-| 问题 | 页面要回答 |
-|---|---|
-| 它是谁 | 名字、职位、创作者 |
-| 它能干什么 | 技能和场景 |
-| 它怎么工作 | Soul 和工作原则 |
-| 它要什么权限 | 工具和数据访问 |
-| 它靠谱吗 | 评分、雇佣数、认证 |
+| 问题         | 页面要回答           |
+| ------------ | -------------------- |
+| 它是谁       | 名字、职位、创作者   |
+| 它能干什么   | 技能和场景           |
+| 它怎么工作   | Soul 和工作原则      |
+| 它要什么权限 | 工具和数据访问       |
+| 它靠谱吗     | 评分、雇佣数、认证   |
 | 它有什么限制 | 风险、边界、失败场景 |
 
 ### 18.3 Team Dashboard 页面
@@ -690,14 +694,14 @@ MVP 页面结构如下：
 
 字段：
 
-| 字段 | 说明 |
-|---|---|
-| 员工名 | 当前雇佣的 AI 员工 |
-| 职位 | 它负责什么 |
-| 状态 | Healthy / Warning / Broken |
-| 版本 | 当前版本 |
-| 最近活动 | 上次运行时间 |
-| 操作 | Doctor / Inspect / Update / Fire |
+| 字段     | 说明                             |
+| -------- | -------------------------------- |
+| 员工名   | 当前雇佣的 AI 员工               |
+| 职位     | 它负责什么                       |
+| 状态     | Healthy / Warning / Broken       |
+| 版本     | 当前版本                         |
+| 最近活动 | 上次运行时间                     |
+| 操作     | Doctor / Inspect / Update / Fire |
 
 ### 18.4 Creator Console 页面
 
@@ -705,13 +709,13 @@ MVP 页面结构如下：
 
 字段：
 
-| 字段 | 说明 |
-|---|---|
-| 草稿列表 | 未提交员工包 |
-| 已发布员工 | 市场中的员工 |
-| 审核状态 | Pending / Approved / Rejected |
-| 数据表现 | 雇佣数、评分、失败率 |
-| 版本管理 | 发布新版 |
+| 字段       | 说明                          |
+| ---------- | ----------------------------- |
+| 草稿列表   | 未提交员工包                  |
+| 已发布员工 | 市场中的员工                  |
+| 审核状态   | Pending / Approved / Rejected |
+| 数据表现   | 雇佣数、评分、失败率          |
+| 版本管理   | 发布新版                      |
 
 ---
 
@@ -749,12 +753,12 @@ Demo 要让人 30 秒内记住。
 
 ### 19.2 Demo 成功标准
 
-| 标准 | 说明 |
-|---|---|
-| 10 秒懂定位 | 评委知道这是 AI 员工市场 |
-| 30 秒懂流程 | 能看懂雇佣、入职、体检 |
-| 记住命令 | 记住 hire / doctor / fire |
-| 记住差异化 | 不是插件，是 AI 员工 |
+| 标准        | 说明                      |
+| ----------- | ------------------------- |
+| 10 秒懂定位 | 评委知道这是 AI 员工市场  |
+| 30 秒懂流程 | 能看懂雇佣、入职、体检    |
+| 记住命令    | 记住 hire / doctor / fire |
+| 记住差异化  | 不是插件，是 AI 员工      |
 
 ---
 
@@ -768,23 +772,23 @@ Demo 要让人 30 秒内记住。
 
 ### 20.2 MVP 指标
 
-| 指标 | 目标 |
-|---|---|
-| 访问详情页 → Hire 转化率 | ≥ 20% |
-| Hire 成功率 | ≥ 90% |
-| Doctor 可解释率 | ≥ 95% |
+| 指标                       | 目标  |
+| -------------------------- | ----- |
+| 访问详情页 → Hire 转化率   | ≥ 20% |
+| Hire 成功率                | ≥ 90% |
+| Doctor 可解释率            | ≥ 95% |
 | 雇佣后 24 小时内首次使用率 | ≥ 50% |
-| 用户能说清产品定位 | ≥ 80% |
+| 用户能说清产品定位         | ≥ 80% |
 
 ### 20.3 市场指标
 
-| 指标 | 含义 |
-|---|---|
-| 员工包数量 | 市场供给 |
-| 有效雇佣数 | 市场需求 |
-| 平均评分 | 质量 |
-| 任务成功率 | 实用性 |
-| 重复使用率 | 留存 |
+| 指标         | 含义       |
+| ------------ | ---------- |
+| 员工包数量   | 市场供给   |
+| 有效雇佣数   | 市场需求   |
+| 平均评分     | 质量       |
+| 任务成功率   | 实用性     |
+| 重复使用率   | 留存       |
 | 创作者复发率 | 供给端活跃 |
 
 ---
@@ -793,24 +797,24 @@ Demo 要让人 30 秒内记住。
 
 MVP 至少需要这些事件：
 
-| 事件名 | 触发时机 |
-|---|---|
-| marketplace_viewed | 打开市场首页 |
-| employee_searched | 搜索员工 |
-| employee_card_clicked | 点击员工卡片 |
-| employee_detail_viewed | 查看员工详情 |
-| hire_clicked | 点击 Hire |
-| permission_viewed | 查看权限确认 |
-| hire_confirmed | 确认雇佣 |
-| hire_succeeded | 雇佣成功 |
-| hire_failed | 雇佣失败 |
-| team_viewed | 查看团队 |
-| doctor_started | 开始体检 |
-| doctor_completed | 体检完成 |
-| fire_clicked | 点击解雇 |
-| fire_confirmed | 确认解雇 |
-| employee_submitted | 创作者提交员工 |
-| employee_published | 员工发布成功 |
+| 事件名                 | 触发时机       |
+| ---------------------- | -------------- |
+| marketplace_viewed     | 打开市场首页   |
+| employee_searched      | 搜索员工       |
+| employee_card_clicked  | 点击员工卡片   |
+| employee_detail_viewed | 查看员工详情   |
+| hire_clicked           | 点击 Hire      |
+| permission_viewed      | 查看权限确认   |
+| hire_confirmed         | 确认雇佣       |
+| hire_succeeded         | 雇佣成功       |
+| hire_failed            | 雇佣失败       |
+| team_viewed            | 查看团队       |
+| doctor_started         | 开始体检       |
+| doctor_completed       | 体检完成       |
+| fire_clicked           | 点击解雇       |
+| fire_confirmed         | 确认解雇       |
+| employee_submitted     | 创作者提交员工 |
+| employee_published     | 员工发布成功   |
 
 ---
 
@@ -818,15 +822,15 @@ MVP 至少需要这些事件：
 
 MVP 分类不要太多，先让市场看起来有秩序。
 
-| 分类 | 例子 |
-|---|---|
-| Research | AI Researcher、Market Analyst |
-| Sales | Lead Finder、Outbound Assistant |
-| Operations | Meeting Assistant、Task Coordinator |
-| Coding | Code Reviewer、Bug Triage Agent |
-| Local Expert | Macao Networking Agent、Japan Travel Agent |
-| Customer Support | FAQ Agent、Ticket Triage Agent |
-| Marketing | Content Planner、SEO Assistant |
+| 分类             | 例子                                       |
+| ---------------- | ------------------------------------------ |
+| Research         | AI Researcher、Market Analyst              |
+| Sales            | Lead Finder、Outbound Assistant            |
+| Operations       | Meeting Assistant、Task Coordinator        |
+| Coding           | Code Reviewer、Bug Triage Agent            |
+| Local Expert     | Macao Networking Agent、Japan Travel Agent |
+| Customer Support | FAQ Agent、Ticket Triage Agent             |
+| Marketing        | Content Planner、SEO Assistant             |
 
 ---
 
@@ -834,40 +838,40 @@ MVP 分类不要太多，先让市场看起来有秩序。
 
 ### 23.1 基本信息
 
-| 字段 | 内容 |
-|---|---|
-| 员工名 | Macao Networking Agent |
-| 岗位 | 澳门人脉拓展助手 |
-| 分类 | Local Expert / Sales / Research |
-| 简介 | 帮用户整理澳门本地活动、人脉线索、行业信息和外联建议 |
-| 适合用户 | 想进入澳门市场的创业者、BD、投资人、活动组织者 |
+| 字段     | 内容                                                 |
+| -------- | ---------------------------------------------------- |
+| 员工名   | Macao Networking Agent                               |
+| 岗位     | 澳门人脉拓展助手                                     |
+| 分类     | Local Expert / Sales / Research                      |
+| 简介     | 帮用户整理澳门本地活动、人脉线索、行业信息和外联建议 |
+| 适合用户 | 想进入澳门市场的创业者、BD、投资人、活动组织者       |
 
 ### 23.2 核心能力
 
-| 能力 | 说明 |
-|---|---|
-| 活动发现 | 找澳门相关会议、展会、创业活动 |
-| 人脉线索整理 | 整理可能相关的人、机构、公司 |
-| 背景研究 | 生成联系人或机构画像 |
-| 外联话术 | 生成 LinkedIn、邮件、微信风格话术 |
-| 行动计划 | 输出下一步拓展建议 |
+| 能力         | 说明                              |
+| ------------ | --------------------------------- |
+| 活动发现     | 找澳门相关会议、展会、创业活动    |
+| 人脉线索整理 | 整理可能相关的人、机构、公司      |
+| 背景研究     | 生成联系人或机构画像              |
+| 外联话术     | 生成 LinkedIn、邮件、微信风格话术 |
+| 行动计划     | 输出下一步拓展建议                |
 
 ### 23.3 权限
 
-| 权限 | MVP 建议 |
-|---|---|
-| 浏览公开网页 | 允许 |
-| 读取联系人 | 暂不默认允许 |
-| 写入 CRM | 暂不开放 |
+| 权限         | MVP 建议           |
+| ------------ | ------------------ |
+| 浏览公开网页 | 允许               |
+| 读取联系人   | 暂不默认允许       |
+| 写入 CRM     | 暂不开放           |
 | 自动发送消息 | 禁止，必须用户确认 |
 
 ### 23.4 示例任务
 
-| 示例任务 | 预期输出 |
-|---|---|
+| 示例任务                                   | 预期输出                     |
+| ------------------------------------------ | ---------------------------- |
 | 帮我找澳门本月适合认识金融科技从业者的活动 | 活动列表、推荐理由、参会建议 |
-| 帮我整理澳门 AI 创业相关机构 | 机构清单、背景、可能切入点 |
-| 帮我写一段给澳门本地投资人的外联消息 | 3 个版本的话术 |
+| 帮我整理澳门 AI 创业相关机构               | 机构清单、背景、可能切入点   |
+| 帮我写一段给澳门本地投资人的外联消息       | 3 个版本的话术               |
 
 ---
 
@@ -875,14 +879,14 @@ MVP 分类不要太多，先让市场看起来有秩序。
 
 MVP 可以采用“市场前端 + 包注册表 + CLI + 简单运行时检查”的方式实现。
 
-| 模块 | 假设 |
-|---|---|
-| Marketplace | Web 页面展示员工列表和详情 |
-| Registry | 存储员工包和 Manifest |
-| CLI | 支持 hire / list / doctor / fire |
-| Runtime | 先不做完整云运行，只做本地或模拟集成 |
-| Permission | 先做声明式权限确认 |
-| Review | 先做人工审核状态 |
+| 模块         | 假设                                           |
+| ------------ | ---------------------------------------------- |
+| Marketplace  | Web 页面展示员工列表和详情                     |
+| Registry     | 存储员工包和 Manifest                          |
+| CLI          | 支持 hire / list / doctor / fire               |
+| Runtime      | 先不做完整云运行，只做本地或模拟集成           |
+| Permission   | 先做声明式权限确认                             |
+| Review       | 先做人工审核状态                               |
 | ClawHub 集成 | Skills 可以来自 ClawHub，CrewClaw 负责员工封装 |
 
 关键原则：MVP 要先证明产品概念，不要被完整基础设施拖死。
@@ -891,14 +895,14 @@ MVP 可以采用“市场前端 + 包注册表 + CLI + 简单运行时检查”�
 
 ## 25. 风险与对策
 
-| 风险 | 表现 | 对策 |
-|---|---|---|
-| 用户以为只是插件市场 | 定位不够新 | 全部文案用“员工、雇佣、团队、入职” |
-| 员工包质量参差不齐 | 用户雇了不能用 | 增加 Verified、Doctor、示例任务 |
-| 权限风险 | Agent 乱用工具 | Hire 前权限确认，高风险默认禁止 |
-| 创作者不会写 Manifest | 供给不足 | 提供模板、校验器、示例员工 |
-| Demo 太技术化 | 评委记不住 | 主打 AI 员工入职仪式 |
-| 和 ClawHub 边界不清 | 两个产品打架 | 明确：ClawHub 是 Skill，CrewClaw 是 Employee |
+| 风险                  | 表现           | 对策                                         |
+| --------------------- | -------------- | -------------------------------------------- |
+| 用户以为只是插件市场  | 定位不够新     | 全部文案用“员工、雇佣、团队、入职”           |
+| 员工包质量参差不齐    | 用户雇了不能用 | 增加 Verified、Doctor、示例任务              |
+| 权限风险              | Agent 乱用工具 | Hire 前权限确认，高风险默认禁止              |
+| 创作者不会写 Manifest | 供给不足       | 提供模板、校验器、示例员工                   |
+| Demo 太技术化         | 评委记不住     | 主打 AI 员工入职仪式                         |
+| 和 ClawHub 边界不清   | 两个产品打架   | 明确：ClawHub 是 Skill，CrewClaw 是 Employee |
 
 ---
 
@@ -910,13 +914,13 @@ MVP 可以采用“市场前端 + 包注册表 + CLI + 简单运行时检查”�
 
 范围：
 
-| 任务 | 产出 |
-|---|---|
-| 设计品牌话术 | BOSS 直聘 for AI Agent |
-| 做 3 个示例员工 | Macao Networking Agent 等 |
-| 做市场首页 | 能浏览员工 |
-| 做员工详情页 | 能看员工简历 |
-| 做 Hire Demo | 能展示入职流程 |
+| 任务            | 产出                        |
+| --------------- | --------------------------- |
+| 设计品牌话术    | BOSS 直聘 for AI Agent      |
+| 做 3 个示例员工 | Macao Networking Agent 等   |
+| 做市场首页      | 能浏览员工                  |
+| 做员工详情页    | 能看员工简历                |
+| 做 Hire Demo    | 能展示入职流程              |
 | 做 CLI 命令模拟 | hire / list / doctor / fire |
 
 ### 26.2 第二阶段：MVP 内测
@@ -925,14 +929,14 @@ MVP 可以采用“市场前端 + 包注册表 + CLI + 简单运行时检查”�
 
 范围：
 
-| 任务 | 产出 |
-|---|---|
-| Manifest 标准 | 员工包规范 |
-| Registry | 员工包注册表 |
+| 任务            | 产出           |
+| --------------- | -------------- |
+| Manifest 标准   | 员工包规范     |
+| Registry        | 员工包注册表   |
 | Creator Console | 创作者发布入口 |
-| Team Dashboard | 用户团队页 |
-| Doctor | 状态检查 |
-| Review Queue | 审核后台 |
+| Team Dashboard  | 用户团队页     |
+| Doctor          | 状态检查       |
+| Review Queue    | 审核后台       |
 
 ### 26.3 第三阶段：市场化
 
@@ -940,35 +944,35 @@ MVP 可以采用“市场前端 + 包注册表 + CLI + 简单运行时检查”�
 
 范围：
 
-| 任务 | 产出 |
-|---|---|
+| 任务     | 产出         |
+| -------- | ------------ |
 | 评分评价 | 市场信任机制 |
-| 推荐排序 | 更好分发 |
+| 推荐排序 | 更好分发     |
 | 版本管理 | 员工持续升级 |
-| 使用数据 | 创作者反馈 |
-| 付费能力 | 商业化验证 |
+| 使用数据 | 创作者反馈   |
+| 付费能力 | 商业化验证   |
 
 ---
 
 ## 27. MVP 验收清单
 
-| 项目 | 是否必须 |
-|---|---|
-| 用户能搜索员工 | 必须 |
-| 用户能查看员工详情 | 必须 |
-| 用户能 Hire 员工 | 必须 |
-| 用户能看到团队列表 | 必须 |
-| 用户能 Doctor 检查员工 | 必须 |
-| 用户能 Fire 员工 | 必须 |
-| 创作者能提交员工包 | 必须 |
-| 平台能审核员工包 | 必须 |
-| 员工包有 Manifest | 必须 |
-| 权限在 Hire 前展示 | 必须 |
-| 高风险权限被提示 | 必须 |
-| 至少 3 个示例员工 | 必须 |
-| 支付能力 | 非必须 |
-| 多 Agent 协作 | 非必须 |
-| 企业权限 | 非必须 |
+| 项目                   | 是否必须 |
+| ---------------------- | -------- |
+| 用户能搜索员工         | 必须     |
+| 用户能查看员工详情     | 必须     |
+| 用户能 Hire 员工       | 必须     |
+| 用户能看到团队列表     | 必须     |
+| 用户能 Doctor 检查员工 | 必须     |
+| 用户能 Fire 员工       | 必须     |
+| 创作者能提交员工包     | 必须     |
+| 平台能审核员工包       | 必须     |
+| 员工包有 Manifest      | 必须     |
+| 权限在 Hire 前展示     | 必须     |
+| 高风险权限被提示       | 必须     |
+| 至少 3 个示例员工      | 必须     |
+| 支付能力               | 非必须   |
+| 多 Agent 协作          | 非必须   |
+| 企业权限               | 非必须   |
 
 ---
 
@@ -978,41 +982,41 @@ CrewClaw 的文案要像招聘，不要像开发工具。
 
 推荐用词：
 
-| 推荐 | 不推荐 |
-|---|---|
-| Hire | Install |
-| Employee | Plugin |
-| Team | Workspace only |
-| Role | Capability |
-| Onboarding | Setup |
-| Doctor | Debug |
-| Fire | Remove |
-| Resume | Detail page |
+| 推荐              | 不推荐           |
+| ----------------- | ---------------- |
+| Hire              | Install          |
+| Employee          | Plugin           |
+| Team              | Workspace only   |
+| Role              | Capability       |
+| Onboarding        | Setup            |
+| Doctor            | Debug            |
+| Fire              | Remove           |
+| Resume            | Detail page      |
 | Verified Employee | Verified Package |
 
 一句话文案库：
 
-| 场景 | 文案 |
-|---|---|
-| 首页主标题 | Hire AI employees for your crew |
-| 首页副标题 | Discover, hire, and manage AI agents like real teammates. |
-| Hire 成功 | Your new AI employee has joined the crew. |
-| Doctor 正常 | This employee is healthy and ready to work. |
-| Doctor 警告 | This employee needs your attention before taking more tasks. |
-| Fire 确认 | This employee will leave your crew, but history will be kept. |
+| 场景        | 文案                                                          |
+| ----------- | ------------------------------------------------------------- |
+| 首页主标题  | Hire AI employees for your crew                               |
+| 首页副标题  | Discover, hire, and manage AI agents like real teammates.     |
+| Hire 成功   | Your new AI employee has joined the crew.                     |
+| Doctor 正常 | This employee is healthy and ready to work.                   |
+| Doctor 警告 | This employee needs your attention before taking more tasks.  |
+| Fire 确认   | This employee will leave your crew, but history will be kept. |
 
 ---
 
 ## 29. 开放问题
 
-| 问题 | 建议方向 |
-|---|---|
-| CrewClaw 和 ClawHub 是否共用账号体系？ | 建议共用 |
-| Skills 是否必须来自 ClawHub？ | 不强制，但优先兼容 |
-| 员工运行在哪里？ | MVP 可本地/模拟，后续支持云运行 |
-| 是否一开始做收费？ | 不建议，先验证雇佣行为 |
-| 是否允许 Agent 自动发消息？ | MVP 不允许，必须人工确认 |
-| 是否需要员工绩效面板？ | P2 做，MVP 先做健康状态 |
+| 问题                                   | 建议方向                        |
+| -------------------------------------- | ------------------------------- |
+| CrewClaw 和 ClawHub 是否共用账号体系？ | 建议共用                        |
+| Skills 是否必须来自 ClawHub？          | 不强制，但优先兼容              |
+| 员工运行在哪里？                       | MVP 可本地/模拟，后续支持云运行 |
+| 是否一开始做收费？                     | 不建议，先验证雇佣行为          |
+| 是否允许 Agent 自动发消息？            | MVP 不允许，必须人工确认        |
+| 是否需要员工绩效面板？                 | P2 做，MVP 先做健康状态         |
 
 ---
 
@@ -1029,4 +1033,3 @@ CrewClaw 最该死磕的不是“Agent 功能有多强”，而是“招聘 AI �
 MVP 不需要先做成全世界最强 Agent 平台。它先要做到一件事：
 
 让 AI Agent 从工具变成员工，从安装变成雇佣，从插件市场变成人才市场。
-

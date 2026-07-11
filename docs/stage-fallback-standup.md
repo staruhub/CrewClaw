@@ -1,17 +1,18 @@
 # Stage fallback — live parallel crew (real run, saved 2026-05-30)
 
 Command:
+
 ```
 crew standup "We launch CrewClaw at ClawCon tomorrow morning. Get me ready."
 ```
 
 ```
-   _____                         _____ _                 
-  / ____|                       / ____| |                
+   _____                         _____ _
+  / ____|                       / ____| |
  | |     _ __ _____      __    | |    | | __ ___      __
  | |    | '__/ _ \ \ /\ / /    | |    | |/ _` \ \ /\ / /
- | |____| | |  __/\ V  V /     | |____| | (_| |\ V  V / 
-  \_____|_|  \___| \_/\_/       \_____|_|\__,_| \_/\_/  
+ | |____| | |  __/\ V  V /     | |____| | (_| |\ V  V /
+  \_____|_|  \___| \_/\_/       \_____|_|\__,_| \_/\_/
 
 ChaoGeek AI Agent Hiring Platform
 Hire certified Hermes experts as command-line employees.

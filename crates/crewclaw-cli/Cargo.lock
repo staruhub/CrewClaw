@@ -267,12 +267,15 @@ dependencies = [
  "console",
  "crossterm",
  "ctrlc",
+ "getrandom 0.3.4",
  "indicatif",
+ "libc",
  "nucleo-matcher",
  "ratatui",
  "serde",
  "serde_json",
  "unicode-width",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

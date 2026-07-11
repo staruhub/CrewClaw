@@ -24,7 +24,7 @@ writeFileSync(
       },
     ],
   }),
-  "utf8",
+  "utf8"
 );
 
 const ctx = {
@@ -55,12 +55,21 @@ const model = runCommand("/model", ctx);
 assert.equal(model.handled, true);
 assert.match(model.text, /anthropic\/claude-opus-4\.8/);
 
-assert.deepEqual(runCommand("/clear", ctx), { handled: true, action: { type: "clear" } });
-assert.deepEqual(runCommand("/reset", ctx), { handled: true, action: { type: "clear" } });
+assert.deepEqual(runCommand("/clear", ctx), {
+  handled: true,
+  action: { type: "clear" },
+});
+assert.deepEqual(runCommand("/reset", ctx), {
+  handled: true,
+  action: { type: "clear" },
+});
 
 const crew = runCommand("/crew", ctx);
 assert.equal(crew.handled, true);
-assert.match(crew.text, /code-review-shrimp · Code Review Shrimp · Reviews pull requests\./);
+assert.match(
+  crew.text,
+  /code-review-shrimp · Code Review Shrimp · Reviews pull requests\./
+);
 assert.doesNotMatch(crew.text, /docs-octopus/);
 
 assert.deepEqual(runCommand("/agent code-review-shrimp", ctx), {
@@ -81,8 +90,14 @@ const missing = runCommand("/agent", ctx);
 assert.equal(missing.handled, true);
 assert.match(missing.text, /Usage: \/agent <id>/);
 
-assert.deepEqual(runCommand("/exit", ctx), { handled: true, action: { type: "exit" } });
-assert.deepEqual(runCommand("/quit", ctx), { handled: true, action: { type: "exit" } });
+assert.deepEqual(runCommand("/exit", ctx), {
+  handled: true,
+  action: { type: "exit" },
+});
+assert.deepEqual(runCommand("/quit", ctx), {
+  handled: true,
+  action: { type: "exit" },
+});
 
 const unknown = runCommand("/wat", ctx);
 assert.equal(unknown.handled, true);

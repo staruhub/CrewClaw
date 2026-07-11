@@ -1,4 +1,4 @@
-import { estimateCost } from './budget-guard.mjs';
+import { estimateCost } from "./budget-guard.mjs";
 
 const DEFAULT_SOFT_TOKENS = 50_000;
 const DEFAULT_HARD_TOKENS = 90_000;
@@ -18,7 +18,10 @@ const GREETING_PATTERNS = [
   /^哈喽$/,
 ];
 
-export function newBudget({ soft = DEFAULT_SOFT_TOKENS, hard = DEFAULT_HARD_TOKENS } = {}) {
+export function newBudget({
+  soft = DEFAULT_SOFT_TOKENS,
+  hard = DEFAULT_HARD_TOKENS,
+} = {}) {
   return {
     soft,
     hard,
@@ -48,23 +51,23 @@ export function budgetStatus(budget) {
   const totalTokens = promptTokens + completionTokens;
   const { cost } = estimateCost({ promptTokens, completionTokens });
 
-  let status = 'ok';
+  let status = "ok";
   if (totalTokens >= budget.hard) {
-    status = 'hard_exceeded';
+    status = "hard_exceeded";
   } else if (totalTokens >= budget.soft) {
-    status = 'soft_exceeded';
+    status = "soft_exceeded";
   }
 
   return { status, cost };
 }
 
 export function shouldLoadFullContext(message) {
-  const normalized = String(message ?? '')
+  const normalized = String(message ?? "")
     .trim()
-    .replace(/[!！.。?？,，\s]+$/u, '');
+    .replace(/[!！.。?？,，\s]+$/u, "");
 
   if (!normalized) return false;
-  return !GREETING_PATTERNS.some((pattern) => pattern.test(normalized));
+  return !GREETING_PATTERNS.some(pattern => pattern.test(normalized));
 }
 
 export function compactPlan(messages = []) {
@@ -74,7 +77,7 @@ export function compactPlan(messages = []) {
   const nonArtifact = [];
 
   for (const message of messages) {
-    if (message?.metadata?.type === 'artifact') {
+    if (message?.metadata?.type === "artifact") {
       drop_to_artifact_refs.push(message);
     } else {
       nonArtifact.push(message);
@@ -84,7 +87,7 @@ export function compactPlan(messages = []) {
   const activeStart = Math.max(0, nonArtifact.length - ACTIVE_CONTEXT_LIMIT);
 
   nonArtifact.forEach((message, index) => {
-    if (message?.role === 'system') {
+    if (message?.role === "system") {
       keep.push(message);
       return;
     }
@@ -102,25 +105,29 @@ export function compactPlan(messages = []) {
 
 export const commands = [
   {
-    cmd: '/compact',
-    description: 'Summarize conversation, drop artifact bodies, keep active task context',
+    cmd: "/compact",
+    description:
+      "Summarize conversation, drop artifact bodies, keep active task context",
   },
-  { cmd: '/reset', description: 'Clear all context, start fresh session' },
-  { cmd: '/new task', description: 'Archive current task, open new task context' },
+  { cmd: "/reset", description: "Clear all context, start fresh session" },
   {
-    cmd: '/archive task',
-    description: 'Move completed task to archive, free context budget',
+    cmd: "/new task",
+    description: "Archive current task, open new task context",
+  },
+  {
+    cmd: "/archive task",
+    description: "Move completed task to archive, free context budget",
   },
 ];
 
 function shouldSummarizeMessage(message) {
   const type = message?.metadata?.type;
   return (
-    type === 'skill_doc' ||
-    type === 'greeting' ||
-    type === 'quick_utility' ||
-    message?.metadata?.runType === 'quick_utility' ||
-    message?.metadata?.scope === 'quick_utility' ||
+    type === "skill_doc" ||
+    type === "greeting" ||
+    type === "quick_utility" ||
+    message?.metadata?.runType === "quick_utility" ||
+    message?.metadata?.scope === "quick_utility" ||
     !shouldLoadFullContext(message?.content)
   );
 }

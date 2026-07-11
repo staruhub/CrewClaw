@@ -31,8 +31,14 @@ export function MessageBody({ lines, caret }) {
 export function ToolLine({ tool }) {
   const t = tool || {};
   const line = toolLine(
-    { name: t.toolName, command: t.args?.command, args: t.args, output: t.output, confirmed: t.status === "blocked" ? false : undefined },
-    { color: true },
+    {
+      name: t.toolName,
+      command: t.args?.command,
+      args: t.args,
+      output: t.output,
+      confirmed: t.status === "blocked" ? false : undefined,
+    },
+    { color: true }
   );
   return html`<${Text} wrap="truncate">${"   " + line}</>`;
 }
@@ -54,19 +60,48 @@ export function AssistantMessage({ name, parts, renderLines, caret }) {
   const lastIdx = items.length - 1;
   return html`<${Box} flexDirection="column" marginTop=${1}>
     <${Text} color=${theme.assistant}>${name} ${glyphs.assistant}</>
-    ${items.length
-      ? items.map((p, i) =>
-          p.type === "tool"
-            ? html`<${ToolLine} key=${i} tool=${p.tool} />`
-            : html`<${MessageBody} key=${i} lines=${renderLines(p.text)} caret=${!!caret && i === lastIdx} />`)
-      : (caret ? html`<${MessageBody} lines=${[""]} caret=${true} />` : null)}
+    ${
+      items.length
+        ? items.map((p, i) =>
+            p.type === "tool"
+              ? html`<${ToolLine} key=${i} tool=${p.tool} />`
+              : html`<${MessageBody}
+                  key=${i}
+                  lines=${renderLines(p.text)}
+                  caret=${!!caret && i === lastIdx}
+                />`
+          )
+        : caret
+          ? html`<${MessageBody} lines=${[""]} caret=${true} />`
+          : null
+    }
   </>`;
 }
 
 // Sticky BOTTOM status bar: a live state dot + session token/ctx/cost on the right.
-export function StatusBar({ name, status = "idle", tokens = 0, ctxPct = 0, costText = "$0.00" }) {
-  const dotColor = { idle: theme.dim, thinking: theme.warn, streaming: theme.assistant, tool: theme.accent, error: theme.err }[status] || theme.dim;
-  const labelText = { idle: "就绪", thinking: "思考中", streaming: "回答中", tool: "调用工具", error: "中断" }[status] || status;
+export function StatusBar({
+  name,
+  status = "idle",
+  tokens = 0,
+  ctxPct = 0,
+  costText = "$0.00",
+}) {
+  const dotColor =
+    {
+      idle: theme.dim,
+      thinking: theme.warn,
+      streaming: theme.assistant,
+      tool: theme.accent,
+      error: theme.err,
+    }[status] || theme.dim;
+  const labelText =
+    {
+      idle: "就绪",
+      thinking: "思考中",
+      streaming: "回答中",
+      tool: "调用工具",
+      error: "中断",
+    }[status] || status;
   return html`<${Box} justifyContent="space-between" paddingX=${1}>
     <${Box}><${Text} color=${dotColor}>${"● "}</><${Text} dimColor>${name + " · " + labelText}</></>
     <${Text} dimColor>${`${(tokens || 0).toLocaleString()} tok · ${ctxPct || 0}% · ${costText}`}</>
@@ -77,22 +112,91 @@ export function StatusBar({ name, status = "idle", tokens = 0, ctxPct = 0, costT
 // below. This is the "状态一眼看懂、不撒谎" line — search ✗ means the employee literally
 // can't do real research right now. Symbols (✓/✗) back up color (don't rely on color alone).
 // fine-grained Tool Truth (§9): per-capability status, weather INDEPENDENT of search (Case B)
-const CAP_SHORT = { "utility.weather": "weather", "web.search": "search", "web.extract": "fetch", "browser.render": "render", "artifact.write": "artifact", "artifact.reveal": "reveal" };
-const CAP_SYM = { available: "✓", missing_key: "✗", unavailable: "✗", degraded: "!", rate_limited: "!", permission_required: "!", configured_unverified: "?", disabled: "–" };
-const HEADER_CAPS = ["web.search", "utility.weather", "web.extract", "browser.render", "artifact.write", "artifact.reveal"];
+const CAP_SHORT = {
+  "utility.weather": "weather",
+  "web.search": "search",
+  "web.extract": "fetch",
+  "browser.render": "render",
+  "artifact.write": "artifact",
+  "artifact.reveal": "reveal",
+};
+const CAP_SYM = {
+  available: "✓",
+  missing_key: "✗",
+  unavailable: "✗",
+  degraded: "!",
+  rate_limited: "!",
+  permission_required: "!",
+  configured_unverified: "?",
+  disabled: "–",
+};
+const HEADER_CAPS = [
+  "web.search",
+  "utility.weather",
+  "web.extract",
+  "browser.render",
+  "artifact.write",
+  "artifact.reveal",
+];
 const MEM_SYM = { available: "✓", unavailable: "✗", disabled: "–" };
-const capColor = (s) => (s === "available" ? theme.ok : (s === "missing_key" || s === "unavailable") ? theme.err : s === "disabled" ? theme.dim : theme.warn);
+const capColor = s =>
+  s === "available"
+    ? theme.ok
+    : s === "missing_key" || s === "unavailable"
+      ? theme.err
+      : s === "disabled"
+        ? theme.dim
+        : theme.warn;
 
-const fmtK = (n) => { const v = Number(n) || 0; return v >= 1000 ? (Math.round(v / 100) / 10) + "k" : String(v); };
+const fmtK = n => {
+  const v = Number(n) || 0;
+  return v >= 1000 ? Math.round(v / 100) / 10 + "k" : String(v);
+};
 
-export function StatusHeader({ name, role, mode = "Chat", status = "idle", tokens = 0, costText = "$0.00", toolTruth = [], memory = null, budget = null }) {
-  const dotColor = { idle: theme.dim, thinking: theme.warn, streaming: theme.assistant, tool: theme.accent, error: theme.err }[status] || theme.dim;
-  const stateLabel = { idle: "就绪", thinking: "思考中", streaming: "回答中", tool: "调用工具", error: "中断" }[status] || status;
-  const ident = [name, role, `${mode} · ${stateLabel}`].filter(Boolean).join(" · ");
-  const caps = HEADER_CAPS.map((c) => toolTruth.find((s) => s.capability === c)).filter(Boolean);
+export function StatusHeader({
+  name,
+  role,
+  mode = "Chat",
+  status = "idle",
+  tokens = 0,
+  costText = "$0.00",
+  toolTruth = [],
+  memory = null,
+  budget = null,
+}) {
+  const dotColor =
+    {
+      idle: theme.dim,
+      thinking: theme.warn,
+      streaming: theme.assistant,
+      tool: theme.accent,
+      error: theme.err,
+    }[status] || theme.dim;
+  const stateLabel =
+    {
+      idle: "就绪",
+      thinking: "思考中",
+      streaming: "回答中",
+      tool: "调用工具",
+      error: "中断",
+    }[status] || status;
+  const ident = [name, role, `${mode} · ${stateLabel}`]
+    .filter(Boolean)
+    .join(" · ");
+  const caps = HEADER_CAPS.map(c =>
+    toolTruth.find(s => s.capability === c)
+  ).filter(Boolean);
   // Context Budget (§10): show used/hard tokens, warn color at soft (50k), err at hard (90k).
-  const budgetColor = !budget ? null : budget.status === "hard_exceeded" ? theme.err : budget.status === "soft_exceeded" ? theme.warn : null;
-  const usageText = budget ? `${fmtK(budget.used)}/${fmtK(budget.hard)} tok · ${costText}` : `${(tokens || 0).toLocaleString()} tok · ${costText}`;
+  const budgetColor = !budget
+    ? null
+    : budget.status === "hard_exceeded"
+      ? theme.err
+      : budget.status === "soft_exceeded"
+        ? theme.warn
+        : null;
+  const usageText = budget
+    ? `${fmtK(budget.used)}/${fmtK(budget.hard)} tok · ${costText}`
+    : `${(tokens || 0).toLocaleString()} tok · ${costText}`;
   return html`<${Box} flexDirection="column">
     <${Box} justifyContent="space-between" paddingX=${1}>
       <${Box}><${Text} color=${dotColor}>${"● "}</><${Text} dimColor>${ident}</></>
@@ -102,12 +206,16 @@ export function StatusHeader({ name, role, mode = "Chat", status = "idle", token
       <${Text} dimColor>${"工具 "}</>
       ${caps.map((s, i) => html`<${Text} key=${i} color=${capColor(s.status)}>${(i ? " · " : "") + (CAP_SHORT[s.capability] || s.capability) + " " + (CAP_SYM[s.status] || "!")}</>`)}
     </>
-    ${memory ? html`<${Box} paddingX=${1}>
+    ${
+      memory
+        ? html`<${Box} paddingX=${1}>
       <${Text} dimColor>${"记忆 "}</>
       <${Text} color=${capColor(memory.session)}>${"session " + (MEM_SYM[memory.session] || "?")}</>
       <${Text} dimColor>${" · "}</>
       <${Text} color=${capColor(memory.persistent)}>${"persistent " + (MEM_SYM[memory.persistent] || "?")}</>
-    </>` : null}
+    </>`
+        : null
+    }
   </>`;
 }
 
@@ -122,7 +230,13 @@ export function Header({ name, tokens = 0, ctxPct = 0, costText = "$0.00" }) {
 // One work-timeline line: status symbol (✓/✗/→/!/?) + label + dim detail. The symbol backs
 // up the color (don't rely on color alone). Renders AppState.timeline — high-level WORK
 // events, not the raw model stream.
-const LINE_COLOR = { "✓": theme.ok, "✗": theme.err, "→": theme.assistant, "!": theme.warn, "?": theme.accent };
+const LINE_COLOR = {
+  "✓": theme.ok,
+  "✗": theme.err,
+  "→": theme.assistant,
+  "!": theme.warn,
+  "?": theme.accent,
+};
 export function TimelineLine({ line }) {
   const color = LINE_COLOR[line.status] || theme.dim;
   return html`<${Text} wrap="truncate"><${Text} color=${color}>${"   " + line.status + " "}</><${Text} dimColor>${line.label}${line.detail ? "  " + line.detail : ""}</></>`;
@@ -141,12 +255,18 @@ export function TurnView({ state, name, renderLines, caret }) {
     ${state.quickUtility ? html`<${Text} color=${theme.accent}>${"   ⚡ 快捷工具 · 不计入员工绩效" + (state.quickUtility.intent ? "：" + state.quickUtility.intent : "")}</>` : null}
     ${state.quickUtility && state.quickUtility.result ? html`<${Text} color=${theme.accent}>${`   🌤 ${state.quickUtility.result.city || ""}  ${state.quickUtility.result.condition || ""}  ${state.quickUtility.result.temp_c}°C（体感 ${state.quickUtility.result.feels_c}°C · 湿度 ${state.quickUtility.result.humidity}%）`}</>` : null}
     ${state.timeline.map((l, i) => html`<${TimelineLine} key=${i} line=${l} />`)}
-    ${lines.length
-      ? html`<${MessageBody} lines=${lines} caret=${!!caret} />`
-      : (caret && !state.timeline.length ? html`<${MessageBody} lines=${[""]} caret=${true} />` : null)}
+    ${
+      lines.length
+        ? html`<${MessageBody} lines=${lines} caret=${!!caret} />`
+        : caret && !state.timeline.length
+          ? html`<${MessageBody} lines=${[""]} caret=${true} />`
+          : null
+    }
     ${tally.length ? html`<${Text} dimColor>${"   " + tally.join("   ")}</>` : null}
-    ${state.pendingActions && state.pendingActions.length
-      ? html`<${Text} color=${theme.accent}>${"   " + state.pendingActions.map((a) => `[${a.key}] ${a.label}`).join("  ")}</>`
-      : null}
+    ${
+      state.pendingActions && state.pendingActions.length
+        ? html`<${Text} color=${theme.accent}>${"   " + state.pendingActions.map(a => `[${a.key}] ${a.label}`).join("  ")}</>`
+        : null
+    }
   </>`;
 }

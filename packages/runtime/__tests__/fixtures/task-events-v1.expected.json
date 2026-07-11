@@ -1,0 +1,20 @@
+{
+  "mode": "Task",
+  "task": {
+    "id": "task-golden",
+    "status": "done"
+  },
+  "status": "done",
+  "artifact": {
+    "id": "artifact-golden",
+    "task_id": "task-golden",
+    "status": "accepted",
+    "path": "/workspace/report.md"
+  },
+  "proof": {
+    "valid": true,
+    "deliverable": "/workspace/report.md"
+  },
+  "approval": null,
+  "accepted_count": 1
+}

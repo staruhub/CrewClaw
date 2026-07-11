@@ -28,20 +28,28 @@ type CrewContribution = {
 
 function commandBrief(brief: string) {
   const normalized = brief.trim().replace(/\s+/g, " ");
-  return (normalized || "Plan a useful first task for this AI crew.").replace(/"/g, "'");
+  return (normalized || "Plan a useful first task for this AI crew.").replace(
+    /"/g,
+    "'"
+  );
 }
 
-function buildContribution(employee: Employee, brief: string, index: number): CrewContribution {
-  const topSkills = employee.skills.slice(0, 2).map((skill) => skill.replaceAll("-", " "));
+function buildContribution(
+  employee: Employee,
+  brief: string,
+  index: number
+): CrewContribution {
+  const topSkills = employee.skills
+    .slice(0, 2)
+    .map(skill => skill.replaceAll("-", " "));
   const role = employee.role.toLowerCase();
-  const focus =
-    role.includes("code")
-      ? "Review the implementation path, risks, and merge conditions."
-      : role.includes("product")
-        ? "Turn the brief into acceptance criteria, edge cases, and launch signals."
-        : role.includes("network")
-          ? "Map public context, local entry points, and human-reviewed outreach angles."
-          : "Own one workstream and return a concise teammate-ready update.";
+  const focus = role.includes("code")
+    ? "Review the implementation path, risks, and merge conditions."
+    : role.includes("product")
+      ? "Turn the brief into acceptance criteria, edge cases, and launch signals."
+      : role.includes("network")
+        ? "Map public context, local entry points, and human-reviewed outreach angles."
+        : "Own one workstream and return a concise teammate-ready update.";
 
   return {
     employee,
@@ -56,10 +64,10 @@ export default function CrewMode() {
   const employees = useMemo(
     () =>
       list()
-        .filter((workspaceEmployee) => workspaceEmployee.status === "active")
-        .map((workspaceEmployee) => getEmployee(workspaceEmployee.employee_id))
+        .filter(workspaceEmployee => workspaceEmployee.status === "active")
+        .map(workspaceEmployee => getEmployee(workspaceEmployee.employee_id))
         .filter((employee): employee is Employee => Boolean(employee)),
-    [list],
+    [list]
   );
   const [brief, setBrief] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -76,20 +84,26 @@ export default function CrewMode() {
   // 不再用 effect 修剪 selectedIds（setState-in-effect 触发级联渲染）：selectedEmployees 本身
   // 就按现存员工过滤，凡是消费"有效选择"的地方都用它派生——失效 id 留在原始 state 里无副作用。
   const selectedEmployees = useMemo(
-    () => employees.filter((employee) => selectedIds.includes(employee.employee_id)),
-    [employees, selectedIds],
+    () =>
+      employees.filter(employee => selectedIds.includes(employee.employee_id)),
+    [employees, selectedIds]
   );
   const contributions = useMemo(
-    () => selectedEmployees.map((employee, index) => buildContribution(employee, brief, index)),
-    [brief, selectedEmployees],
+    () =>
+      selectedEmployees.map((employee, index) =>
+        buildContribution(employee, brief, index)
+      ),
+    [brief, selectedEmployees]
   );
   const cliCommand = `crew standup "${commandBrief(brief)}"`;
   const canGenerate = selectedEmployees.length > 0 && brief.trim().length > 0;
 
   function toggleEmployee(employeeId: string, checked: boolean) {
     setPlanVersion(0);
-    setSelectedIds((current) =>
-      checked ? [...current, employeeId] : current.filter((id) => id !== employeeId),
+    setSelectedIds(current =>
+      checked
+        ? [...current, employeeId]
+        : current.filter(id => id !== employeeId)
     );
   }
 
@@ -111,7 +125,7 @@ export default function CrewMode() {
     }
 
     setCopied(false);
-    setPlanVersion((current) => current + 1);
+    setPlanVersion(current => current + 1);
   }
 
   async function copyCommand() {
@@ -120,7 +134,7 @@ export default function CrewMode() {
     track("demo_task_copied", {
       source: "crew_mode",
       // 派生的有效选择（不含已下架员工的失效 id）。
-      selected_employee_ids: selectedEmployees.map((e) => e.employee_id),
+      selected_employee_ids: selectedEmployees.map(e => e.employee_id),
     });
   }
 
@@ -148,26 +162,34 @@ export default function CrewMode() {
               Put multiple AI employees on one task
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              Select teammates who have joined your crew, write the assignment, and preview how
-              they will divide the work before running the real CLI crew.
+              Select teammates who have joined your crew, write the assignment,
+              and preview how they will divide the work before running the real
+              CLI crew.
             </p>
           </div>
           <div className="rounded-[8px] border border-white/10 bg-white/[0.025] px-4 py-3">
             <p className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
               Active employees
             </p>
-            <p className="mt-2 text-3xl font-semibold text-crew-heading">{employees.length}</p>
+            <p className="mt-2 text-3xl font-semibold text-crew-heading">
+              {employees.length}
+            </p>
           </div>
         </div>
 
         {employees.length === 0 ? (
           <section className="mt-8 rounded-[8px] border border-white/10 bg-white/[0.03] p-6">
-            <h2 className="text-xl font-semibold text-crew-heading">Hire employees first</h2>
+            <h2 className="text-xl font-semibold text-crew-heading">
+              Hire employees first
+            </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-crew-body">
-              Crew Mode only assigns active employees. Hire at least two employees, then come back
-              to run a multi-teammate standup.
+              Crew Mode only assigns active employees. Hire at least two
+              employees, then come back to run a multi-teammate standup.
             </p>
-            <Button className="mt-5 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze" asChild>
+            <Button
+              className="mt-5 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
+              asChild
+            >
               <Link to="/marketplace">Browse employees</Link>
             </Button>
           </section>
@@ -184,29 +206,33 @@ export default function CrewMode() {
                   </h2>
                 </div>
                 <div className="grid gap-3">
-                  {employees.map((employee) => {
+                  {employees.map(employee => {
                     const checked = selectedIds.includes(employee.employee_id);
 
                     return (
                       <label
                         className={cn(
                           "flex cursor-pointer gap-3 rounded-[8px] border border-white/10 bg-white/[0.025] p-4 transition-colors",
-                          checked && "border-crew-copper/40 bg-crew-copper/10",
+                          checked && "border-crew-copper/40 bg-crew-copper/10"
                         )}
                         key={employee.employee_id}
                       >
                         <Checkbox
                           checked={checked}
                           className="mt-1 border-white/20 data-[state=checked]:border-crew-copper data-[state=checked]:bg-crew-copper"
-                          onCheckedChange={(value) => toggleEmployee(employee.employee_id, value === true)}
+                          onCheckedChange={value =>
+                            toggleEmployee(employee.employee_id, value === true)
+                          }
                         />
                         <span>
                           <span className="block text-base font-medium text-crew-heading">
                             {employee.name}
                           </span>
-                          <span className="mt-1 block text-sm text-crew-body">{employee.role}</span>
+                          <span className="mt-1 block text-sm text-crew-body">
+                            {employee.role}
+                          </span>
                           <span className="mt-3 flex flex-wrap gap-2">
-                            {employee.skills.slice(0, 3).map((skill) => (
+                            {employee.skills.slice(0, 3).map(skill => (
                               <Badge
                                 className="rounded-[6px] border-white/10 bg-white/[0.04] text-crew-muted"
                                 key={skill}
@@ -229,7 +255,7 @@ export default function CrewMode() {
                 </p>
                 <Textarea
                   className="mt-3 min-h-40 rounded-[8px] border-white/10 bg-white/[0.04] text-crew-heading placeholder:text-crew-muted"
-                  onChange={(event) => {
+                  onChange={event => {
                     setPlanVersion(0);
                     setBrief(event.target.value);
                   }}
@@ -251,7 +277,9 @@ export default function CrewMode() {
                     disabled={employees.length === selectedEmployees.length}
                     onClick={() => {
                       setPlanVersion(0);
-                      setSelectedIds(employees.map((employee) => employee.employee_id));
+                      setSelectedIds(
+                        employees.map(employee => employee.employee_id)
+                      );
                     }}
                     type="button"
                     variant="outline"
@@ -277,7 +305,11 @@ export default function CrewMode() {
                       type="button"
                       variant="outline"
                     >
-                      {copied ? <CheckCircle2 className="size-4" /> : <Copy className="size-4" />}
+                      {copied ? (
+                        <CheckCircle2 className="size-4" />
+                      ) : (
+                        <Copy className="size-4" />
+                      )}
                       {copied ? "Copied" : "Copy"}
                     </Button>
                   </div>
@@ -289,10 +321,12 @@ export default function CrewMode() {
               <section className="mt-10">
                 <div className="flex items-center gap-2">
                   <Clipboard className="size-5 text-crew-copper" />
-                  <h2 className="text-2xl font-light text-crew-heading">Parallel work split</h2>
+                  <h2 className="text-2xl font-light text-crew-heading">
+                    Parallel work split
+                  </h2>
                 </div>
                 <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {contributions.map((contribution) => (
+                  {contributions.map(contribution => (
                     <Card
                       className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading"
                       key={contribution.employee.employee_id}
@@ -301,15 +335,29 @@ export default function CrewMode() {
                         <CardTitle className="text-lg font-semibold">
                           {contribution.employee.name}
                         </CardTitle>
-                        <p className="text-sm text-crew-muted">{contribution.employee.role}</p>
+                        <p className="text-sm text-crew-muted">
+                          {contribution.employee.role}
+                        </p>
                       </CardHeader>
                       <CardContent>
-                        <p className="text-sm font-medium text-crew-copper">Focus</p>
-                        <p className="mt-2 text-sm leading-6 text-crew-body">{contribution.focus}</p>
-                        <p className="mt-4 text-sm font-medium text-crew-copper">Mock contribution</p>
-                        <p className="mt-2 text-sm leading-6 text-crew-body">{contribution.output}</p>
-                        <p className="mt-4 text-sm font-medium text-crew-copper">Handoff</p>
-                        <p className="mt-2 text-sm leading-6 text-crew-body">{contribution.handoff}</p>
+                        <p className="text-sm font-medium text-crew-copper">
+                          Focus
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-crew-body">
+                          {contribution.focus}
+                        </p>
+                        <p className="mt-4 text-sm font-medium text-crew-copper">
+                          Mock contribution
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-crew-body">
+                          {contribution.output}
+                        </p>
+                        <p className="mt-4 text-sm font-medium text-crew-copper">
+                          Handoff
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-crew-body">
+                          {contribution.handoff}
+                        </p>
                       </CardContent>
                     </Card>
                   ))}

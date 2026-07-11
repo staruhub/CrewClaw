@@ -1,5 +1,11 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import {
+  resolveStatePath,
+  readStateFileGuarded,
+  withStateLock,
+  writeJsonAtomic,
+} from "./state-lock.mjs";
 
 export const MEMORY_CATEGORIES = [
   "user_prefs",
@@ -19,12 +25,17 @@ function memoryDir(root) {
 }
 
 function memoryFile(root, employeeId) {
-  return join(memoryDir(root), sanitizeEmployeeId(employeeId) + ".json");
+  return resolveStatePath(
+    join(memoryDir(root), sanitizeEmployeeId(employeeId) + ".json"),
+    root
+  );
 }
 
-function readMemoryArray(file) {
+function readMemoryArray(file, root) {
   if (!existsSync(file)) return [];
-  const data = JSON.parse(readFileSync(file, "utf8"));
+  const data = JSON.parse(
+    readStateFileGuarded(file, { root }).toString("utf8")
+  );
   return Array.isArray(data) ? data : [];
 }
 
@@ -43,21 +54,31 @@ export function addMemory(root, employeeId, item) {
   if (!shouldRecord(item)) return { ok: false, skipped: true };
 
   try {
-    mkdirSync(memoryDir(root), { recursive: true });
     const file = memoryFile(root, employeeId);
-    const items = readMemoryArray(file);
-    const keyCategory = item.category;
-    const keyText = item.text.trim().toLowerCase();
-    const exists = items.some((existing) => {
-      return existing?.category === keyCategory && String(existing?.text ?? "").trim().toLowerCase() === keyText;
-    });
+    return withStateLock(
+      `${file}.lock`,
+      () => {
+        const items = readMemoryArray(file, root);
+        const keyCategory = item.category;
+        const keyText = item.text.trim().toLowerCase();
+        const duplicate = items.some(existing => {
+          return (
+            existing?.category === keyCategory &&
+            String(existing?.text ?? "")
+              .trim()
+              .toLowerCase() === keyText
+          );
+        });
 
-    if (!exists) {
-      items.push({ ...item, savedAt: new Date().toISOString() });
-      writeFileSync(file, JSON.stringify(items, null, 2), "utf8");
-    }
-
-    return { ok: true, count: items.length };
+        if (duplicate) {
+          return { ok: true, skipped: true, count: items.length };
+        }
+        items.push({ ...item, savedAt: new Date().toISOString() });
+        writeJsonAtomic(file, items, { root });
+        return { ok: true, skipped: false, count: items.length };
+      },
+      { root }
+    );
   } catch (error) {
     return { ok: false, error: error?.message ?? String(error) };
   }
@@ -67,7 +88,7 @@ export function loadMemory(root, employeeId) {
   try {
     const file = memoryFile(root, employeeId);
     if (!existsSync(file)) return { ok: false, items: [] };
-    const items = readMemoryArray(file);
+    const items = readMemoryArray(file, root);
     return { ok: true, items, savedAt: items[items.length - 1]?.savedAt };
   } catch (error) {
     return { ok: false, items: [], error: error?.message ?? String(error) };
@@ -79,7 +100,12 @@ export function summarizeForPrompt(items) {
 
   const lines = [];
   for (const category of MEMORY_CATEGORIES) {
-    const categoryItems = items.filter((item) => item?.category === category && typeof item.text === "string" && item.text.trim());
+    const categoryItems = items.filter(
+      item =>
+        item?.category === category &&
+        typeof item.text === "string" &&
+        item.text.trim()
+    );
     if (categoryItems.length === 0) continue;
     lines.push(category + ":");
     for (const item of categoryItems) {

@@ -7,7 +7,12 @@ import { genericPromptCardAdapter } from "../adapters/generic-prompt-card.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..", "..", "..");
-const whalePackagePath = join(repoRoot, "experts", "ai-adoption-whale", "crewclaw.employee.yaml");
+const whalePackagePath = join(
+  repoRoot,
+  "experts",
+  "ai-adoption-whale",
+  "crewclaw.employee.yaml"
+);
 
 const loaded = loadEmployeePackage(whalePackagePath);
 assert.equal(loaded.ok, true, loaded.errors?.join("\n"));

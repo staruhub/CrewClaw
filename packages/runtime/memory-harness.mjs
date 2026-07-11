@@ -2,23 +2,36 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { addMemory, loadMemory } from "./memory-store.mjs";
 
-const MEMORY_STORE_PATH = fileURLToPath(new URL("./memory-store.mjs", import.meta.url));
+const MEMORY_STORE_PATH = fileURLToPath(
+  new URL("./memory-store.mjs", import.meta.url)
+);
 const DEFAULT_EMPLOYEE_ID = "crewclaw";
 const DEFAULT_SCOPE = "session";
 const DEFAULT_VISIBILITY = "private";
 const DEFAULT_CATEGORY = "project_facts";
 
 function isTruthyFlag(value) {
-  return ["1", "true", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
+  return ["1", "true", "yes", "on"].includes(
+    String(value ?? "")
+      .trim()
+      .toLowerCase()
+  );
 }
 
 function memoryStoreWorks() {
-  return existsSync(MEMORY_STORE_PATH) && typeof addMemory === "function" && typeof loadMemory === "function";
+  return (
+    existsSync(MEMORY_STORE_PATH) &&
+    typeof addMemory === "function" &&
+    typeof loadMemory === "function"
+  );
 }
 
 function normalizeScope(scope) {
-  const normalized = String(scope ?? DEFAULT_SCOPE).trim().toLowerCase();
-  if (["session", "workspace", "user", "org"].includes(normalized)) return normalized;
+  const normalized = String(scope ?? DEFAULT_SCOPE)
+    .trim()
+    .toLowerCase();
+  if (["session", "workspace", "user", "org"].includes(normalized))
+    return normalized;
   return DEFAULT_SCOPE;
 }
 
@@ -27,7 +40,10 @@ function hasPersistentConfig(env = process.env) {
 }
 
 function persistentDisabled(env = process.env) {
-  return isTruthyFlag(env?.MEMORY_STORE_DISABLED) || isTruthyFlag(env?.CREW_MEMORY_STORE_DISABLED);
+  return (
+    isTruthyFlag(env?.MEMORY_STORE_DISABLED) ||
+    isTruthyFlag(env?.CREW_MEMORY_STORE_DISABLED)
+  );
 }
 
 function scopeStatus(scope, truth) {

@@ -18,11 +18,11 @@ const TOOL_NAME_MAP = Object.freeze({
 // auto-allows; P4 (delete/pay/perms) defaults to DENY. (A first pass had this inverted —
 // auto-allowing P4 high-risk actions, the exact "权限不可信" risk §26 warns about.)
 const APPROVAL_BY_TIER = Object.freeze({
-  P0: "never",      // 只读公开信息 → 可允许（自动）
-  P1: "sensitive",  // 只读用户数据 → 需授权
-  P2: "always",     // 写入本地结果 → 需授权
-  P3: "always",     // 外部副作用 → 强确认
-  P4: "deny",       // 高危动作 → 默认禁止
+  P0: "never", // 只读公开信息 → 可允许（自动）
+  P1: "sensitive", // 只读用户数据 → 需授权
+  P2: "always", // 写入本地结果 → 需授权
+  P3: "always", // 外部副作用 → 强确认
+  P4: "deny", // 高危动作 → 默认禁止
 });
 
 function hasValue(value) {
@@ -41,7 +41,8 @@ function toArray(value) {
 function scalar(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   return "";
 }
 
@@ -51,14 +52,15 @@ function renderValue(value, indent = 0) {
   if (typeof value !== "object") return [`${pad}- ${scalar(value)}`];
 
   if (Array.isArray(value)) {
-    return value.flatMap((item) => {
+    return value.flatMap(item => {
       if (item && typeof item === "object") return renderValue(item, indent);
       return [`${pad}- ${scalar(item)}`];
     });
   }
 
   return Object.entries(value).flatMap(([key, item]) => {
-    if (item && typeof item === "object") return [`${pad}- ${key}:`, ...renderValue(item, indent + 1)];
+    if (item && typeof item === "object")
+      return [`${pad}- ${key}:`, ...renderValue(item, indent + 1)];
     return [`${pad}- ${key}: ${scalar(item)}`];
   });
 }
@@ -68,19 +70,27 @@ function renderSection(title, value) {
 }
 
 function normalizeToolName(toolName) {
-  return TOOL_NAME_MAP[toolName] || toolName.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return (
+    TOOL_NAME_MAP[toolName] ||
+    toolName.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")
+  );
 }
 
 function configuredToolEntries(pkg) {
   return Object.entries(pkg?.tool_needs || {})
-    .filter(([, need]) => String(need?.necessity || "").toLowerCase() !== "disabled")
+    .filter(
+      ([, need]) => String(need?.necessity || "").toLowerCase() !== "disabled"
+    )
     .map(([crewclawName, need]) => ({
       crewclaw: crewclawName,
       hermes: normalizeToolName(crewclawName),
       necessity: need?.necessity || "optional",
       permission: need?.permission || "unspecified",
       description: need?.description || "",
-      tier: pkg?.permission_policy?.grants?.[crewclawName] || pkg?.permission_policy?.default_level || "P1",
+      tier:
+        pkg?.permission_policy?.grants?.[crewclawName] ||
+        pkg?.permission_policy?.default_level ||
+        "P1",
     }));
 }
 
@@ -112,14 +122,17 @@ function permissionTiers(pkg, tools) {
         allowlist: [],
       };
     }
-    if (!tiers[tool.tier].allowlist.includes(tool.hermes)) tiers[tool.tier].allowlist.push(tool.hermes);
+    if (!tiers[tool.tier].allowlist.includes(tool.hermes))
+      tiers[tool.tier].allowlist.push(tool.hermes);
   }
 
   return {
     default_level: pkg?.permission_policy?.default_level || "P1",
     tiers,
     denied: Object.keys(denied).sort(),
-    human_authorization_required: toArray(pkg?.permission_policy?.human_authorization_required).map(String),
+    human_authorization_required: toArray(
+      pkg?.permission_policy?.human_authorization_required
+    ).map(String),
   };
 }
 
@@ -133,24 +146,30 @@ function compileConfig(pkg) {
       target_level: "L3",
     },
     toolsets: {
-      default: unique(tools.map((tool) => tool.hermes)),
-      mappings: tools.map(({ crewclaw, hermes, necessity, permission, description, tier }) => ({
-        crewclaw,
-        hermes,
-        necessity,
-        permission,
-        tier,
-        description,
-      })),
+      default: unique(tools.map(tool => tool.hermes)),
+      mappings: tools.map(
+        ({ crewclaw, hermes, necessity, permission, description, tier }) => ({
+          crewclaw,
+          hermes,
+          necessity,
+          permission,
+          tier,
+          description,
+        })
+      ),
     },
     permissions: permissionTiers(pkg, tools),
     artifacts: {
       mode: "basic",
-      deliverables: toArray(pkg?.deliverables).map((deliverable) => deliverable?.type || deliverable?.name || deliverable),
+      deliverables: toArray(pkg?.deliverables).map(
+        deliverable => deliverable?.type || deliverable?.name || deliverable
+      ),
     },
     outcome: {
       mode: "basic",
-      rubric: toArray(pkg?.outcome_rubric).map((item) => item?.id || item?.criterion || item),
+      rubric: toArray(pkg?.outcome_rubric).map(
+        item => item?.id || item?.criterion || item
+      ),
     },
   };
 
@@ -194,17 +213,19 @@ function compileMemory(pkg) {
 
 function skillNameFromPath(path) {
   const parts = String(path).split(/[\\/]/).filter(Boolean);
-  const skillIndex = parts.findIndex((part) => part === "SKILL.md");
+  const skillIndex = parts.findIndex(part => part === "SKILL.md");
   if (skillIndex > 0) return parts[skillIndex - 1];
   return parts.at(-1)?.replace(/\.md$/i, "") || "crewclaw-skill";
 }
 
 function renderSkill(path, pkg) {
   const name = skillNameFromPath(path);
-  const playbook = toArray(pkg?.playbooks).find((item) => {
+  const playbook = toArray(pkg?.playbooks).find(item => {
     const id = String(item?.id || "").toLowerCase();
     const title = String(item?.name || "").toLowerCase();
-    return id === name || title === name || id.includes(name) || name.includes(id);
+    return (
+      id === name || title === name || id.includes(name) || name.includes(id)
+    );
   });
 
   return [
@@ -225,8 +246,10 @@ function renderSkill(path, pkg) {
 
 function compileSkills(pkg) {
   const hintPaths = toArray(pkg?.adapter_hints?.Hermes?.skills);
-  const fallbackPaths = toArray(pkg?.playbooks).map((playbook) => `skills/${playbook?.id || "playbook"}/SKILL.md`);
-  return (hintPaths.length > 0 ? hintPaths : fallbackPaths).map((path) => ({
+  const fallbackPaths = toArray(pkg?.playbooks).map(
+    playbook => `skills/${playbook?.id || "playbook"}/SKILL.md`
+  );
+  return (hintPaths.length > 0 ? hintPaths : fallbackPaths).map(path => ({
     path,
     content: renderSkill(path, pkg),
   }));
@@ -261,18 +284,18 @@ function publicCapabilities() {
 function smokeDescriptor(pkg) {
   const smoke =
     (Array.isArray(pkg?.eval_suite) && pkg.eval_suite[0]) ||
-    (Array.isArray(pkg?.eval_suite?.smoke_tests) && pkg.eval_suite.smoke_tests[0]);
+    (Array.isArray(pkg?.eval_suite?.smoke_tests) &&
+      pkg.eval_suite.smoke_tests[0]);
 
-  const descriptor =
-    smoke || {
-      id: "research-seed-2.1",
-      task: "Research Volcengine Seed 2.1 and decide whether it is suitable for CrewClaw.",
-      acceptance: [
-        "Find official or authoritative sources.",
-        "Extract model ID, pricing, capability direction, context, and unknown fields.",
-        "Provide confidence labels and a CrewClaw routing recommendation.",
-      ],
-    };
+  const descriptor = smoke || {
+    id: "research-seed-2.1",
+    task: "Research Volcengine Seed 2.1 and decide whether it is suitable for CrewClaw.",
+    acceptance: [
+      "Find official or authoritative sources.",
+      "Extract model ID, pricing, capability direction, context, and unknown fields.",
+      "Provide confidence labels and a CrewClaw routing recommendation.",
+    ],
+  };
 
   return {
     ...descriptor,
@@ -294,7 +317,8 @@ export const hermesAdapter = defineAdapter({
     const errors = new Set(delegated.errors || []);
 
     for (const field of ["identity", "soul", "role_contract", "tool_needs"]) {
-      if (!hasValue(pkg?.[field])) errors.add(`Missing required Hermes field: ${field}`);
+      if (!hasValue(pkg?.[field]))
+        errors.add(`Missing required Hermes field: ${field}`);
     }
 
     return { ok: errors.size === 0, errors: [...errors] };
@@ -322,7 +346,9 @@ export const hermesAdapter = defineAdapter({
       {
         id: "employee_package",
         status: validation.ok ? "pass" : "fail",
-        detail: validation.ok ? "Employee package validates for Hermes." : validation.errors.join("; "),
+        detail: validation.ok
+          ? "Employee package validates for Hermes."
+          : validation.errors.join("; "),
       },
       {
         id: "compatibility",
@@ -332,21 +358,31 @@ export const hermesAdapter = defineAdapter({
       {
         id: "compiled_files",
         status: compiled ? "pass" : "skip",
-        detail: compiled ? Object.keys(compiled.files).join(", ") : "Skipped because validation failed.",
+        detail: compiled
+          ? Object.keys(compiled.files).join(", ")
+          : "Skipped because validation failed.",
       },
       {
         id: "skills",
         status: compiled?.skills?.length > 0 ? "pass" : "warn",
-        detail: compiled?.skills?.length > 0 ? `${compiled.skills.length} skill descriptors emitted.` : "No skills emitted.",
+        detail:
+          compiled?.skills?.length > 0
+            ? `${compiled.skills.length} skill descriptors emitted.`
+            : "No skills emitted.",
       },
     ];
     const fixes = [];
 
-    if (!validation.ok) fixes.push(...validation.errors.map((error) => `Fix package validation: ${error}`));
+    if (!validation.ok)
+      fixes.push(
+        ...validation.errors.map(error => `Fix package validation: ${error}`)
+      );
     if (compatibility.level !== "L3") fixes.push(...compatibility.reasons);
 
     return {
-      status: checks.every((check) => check.status === "pass") ? "ok" : "needs_attention",
+      status: checks.every(check => check.status === "pass")
+        ? "ok"
+        : "needs_attention",
       checks,
       fixes,
     };

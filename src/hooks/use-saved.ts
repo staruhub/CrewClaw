@@ -53,14 +53,21 @@ function subscribeSaved(callback: () => void) {
 }
 
 export function useSavedEmployees() {
-  const savedIds = useSyncExternalStore(subscribeSaved, readSavedSnapshot, () => []);
+  const savedIds = useSyncExternalStore(
+    subscribeSaved,
+    readSavedSnapshot,
+    () => []
+  );
 
-  const isSaved = useCallback((employeeId: string) => savedIds.includes(employeeId), [savedIds]);
+  const isSaved = useCallback(
+    (employeeId: string) => savedIds.includes(employeeId),
+    [savedIds]
+  );
 
   const toggleSaved = useCallback(
     (employeeId: string, employeeName?: string) => {
       const nextSaved = isSaved(employeeId)
-        ? savedIds.filter((id) => id !== employeeId)
+        ? savedIds.filter(id => id !== employeeId)
         : [...savedIds, employeeId];
 
       writeSavedSnapshot(nextSaved);
@@ -69,7 +76,7 @@ export function useSavedEmployees() {
         employee_name: employeeName,
       });
     },
-    [isSaved, savedIds],
+    [isSaved, savedIds]
   );
 
   return {
