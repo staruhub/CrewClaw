@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { DreamPolicySchema } from "./dream";
+
 // EmployeeSpecSchema — the runtime deep spec (`crewclaw.employee.yaml`), layered ABOVE the hiring
 // contract (`hire.yaml`, see ./manifest.ts). Two-file standard, locked in PRD v0.18:
 //   hire.yaml              = marketplace/install layer (who to hire, what it needs to run)
@@ -141,7 +143,9 @@ export const EmployeeSpecSchema = z
     playbooks: z.array(z.object({}).passthrough()).optional(),
     failure_playbooks: z.array(z.object({}).passthrough()).optional(),
     memory_seed: z.object({}).passthrough().optional(),
-    dream_policy: z.object({}).passthrough().optional(),
+    // M0（条件式 Dream）：dream_policy 收紧为版本化正式 Schema——顶层未知字段拒绝，第三方
+    // 实验字段只能进 extensions；legacy after_task/retention 显式收编为 deprecated 字段。
+    dream_policy: DreamPolicySchema.optional(),
     workbench_profile: z.object({}).passthrough().optional(),
     runtime_requirements: z.object({}).passthrough().optional(),
     adapter_hints: z.object({}).passthrough().optional(),

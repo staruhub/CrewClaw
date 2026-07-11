@@ -394,8 +394,155 @@
     },
     "dream_policy": {
       "type": "object",
-      "properties": {},
-      "additionalProperties": {}
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "recommended",
+            "manual",
+            "disabled"
+          ]
+        },
+        "triggers": {
+          "type": "object",
+          "properties": {
+            "min_accepted_tasks": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "memory_pressure_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "duplicate_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "stale_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "conflict_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "repeat_task_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "recommendation_score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "eligibility": {
+          "type": "object",
+          "properties": {
+            "trusted_input_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "budget": {
+          "type": "object",
+          "properties": {
+            "memory_budget_tokens": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "max_model_cost_usd": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "input_policy": {
+          "type": "object",
+          "properties": {
+            "guidance": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "retention": {
+              "type": "string",
+              "minLength": 1
+            },
+            "forbid_sensitive": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "promotion_policy": {
+          "type": "object",
+          "properties": {
+            "require_baseline": {
+              "type": "boolean"
+            },
+            "require_candidate_eval": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "cooldown": {
+          "type": "object",
+          "properties": {
+            "hours": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "max_batch_tasks": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 100
+            }
+          },
+          "additionalProperties": false
+        },
+        "extensions": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "after_task": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "retention": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
     },
     "workbench_profile": {
       "type": "object",

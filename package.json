@@ -40,6 +40,7 @@
     "schema:generate": "node --import tsx contracts/scripts/generate-schemas.ts",
     "schema:check": "node --import tsx scripts/check-generated.mjs",
     "web:employees": "node --import tsx contracts/scripts/generate-web-employees.ts",
+    "memory:backfill": "node packages/runtime/memory-backfill.mjs",
     "eval:expert": "node packages/runtime/eval-runner.mjs"
   },
   "dependencies": {

@@ -11,6 +11,7 @@ import {
   actionForEvalEvent,
   buildEvalChildEnv,
   gradeArtifactWithJudge,
+  JUDGE_PROMPT_VERSION,
   loadEmployeeSpec,
   persistEval,
   readEvalResult,
@@ -20,6 +21,10 @@ import {
   validateEvalResult,
 } from "../eval-runner.mjs";
 import { EVAL_SUBJECT_CONTRACT_VERSION } from "../eval-subject.mjs";
+import { computeMemoryStateHash } from "../memory-hash.mjs";
+
+// M0.3：评测结果绑定的空记忆状态（当前评测在隔离空 root 运行，不注入记忆）。
+const EMPTY_MEMORY_STATE = computeMemoryStateHash([]);
 
 function tmpRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "eval-runner-test-"));
@@ -160,6 +165,12 @@ function validEval({ agentId = "guard", mock = false, ...overrides } = {}) {
     judge_endpoint_id: mock ? null : ENDPOINT_ID,
     graded_by: mock ? "mechanical" : "model",
     mock,
+    // M0.3：合法结果必须绑定记忆状态（当前评测不注入记忆 → 空集哈希）与判官提示词版本。
+    memory_state_hash: EMPTY_MEMORY_STATE.memory_state_hash,
+    memory_hash_schema: EMPTY_MEMORY_STATE.memory_hash_schema,
+    memory_item_count: 0,
+    memory_injection_tokens: 0,
+    judge_prompt_version: JUDGE_PROMPT_VERSION,
     evaluated_at: 123,
     per_test: perTest,
     per_dimension: dimensions.map(dimension => ({

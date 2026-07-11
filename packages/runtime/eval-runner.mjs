@@ -26,6 +26,7 @@ import { StringDecoder } from "node:string_decoder";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { readArtifactFileGuarded } from "./artifact-contract.mjs";
+import { computeMemoryStateHash } from "./memory-hash.mjs";
 import {
   readStateFileGuarded,
   resolveStatePath,
@@ -107,6 +108,12 @@ const EVAL_RESULT_FIELDS = new Set([
   "evaluated_at",
   "per_test",
   "per_dimension",
+  // M0.3（条件式 Dream）：评测分绑定记忆状态 + 判官提示词版本，梦前梦后比较才有效。
+  "memory_state_hash",
+  "memory_hash_schema",
+  "memory_item_count",
+  "memory_injection_tokens",
+  "judge_prompt_version",
 ]);
 const RUNTIME_IDENTITY_FIELDS = ["arch", "node", "node_abi", "platform"];
 const EXECUTION_CONTEXT_FIELDS = [
@@ -873,6 +880,9 @@ export async function gradeArtifactWithJudge(
 // Self-contained judge model call (same OpenAI-compatible endpoint run.mjs uses). Returns
 // {passed, reason} for one criterion. Kept isolated so the eval-runner never imports run.mjs
 // (whose main() runs on import).
+// M0.3：判官提示词定版——换措辞就换版本号，否则"分涨了"无法归因（判官变了 vs 员工变了）。
+export const JUDGE_PROMPT_VERSION = "crewclaw.judge-prompt/v1";
+
 function makeJudge({ sourceEnv = process.env, identity } = {}) {
   const apiKey = sourceEnv.ZENMUX_API_KEY;
   const baseUrl = configuredProviderBaseUrl(sourceEnv);
@@ -939,6 +949,9 @@ export async function runEval(
     judge = null,
     smokeRunner = runSmokeTest,
     sourceEnv = process.env,
+    // M0.3：本次评测 stage 给员工的记忆条目。当前评测不注入记忆（隔离空 root），默认 [] 如实
+    // 绑定空状态；M5 的基线/候选评测通过这里传入实际 staged 的记忆集。
+    stagedMemoryItems = [],
   } = {}
 ) {
   if (!mock && typeof judge !== "function") {
@@ -1028,6 +1041,19 @@ export async function runEval(
     judge_endpoint_id: executionIdentity.judgeEndpointId,
     graded_by: mock || !judge ? "mechanical" : "model",
     mock,
+    // M0.3：绑定本次评测实际使用的记忆状态。当前每个 smoke test 在全新隔离 root 里运行且不
+    // 注入任何记忆，因此这里如实记录空记忆状态的哈希；M5 基线/候选评测开始 stage 记忆后，
+    // 该绑定自动携带真实哈希（同一计算路径，无需改动）。
+    ...(() => {
+      const memoryState = computeMemoryStateHash(stagedMemoryItems);
+      return {
+        memory_state_hash: memoryState.memory_state_hash,
+        memory_hash_schema: memoryState.memory_hash_schema,
+        memory_item_count: memoryState.active_item_count,
+        memory_injection_tokens: memoryState.estimated_injection_tokens,
+      };
+    })(),
+    judge_prompt_version: JUDGE_PROMPT_VERSION,
     evaluated_at: Date.now(),
     per_test: perTest,
     per_dimension: perTest.flatMap(t =>
@@ -1247,6 +1273,19 @@ export function validateEvalResult(
   }
   if (!Number.isFinite(result.evaluated_at) || result.evaluated_at <= 0)
     return { ok: false, reason: "evaluated_at is missing or invalid" };
+  // M0.3（条件式 Dream）：分数必须绑定记忆状态与判官提示词版本，否则梦前梦后不可比。
+  if (
+    typeof result.memory_state_hash !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/i.test(result.memory_state_hash) ||
+    result.memory_hash_schema !== "crewclaw.memory-state-hash/v1" ||
+    !Number.isSafeInteger(result.memory_item_count) ||
+    result.memory_item_count < 0 ||
+    !Number.isSafeInteger(result.memory_injection_tokens) ||
+    result.memory_injection_tokens < 0
+  )
+    return { ok: false, reason: "memory state binding is missing or invalid" };
+  if (result.judge_prompt_version !== JUDGE_PROMPT_VERSION)
+    return { ok: false, reason: "judge_prompt_version is missing or invalid" };
   if (
     !Array.isArray(result.per_test) ||
     result.per_test.length !== expectedSmokeTests.length

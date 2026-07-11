@@ -1,0 +1,147 @@
+{
+  "$id": "https://crewclaw.dev/schema/dream.reflect.schema.json",
+  "title": "CrewClaw Task Reflection (crewclaw.reflect/v1)",
+  "description": "Immutable deterministic task work log — the only admissible Dream input.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "contract": {
+      "type": "string",
+      "const": "crewclaw.reflect/v1"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "employee_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "rejected",
+        "revision_needed",
+        "failed",
+        "blocked"
+      ]
+    },
+    "output_valid": {
+      "type": "boolean"
+    },
+    "accepted_artifact_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "verified_failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verification": {
+            "type": "string",
+            "enum": [
+              "doctor_confirmed",
+              "outcome_grader",
+              "deterministic_test"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "verification"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "user_feedback": {
+      "type": "object",
+      "properties": {
+        "useful": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "useful"
+      ],
+      "additionalProperties": false
+    },
+    "tool_stats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tool_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decision": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "tool_name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "cost_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+    }
+  },
+  "required": [
+    "contract",
+    "task_id",
+    "employee_id",
+    "outcome",
+    "output_valid",
+    "accepted_artifact_ids",
+    "evidence_ids",
+    "verified_failures",
+    "user_feedback",
+    "created_at"
+  ],
+  "additionalProperties": false
+}
