@@ -43,3 +43,27 @@ export function readBudgetIndex(root) {
   const v = Number(readPrefs(root).budget);
   return Number.isInteger(v) && v >= 0 ? v : 0;
 }
+
+/**
+ * M1 (conditional Dream) — the legacy learning rollback switch. Default ON (=生产当前行为:
+ * accept → 即时写活跃记忆). `CREW_LEGACY_LEARNING` env overrides prefs: "0" forces off, "1" forces
+ * on, unset falls through to prefs.legacy_learning (default true). M4 flips the prefs default to
+ * false; this env + prefs pair stays as the auditable rollback channel until M5 removes legacy.
+ */
+export function legacyLearningEnabled(root, env = process.env) {
+  const flag = env?.CREW_LEGACY_LEARNING;
+  if (flag === "0") return false;
+  if (flag === "1") return true;
+  const stored = readPrefs(root).legacy_learning;
+  return stored !== false; // default ON until M4 flips it
+}
+
+/**
+ * M4 SETTINGS row7 becomes "Dream 推荐：开启/关闭" (was the unsupported "Dream 时间"). Reuses the
+ * existing Prefs.dream index; 0 = 开启, anything else = 关闭. Default 开启. Consumed by the
+ * DreamController to decide whether to surface recommendations (mode gate, not a hard block).
+ */
+export function readDreamRecommendation(root) {
+  const v = readPrefs(root).dream;
+  return v === undefined || Number(v) === 0; // default 开启
+}

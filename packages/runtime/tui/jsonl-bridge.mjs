@@ -43,6 +43,7 @@ import {
 } from "../state-lock.mjs";
 import { readKpi, recordTaskOutcome } from "../kpi.mjs";
 import { readEvalResult } from "../eval-runner.mjs";
+import { buildReflection, writeReflection } from "../reflect.mjs";
 import {
   readApprovalPolicy,
   readBudgetIndex,
@@ -250,6 +251,36 @@ export async function startJsonlBridge({
   // A deliverable may be accepted from either the structured Ratatui action or the legacy digit
   // PendingAction. The settlement boundary revalidates the exact bytes and writes the ProofPack
   // before emitting any success/KPI signal.
+  // M1（条件式 Dream）：chat/trial 交付验收也落一份不可变 Reflect（最小事实集），否则可信池
+  // 在真实使用（用户日常以 chat trial task 为主）中永远不走字。agentId 为 null（未绑定员工）→
+  // 不写，发 debug（ReflectionSchema.employee_id 是 NonEmptyString，无归属员工无法诚实归档）。
+  const writeBridgeReflection = (held, { outcome, outputValid, feedback }) => {
+    const employeeId = held.agentId || meta.agentId;
+    if (!employeeId) {
+      emit(EVENTS.DEBUG_LINE, { line: "reflect skipped: no agent bound to this delivery" });
+      return;
+    }
+    try {
+      const now = new Date().toISOString();
+      const reflection = buildReflection(
+        {
+          id: held.taskRunId,
+          employee_id: employeeId,
+          status: outcome,
+          output_valid: outputValid,
+          artifact: held.artifact?.artifact_id || null,
+          user_feedback: feedback,
+          started_at: now,
+          updated_at: now,
+        },
+        { createdAt: now }
+      );
+      writeReflection(held.root || bridgeRoot, reflection);
+    } catch (error) {
+      emit(EVENTS.DEBUG_LINE, { line: `reflect skipped: ${error?.message ?? error}` });
+    }
+  };
+
   const completeAcceptedDelivery = (held, { auto = false } = {}) => {
     const verified = verifyHeldArtifact(held);
     if (!verified.ok) {
@@ -336,6 +367,7 @@ export async function startJsonlBridge({
       usage: produced,
       est_cost: cost,
     });
+    writeBridgeReflection(held, { outcome: "accepted", outputValid: true, feedback: "useful" });
     if (!removePendingDelivery(held)) {
       emit(EVENTS.DEBUG_LINE, {
         line: "验收已提交，但恢复回执暂未清除；下次恢复将按 taskRunId 幂等重放",
@@ -390,6 +422,11 @@ export async function startJsonlBridge({
       reason,
       usage: produced,
       est_cost: cost,
+    });
+    writeBridgeReflection(held, {
+      outcome: "rejected",
+      outputValid: false,
+      feedback: "not_useful",
     });
     if (!removePendingDelivery(held)) {
       emit(EVENTS.DEBUG_LINE, {

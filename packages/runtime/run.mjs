@@ -56,6 +56,8 @@ import { newArtifact, saveArtifact, markAccepted } from "./artifact-store.mjs";
 import { grade } from "./outcome-grader.mjs";
 import { loadMemory, addMemory, summarizeForPrompt } from "./memory-store.mjs";
 import { reviewTaskRun } from "./dream.mjs";
+import { buildReflection, writeReflection } from "./reflect.mjs";
+import { legacyLearningEnabled } from "./tui/prefs.mjs";
 import { statusHeader, actionBar } from "./workbench-view.mjs";
 import { permissionRequest } from "./permission-copy.mjs";
 import { generateQueries, FAILURE_PLAYBOOK } from "./search-harness.mjs";
@@ -2258,6 +2260,21 @@ function completeAcceptedTaskModeDelivery({
     };
   }
 
+  // M1（条件式 Dream）：TUI 验收终态落不可变 Reflect（幂等——崩溃重放同 id 内容一致=no-op）。
+  try {
+    const settledEvidence = loadEvidence(WORKSPACE_ROOT, run.id);
+    const reflection = buildReflection(run, {
+      evidenceIds: settledEvidence.ok
+        ? settledEvidence.cards.map(c => c.id).filter(Boolean)
+        : [],
+      legacyCommitted: run.memory_commit?.committed === true,
+      createdAt: new Date().toISOString(),
+    });
+    writeReflection(WORKSPACE_ROOT, reflection);
+  } catch (error) {
+    taskSink?.emitRaw("debug.line", { line: `reflect skipped: ${error?.message ?? error}` });
+  }
+
   const removed = removePendingTaskApproval(WORKSPACE_ROOT, pending.taskRunId);
   if (!removed.ok) {
     taskSink.emitRaw("debug.line", {
@@ -3235,8 +3252,12 @@ async function runTaskMode({
   // Dream/reflect only stages candidates here. A task result is not trustworthy
   // memory until the user accepts the deliverable; rejection, EOF and crashes
   // before the durable accepted state must leave the searchable store untouched.
+  // M1（条件式 Dream）：per-task reviewTaskRun 是 legacy 学习管线的候选生产者，随
+  // legacy_learning flag 走——flag=on 时照跑（真·HEAD 行为，含模型成本），flag=off 时跳过
+  // （Reflect 取代其输入采集职责，零模型成本）。commitAcceptedTaskMemory（消费者）同 flag。
+  const legacyLearning = legacyLearningEnabled(WORKSPACE_ROOT);
   let review = null;
-  if (outputValid) {
+  if (outputValid && legacyLearning) {
     try {
       review = await reviewTaskRun({
         taskRun: run,
@@ -3398,6 +3419,19 @@ async function runTaskMode({
   const evidence = loadEvidence(WORKSPACE_ROOT, run.id);
   run.evidence_count = evidence.ok ? evidence.cards.length : 0;
   const sources = assembleSources(evidence.ok ? evidence.cards : []);
+
+  // M1（条件式 Dream）：CLI 终态（accept/reject 均经此，status + user_feedback 已定）落一份
+  // 不可变 Reflect 工作日志。确定性、零模型成本、幂等（重放同 id 内容一致=no-op）。
+  try {
+    const reflection = buildReflection(run, {
+      evidenceIds: evidence.ok ? evidence.cards.map(c => c.id).filter(Boolean) : [],
+      legacyCommitted: run.memory_commit?.committed === true,
+      createdAt: new Date().toISOString(),
+    });
+    writeReflection(WORKSPACE_ROOT, reflection);
+  } catch (error) {
+    console.error(`${GUTTER}reflect 未落盘：${error?.message ?? error}`);
+  }
   // Task Report (PRD §19.1): export a shareable markdown report next to the run.
   const reportCandidate = join(
     WORKSPACE_ROOT,

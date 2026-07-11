@@ -15,6 +15,8 @@ import {
   ReflectionSchema,
 } from "../dream";
 import { EmployeeSpecSchema } from "../employee-spec";
+// @ts-expect-error — runtime .mjs mirror of ReflectionSchema; this test is the drift guard.
+import { buildReflection } from "../../packages/runtime/reflect.mjs";
 
 describe("M0 frozen contract names", () => {
   it("never drift silently", () => {
@@ -154,6 +156,30 @@ describe("reflect/v1", () => {
         created_at: "2026-07-11T00:00:00.000Z",
       })
     ).toThrow();
+  });
+
+  it("drift guard: the runtime buildReflection output satisfies the Zod ReflectionSchema", () => {
+    // reflect.mjs hand-rolls validation (no TS loader at runtime). This ties that mirror to the
+    // frozen schema so the two cannot drift apart.
+    const reflection = buildReflection(
+      {
+        id: "task_9",
+        employee_id: "product-prd-crab",
+        status: "accepted",
+        output_valid: true,
+        artifact: "artifact_9",
+        user_feedback: "useful",
+        cost: 0.2,
+        started_at: "2026-07-11T00:00:00.000Z",
+        updated_at: "2026-07-11T00:01:00.000Z",
+        tool_invocations: [{ tool_name: "web_search", status: "success" }],
+      },
+      { evidenceIds: ["ev_9"], createdAt: "2026-07-11T00:02:00.000Z" }
+    );
+    // legacy_committed is a runtime-only provenance field, not in the wire schema.
+    const { legacy_committed, ...wire } = reflection;
+    expect(legacy_committed).toBe(false);
+    expect(() => ReflectionSchema.parse(wire)).not.toThrow();
   });
 });
 
