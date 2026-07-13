@@ -6,7 +6,9 @@ const employeeId = String(process.argv[2] || "").trim();
 const workspaceRoot = resolve(process.argv[3] || process.cwd());
 
 if (!employeeId) {
-  process.stderr.write("Usage: node tool-doctor-cli.mjs <employee-id> [workspace-root]\n");
+  process.stderr.write(
+    "Usage: node tool-doctor-cli.mjs <employee-id> [workspace-root]\n"
+  );
   process.exit(2);
 }
 

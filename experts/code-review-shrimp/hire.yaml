@@ -24,10 +24,7 @@ skills:
   - review-comment-style
   - pr-summary-writer
 
-tools:
-  - terminal
-  - read_file
-  - skills
+tools: []
 
 permissions:
   - repo_files:read
@@ -36,7 +33,7 @@ permissions:
   - merge_and_deploy:human_confirmation_required
 
 requires:
-  hermes: ">=0.12.0"
+  hermes: ">=0.18.2"
   runtime: openclaw
   env:
     - GITHUB_PERSONAL_ACCESS_TOKEN

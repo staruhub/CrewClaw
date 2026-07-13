@@ -1,7 +1,7 @@
 name: product-prd-crab
 version: 0.1.0
 description: "ChaoGeek-certified Hermes expert for PRD review, edge cases, acceptance criteria, and metrics."
-hermes_requires: ">=0.12.0"
+hermes_requires: ">=0.18.2"
 author: "ChaoGeek / Pong"
 license: "Commercial Preview"
 env_requires: []

@@ -24,9 +24,7 @@ skills:
   - member-onboarding
   - community-health
 
-tools:
-  - browser
-  - skills
+tools: []
 
 permissions:
   - public_web:read
@@ -35,7 +33,7 @@ permissions:
   - member_data:write:disabled
 
 requires:
-  hermes: ">=0.12.0"
+  hermes: ">=0.18.2"
   runtime: openclaw
   env:
     - HERMES_MODEL

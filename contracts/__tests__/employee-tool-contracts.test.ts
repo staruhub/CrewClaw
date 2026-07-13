@@ -126,10 +126,7 @@ describe("employee executable tool contracts", () => {
   it("rejects declarative tool limits that the runtime does not enforce", () => {
     const whale = yaml.load(
       readFileSync(
-        path.join(
-          repoRoot,
-          "experts/ai-adoption-whale/crewclaw.employee.yaml"
-        ),
+        path.join(repoRoot, "experts/ai-adoption-whale/crewclaw.employee.yaml"),
         "utf8"
       )
     ) as Record<string, unknown>;

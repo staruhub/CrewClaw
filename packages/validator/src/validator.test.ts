@@ -14,8 +14,9 @@ import {
 const createdRoots: string[] = [];
 
 async function makeExpertRoot() {
-  const root = await mkdtemp(join(tmpdir(), "crewclaw-validator-"));
-  createdRoots.push(root);
+  const sandbox = await mkdtemp(join(tmpdir(), "crewclaw-validator-"));
+  createdRoots.push(sandbox);
+  const root = join(sandbox, "test-expert");
   await mkdir(join(root, "skills", "review", "code-review-checklist"), {
     recursive: true,
   });
@@ -25,7 +26,7 @@ async function makeExpertRoot() {
       "name: test-expert",
       "version: 0.1.0",
       "description: Test expert for validator coverage.",
-      'hermes_requires: ">=0.12.0"',
+      'hermes_requires: ">=0.18.2"',
       "author: ChaoGeek / Pong",
       "license: Commercial Preview",
       "env_requires:",
@@ -45,7 +46,7 @@ async function makeExpertRoot() {
   await writeFile(join(root, "SOUL.md"), "# Soul\nYou are a test expert.\n");
   await writeFile(
     join(root, "config.yaml"),
-    'model:\n  default: ""\ntemperature: 0.2\n'
+    "temperature: 0.2\ntoolsets: []\nplatform_toolsets:\n  cli:\n    - no_mcp\ncoding_context: off\nagent:\n  disabled_toolsets: [browser, code_execution, file, skills, terminal]\nplugins:\n  enabled: []\napprovals:\n  mode: manual\n"
   );
   await writeFile(
     join(root, "mcp.json"),
@@ -157,8 +158,8 @@ function makeSpecYaml() {
     "    criterion: Finds the real defects.",
     "compatibility_targets:",
     "  Hermes:",
-    "    level: L3",
-    "    strategy: Map to SOUL and skills.",
+    "    level: L1",
+    "    strategy: Prompt and playbook only; tools require CrewClaw.",
   ].join("\n");
 }
 
@@ -195,12 +196,11 @@ function makeHireYaml(
     "soul: Practical test expert.",
     "skills:",
     "  - code-review-checklist",
-    "tools:",
-    "  - browser",
+    "tools: []",
     "permissions:",
     ...permissions.map(permission => `  - ${permission}`),
     "requires:",
-    '  hermes: ">=0.12.0"',
+    '  hermes: ">=0.18.2"',
     "  runtime: node",
     "  env:",
     "    - OPENAI_API_KEY",
@@ -239,7 +239,7 @@ describe("validateExpert", () => {
 
     const result = await validateExpert(root);
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.errors.join("\n")).toBe(true);
     expect(result.errors).toEqual([]);
   });
 
@@ -318,7 +318,7 @@ describe("validateExpert", () => {
       local_source: root,
     });
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.errors.join("\n")).toBe(true);
     expect(result.errors).toEqual([]);
   });
 
@@ -362,6 +362,92 @@ describe("validateExpert", () => {
     );
   });
 
+  it("rejects distribution identity and Hermes version drift", async () => {
+    const root = await makeExpertRoot();
+    await writeFile(
+      join(root, "distribution.yaml"),
+      [
+        "name: wrong-expert",
+        "version: 0.1.0",
+        "description: Wrong identity used to exercise drift checks.",
+        'hermes_requires: ">=0.12.0"',
+        "author: ChaoGeek / Pong",
+        "license: Commercial Preview",
+      ].join("\n")
+    );
+
+    const result = await validateExpert(root);
+
+    expect(result.errors).toContain(
+      "Distribution name mismatch: directory=test-expert distribution.yaml=wrong-expert"
+    );
+    expect(result.errors).toContain(
+      "Unsupported Hermes requirement: distribution.yaml=>=0.12.0 expected=>=0.18.2"
+    );
+    expect(result.errors).toContain(
+      "Hermes requirement mismatch: distribution.yaml=>=0.12.0 hire.yaml=>=0.18.2"
+    );
+  });
+
+  it("rejects legacy Hermes config shapes and tool names masquerading as toolsets", async () => {
+    const legacyRoot = await makeExpertRoot();
+    await writeFile(
+      join(legacyRoot, "config.yaml"),
+      'model:\n  default: ""\ntoolsets:\n  default:\n    - read_file\napprovals:\n  mode: manual\n'
+    );
+
+    const legacy = await validateExpert(legacyRoot);
+    expect(legacy.errors).toContain(
+      "Invalid config.yaml: model must be a scalar string; legacy model.default is not supported"
+    );
+    expect(legacy.errors).toContain(
+      "Invalid config.yaml: toolsets must be an array of official Hermes toolset names; legacy toolsets.default is not supported"
+    );
+
+    const fakeToolsetRoot = await makeExpertRoot();
+    await writeFile(
+      join(fakeToolsetRoot, "config.yaml"),
+      "toolsets:\n  - read_file\n  - skills\napprovals:\n  mode: manual\n"
+    );
+    const fakeToolset = await validateExpert(fakeToolsetRoot);
+    expect(fakeToolset.errors).toContain(
+      "Invalid config.yaml: unknown Hermes toolset(s): read_file"
+    );
+  });
+
+  it("rejects hire/profile Hermes toolset drift", async () => {
+    const root = await makeExpertRoot();
+    await writeFile(
+      join(root, "config.yaml"),
+      "toolsets:\n  - web\nplatform_toolsets:\n  cli: [web, no_mcp]\ncoding_context: off\nagent:\n  disabled_toolsets: [browser, code_execution, file, skills, terminal]\nplugins:\n  enabled: []\napprovals:\n  mode: manual\n"
+    );
+
+    const result = await validateExpert(root);
+
+    expect(result.errors).toContain(
+      "Hermes toolset mismatch: hire.yaml= config.yaml=web"
+    );
+  });
+
+  it("rejects broad Hermes bundles that resolve disabled capabilities", async () => {
+    for (const [toolset, forbiddenTool] of [
+      ["file", "write_file"],
+      ["terminal", "terminal"],
+      ["skills", "skill_manage"],
+    ]) {
+      const root = await makeExpertRoot();
+      await writeFile(
+        join(root, "config.yaml"),
+        `toolsets: [${toolset}]\nplatform_toolsets:\n  cli: [${toolset}, no_mcp]\ncoding_context: off\nagent:\n  disabled_toolsets: [browser, code_execution, file, skills, terminal]\nplugins:\n  enabled: []\napprovals:\n  mode: manual\n`
+      );
+      const result = await validateExpert(root);
+      expect(result.errors.join("\n")).toContain(
+        `Unsafe standalone Hermes toolset: ${toolset} expands to forbidden tools`
+      );
+      expect(result.errors.join("\n")).toContain(forbiddenTool);
+    }
+  });
+
   it("warns without failing for high-risk permissions in hire.yaml", async () => {
     const root = await makeExpertRoot();
     await writeFile(
@@ -373,7 +459,7 @@ describe("validateExpert", () => {
 
     const result = await validateExpert(root);
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.errors.join("\n")).toBe(true);
     expect(result.warnings).toContain(
       "High-risk permissions declared in hire.yaml: mailbox:send, files:delete, payments:charge"
     );

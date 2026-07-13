@@ -65,7 +65,18 @@ enum TerminalAction {
 
 enum LiveLoopExit {
     UserQuit,
+    Interrupted,
     ChildEof,
+}
+
+impl LiveLoopExit {
+    fn requested_exit_code(&self) -> Option<i32> {
+        match self {
+            Self::UserQuit => Some(0),
+            Self::Interrupted => Some(crate::INTERRUPTED_EXIT_CODE),
+            Self::ChildEof => None,
+        }
+    }
 }
 
 struct EngineBootState {
@@ -222,14 +233,20 @@ fn poll_interval(state: &AppState) -> Duration {
     }
 }
 
-pub fn run_workbench(demo: bool) -> Result<(), String> {
+fn is_ctrl_c_key(key: &KeyEvent) -> bool {
+    key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+pub fn run_workbench(demo: bool) -> Result<i32, String> {
     if !io::stdout().is_tty() {
-        return run_plain_transcript(demo);
+        run_plain_transcript(demo)?;
+        return Ok(0);
     }
     install_panic_restore_hook();
     // demo/离线路径无 root，用默认配置（mouse=true, dark）。
     let mut terminal = TerminalGuard::enter(config::TuiConfig::default().mouse)?;
-    run_loop(&mut terminal.terminal, demo)
+    let exit = run_loop(&mut terminal.terminal, demo)?;
+    Ok(exit.requested_exit_code().unwrap_or(0))
 }
 
 pub fn run_workbench_live(runtime_args: &[String], root: &Path) -> Result<i32, String> {
@@ -302,6 +319,15 @@ pub fn run_workbench_live(runtime_args: &[String], root: &Path) -> Result<i32, S
             );
             return Err(startup_failure_message(&runtime_args[0], &diagnostics));
         }
+        BootOutcome::Cancelled => {
+            drop(child_stdin);
+            let _ = shutdown_runtime(
+                &mut child,
+                &process_tree,
+                Duration::from_millis(RUNTIME_GRACEFUL_EXIT_MS),
+            );
+            return Ok(crate::INTERRUPTED_EXIT_CODE);
+        }
     };
 
     let mut terminal = match TerminalGuard::enter(tui_config.mouse) {
@@ -323,7 +349,10 @@ pub fn run_workbench_live(runtime_args: &[String], root: &Path) -> Result<i32, S
         boot,
     );
     drop(terminal);
-    if matches!(&loop_result, Ok(LiveLoopExit::UserQuit)) {
+    if matches!(
+        &loop_result,
+        Ok(LiveLoopExit::UserQuit | LiveLoopExit::Interrupted)
+    ) {
         let _ = child_stdin.write_all(b"/exit\n");
         let _ = child_stdin.flush();
     }
@@ -335,7 +364,18 @@ pub fn run_workbench_live(runtime_args: &[String], root: &Path) -> Result<i32, S
             &process_tree,
             Duration::from_millis(RUNTIME_GRACEFUL_EXIT_MS),
         )
-        .map(|_| 0)
+        .map(|_| LiveLoopExit::UserQuit.requested_exit_code().unwrap_or(0))
+        .map_err(|error| format!("failed to stop Node runtime: {error}")),
+        Ok(LiveLoopExit::Interrupted) => shutdown_runtime(
+            &mut child,
+            &process_tree,
+            Duration::from_millis(RUNTIME_GRACEFUL_EXIT_MS),
+        )
+        .map(|_| {
+            LiveLoopExit::Interrupted
+                .requested_exit_code()
+                .unwrap_or(crate::INTERRUPTED_EXIT_CODE)
+        })
         .map_err(|error| format!("failed to stop Node runtime: {error}")),
         Ok(LiveLoopExit::ChildEof) => shutdown_runtime(
             &mut child,
@@ -411,7 +451,7 @@ fn transcript_jsonl_for_event(event: &TaskEvent, state: &AppState) -> serde_json
     }))
 }
 
-fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
+fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<LiveLoopExit, String> {
     let mut state = AppState::default();
     let mut ui_state = UiState::default();
     let mut input = InputBuffer::with_history_path(current_prompt_history_path());
@@ -442,6 +482,9 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
     }
 
     loop {
+        if crate::cancel_requested() {
+            return Ok(LiveLoopExit::Interrupted);
+        }
         terminal
             .draw(|frame| {
                 ui::render_with_input_spans(
@@ -459,7 +502,7 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
         let poll = poll_interval(&state).min(Duration::from_millis(50));
         if event::poll(poll).map_err(|error| format!("Failed to poll terminal events: {error}"))? {
             match handle_terminal_event(&mut state, &mut ui_state, &mut input, terminal)? {
-                TerminalAction::Quit => break,
+                TerminalAction::Quit => return Ok(LiveLoopExit::Interrupted),
                 TerminalAction::Submit(submitted, _parts) => {
                     state
                         .debug
@@ -503,12 +546,10 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
                         )
                     })
                     .map_err(|error| format!("Failed to draw final workbench frame: {error}"))?;
-                break;
+                return Ok(LiveLoopExit::ChildEof);
             }
         }
     }
-
-    Ok(())
 }
 
 /// boot 结果：Ready 携带 boot 阶段已收到的事件（灌入初始状态）与 client.ready 是否已发；
@@ -521,6 +562,7 @@ enum BootOutcome {
     Failed {
         diagnostics: Vec<String>,
     },
+    Cancelled,
 }
 
 /// v0.20 P0：在进入 alternate screen 之前，阻塞等待引擎发出首个 `session.ready`。
@@ -549,6 +591,9 @@ fn await_engine_boot<W: io::Write>(
     let mut client_ready_sent = false;
 
     loop {
+        if crate::cancel_requested() {
+            return BootOutcome::Cancelled;
+        }
         drain_debug(debug, &mut diagnostics);
         match events.recv_timeout(Duration::from_millis(100)) {
             Ok(WorkbenchMessage::Event(event)) => {
@@ -663,6 +708,9 @@ fn run_live_loop(
     let mut client_ready_sent = client_ready_sent;
 
     loop {
+        if crate::cancel_requested() {
+            return Ok(LiveLoopExit::Interrupted);
+        }
         if ui_state.persisted_refresh_requested || Instant::now() >= next_persisted_refresh {
             refresh_persisted_insights(root, employee_id, &mut state, &mut ui_state);
             ui_state.persisted_refresh_requested = false;
@@ -689,6 +737,9 @@ fn run_live_loop(
                     .map_err(|error| format!("Failed to read terminal event: {error}"))?;
                 match terminal_event {
                     Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        if is_ctrl_c_key(&key) {
+                            return Ok(LiveLoopExit::Interrupted);
+                        }
                         let decision = match key.code {
                             KeyCode::Char('a') | KeyCode::Char('y') => Some("accept"),
                             // v0.13 M4：设计规范键位 [a]/[r]；d/n 保留兼容。
@@ -739,7 +790,7 @@ fn run_live_loop(
                 terminal,
                 terminal_event,
             )? {
-                TerminalAction::Quit => return Ok(LiveLoopExit::UserQuit),
+                TerminalAction::Quit => return Ok(LiveLoopExit::Interrupted),
                 TerminalAction::Submit(submitted, parts) => {
                     if submitted.trim() == "/exit" {
                         return Ok(LiveLoopExit::UserQuit);
@@ -2053,24 +2104,36 @@ impl TerminalGuard {
     /// （AC-THM-003），Drop 时也据此对称收尾。
     fn enter(mouse: bool) -> Result<Self, String> {
         enable_raw_mode().map_err(|error| format!("Failed to enable raw mode: {error}"))?;
-        let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)
-            .map_err(|error| format!("Failed to enter alternate screen: {error}"))?;
-        execute!(stdout, EnableBracketedPaste)
-            .map_err(|error| format!("Failed to enable bracketed paste: {error}"))?;
-        if mouse {
-            // v0.8 M5: capture the wheel for message scrolling. Shift+wheel/Shift+drag falls through
-            // to the terminal's native selection so copy still works (documented in F1 help).
-            execute!(stdout, EnableMouseCapture)
-                .map_err(|error| format!("Failed to enable mouse capture: {error}"))?;
+        let setup = (|| -> Result<TuiTerminal, String> {
+            let mut stdout = io::stdout();
+            execute!(stdout, EnterAlternateScreen)
+                .map_err(|error| format!("Failed to enter alternate screen: {error}"))?;
+            execute!(stdout, EnableBracketedPaste)
+                .map_err(|error| format!("Failed to enable bracketed paste: {error}"))?;
+            if mouse {
+                execute!(stdout, EnableMouseCapture)
+                    .map_err(|error| format!("Failed to enable mouse capture: {error}"))?;
+            }
+            let backend = CrosstermBackend::new(stdout);
+            let mut terminal = Terminal::new(backend)
+                .map_err(|error| format!("Failed to initialize terminal: {error}"))?;
+            terminal
+                .clear()
+                .map_err(|error| format!("Failed to clear terminal: {error}"))?;
+            Ok(terminal)
+        })();
+
+        match setup {
+            Ok(terminal) => Ok(Self { terminal, mouse }),
+            Err(error) => {
+                if let Err(restore_error) = restore_terminal() {
+                    return Err(format!(
+                        "{error}; additionally failed to restore terminal: {restore_error}"
+                    ));
+                }
+                Err(error)
+            }
         }
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)
-            .map_err(|error| format!("Failed to initialize terminal: {error}"))?;
-        terminal
-            .clear()
-            .map_err(|error| format!("Failed to clear terminal: {error}"))?;
-        Ok(Self { terminal, mouse })
     }
 }
 
@@ -2095,15 +2158,25 @@ fn install_panic_restore_hook() {
 }
 
 fn restore_terminal() -> io::Result<()> {
-    disable_raw_mode()?;
-    execute!(
-        io::stdout(),
-        DisableMouseCapture,
-        DisableBracketedPaste,
-        LeaveAlternateScreen,
-        Show
-    )?;
-    Ok(())
+    restore_terminal_with(disable_raw_mode, || {
+        execute!(
+            io::stdout(),
+            DisableMouseCapture,
+            DisableBracketedPaste,
+            LeaveAlternateScreen,
+            Show
+        )
+    })
+}
+
+fn restore_terminal_with<D, R>(mut disable_raw: D, mut reset_controls: R) -> io::Result<()>
+where
+    D: FnMut() -> io::Result<()>,
+    R: FnMut() -> io::Result<()>,
+{
+    let raw_result = disable_raw();
+    let controls_result = reset_controls();
+    raw_result.and(controls_result)
 }
 
 #[cfg(test)]
@@ -2145,6 +2218,7 @@ mod tests {
             BootOutcome::Failed { diagnostics } => {
                 panic!("expected Ready, got Failed: {diagnostics:?}")
             }
+            BootOutcome::Cancelled => panic!("expected Ready, got cancellation"),
         }
         let written = String::from_utf8(sink).expect("utf8 stdin");
         assert!(
@@ -2178,7 +2252,52 @@ mod tests {
                 );
             }
             BootOutcome::Ready { .. } => panic!("expected Failed on pre-ready EOF"),
+            BootOutcome::Cancelled => panic!("expected Failed, got cancellation"),
         }
+    }
+
+    #[test]
+    fn terminal_restore_attempts_controls_even_when_raw_disable_fails() {
+        use std::cell::RefCell;
+
+        let calls = RefCell::new(Vec::new());
+        let error = restore_terminal_with(
+            || {
+                calls.borrow_mut().push("raw");
+                Err(io::Error::other("raw cleanup failed"))
+            },
+            || {
+                calls.borrow_mut().push("controls");
+                Ok(())
+            },
+        )
+        .expect_err("the original cleanup error is preserved");
+
+        assert_eq!(calls.into_inner(), vec!["raw", "controls"]);
+        assert_eq!(error.to_string(), "raw cleanup failed");
+    }
+
+    #[test]
+    fn approval_modal_ctrl_c_is_recognized_as_quit() {
+        assert!(is_ctrl_c_key(&KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL
+        )));
+        assert!(!is_ctrl_c_key(&KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::NONE
+        )));
+    }
+
+    #[test]
+    fn user_quit_and_interrupt_have_distinct_exit_codes() {
+        assert_eq!(LiveLoopExit::UserQuit.requested_exit_code(), Some(0));
+        assert_eq!(
+            LiveLoopExit::Interrupted.requested_exit_code(),
+            Some(crate::INTERRUPTED_EXIT_CODE)
+        );
+        assert_eq!(LiveLoopExit::ChildEof.requested_exit_code(), None);
+        assert_eq!(crate::INTERRUPTED_EXIT_CODE, 130);
     }
 
     #[test]

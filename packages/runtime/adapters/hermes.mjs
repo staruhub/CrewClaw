@@ -3,27 +3,23 @@ import { computeCompatibility } from "../compatibility.mjs";
 import { validateEmployeePackage } from "../employee-package.mjs";
 import { defineAdapter } from "./adapter-interface.mjs";
 
-const TOOL_NAME_MAP = Object.freeze({
-  "web.search": "web_search",
-  "web.extract": "web_fetch",
-  "web.fetch_extract": "web_fetch",
-  "browser.render": "browser_render",
-  "source.verify": "source_verify",
-  "evidence.create": "artifact_create",
-  "artifact.report": "artifact_export",
-  "shell.run": "shell_run",
+// Hermes exposes named bundles, not per-tool grants. Only map bundles whose complete expansion
+// is read-only. `file`, `terminal`, `browser`, and `skills` are deliberately absent because they
+// also expose writes/arbitrary actions or skill_manage.
+const HERMES_TOOLSETS_BY_CAPABILITY = Object.freeze({
+  "web.search": ["search"],
+  "web.fetch": ["web"],
+  "web.extract": ["web"],
+  "web.fetch_extract": ["web"],
 });
 
-// PRD §14.2: risk rises P0→P4, so approval strictness must rise WITH it. P0 (read public)
-// auto-allows; P4 (delete/pay/perms) defaults to DENY. (A first pass had this inverted —
-// auto-allowing P4 high-risk actions, the exact "权限不可信" risk §26 warns about.)
-const APPROVAL_BY_TIER = Object.freeze({
-  P0: "never", // 只读公开信息 → 可允许（自动）
-  P1: "sensitive", // 只读用户数据 → 需授权
-  P2: "always", // 写入本地结果 → 需授权
-  P3: "always", // 外部副作用 → 强确认
-  P4: "deny", // 高危动作 → 默认禁止
-});
+const HERMES_FORBIDDEN_BROAD_TOOLSETS = Object.freeze([
+  "browser",
+  "code_execution",
+  "file",
+  "skills",
+  "terminal",
+]);
 
 function hasValue(value) {
   if (value === null || value === undefined) return false;
@@ -69,115 +65,54 @@ function renderSection(title, value) {
   return [`## ${title}`, ...renderValue(value), ""].join("\n");
 }
 
-function normalizeToolName(toolName) {
-  return (
-    TOOL_NAME_MAP[toolName] ||
-    toolName.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")
-  );
-}
-
-function configuredToolEntries(pkg) {
-  return Object.entries(pkg?.tool_needs || {})
-    .filter(
-      ([, need]) => String(need?.necessity || "").toLowerCase() !== "disabled"
-    )
-    .map(([crewclawName, need]) => ({
-      crewclaw: crewclawName,
-      hermes: normalizeToolName(crewclawName),
-      necessity: need?.necessity || "optional",
-      permission: need?.permission || "unspecified",
-      description: need?.description || "",
-      tier:
-        pkg?.permission_policy?.grants?.[crewclawName] ||
-        pkg?.permission_policy?.default_level ||
-        "P1",
-    }));
-}
-
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
-function permissionTiers(pkg, tools) {
-  const grants = pkg?.permission_policy?.grants || {};
-  const denied = pkg?.permission_policy?.denied || {};
-  const tiers = {};
-
-  for (const tier of Object.keys(APPROVAL_BY_TIER)) {
-    const allowlist = unique(
-      Object.entries(grants)
-        .filter(([, level]) => level === tier)
-        .map(([tool]) => normalizeToolName(tool))
-    );
-    tiers[tier] = {
-      requires_approval: APPROVAL_BY_TIER[tier],
-      allowlist,
-    };
+function configuredToolsets(pkg) {
+  const selected = [];
+  for (const [capability, need] of Object.entries(pkg?.tool_needs || {})) {
+    // Base profiles grant required capabilities only. Conditional and non-default capabilities
+    // must be selected by the frozen CrewClaw hire/session decision, never silently broadened here.
+    if (String(need?.necessity || "").toLowerCase() !== "required") continue;
+    selected.push(...(HERMES_TOOLSETS_BY_CAPABILITY[capability] || []));
   }
-
-  for (const tool of tools) {
-    if (!tiers[tool.tier]) {
-      tiers[tool.tier] = {
-        requires_approval: "always", // unknown tier → ask (never silently auto-allow)
-        allowlist: [],
-      };
-    }
-    if (!tiers[tool.tier].allowlist.includes(tool.hermes))
-      tiers[tool.tier].allowlist.push(tool.hermes);
-  }
-
-  return {
-    default_level: pkg?.permission_policy?.default_level || "P1",
-    tiers,
-    denied: Object.keys(denied).sort(),
-    human_authorization_required: toArray(
-      pkg?.permission_policy?.human_authorization_required
-    ).map(String),
-  };
+  const resolved = unique(selected);
+  // Hermes web includes both web_search and web_extract; avoid the redundant search bundle.
+  return resolved.includes("web")
+    ? resolved.filter(toolset => toolset !== "search")
+    : resolved;
 }
 
 function compileConfig(pkg) {
-  const tools = configuredToolEntries(pkg);
+  const toolsets = configuredToolsets(pkg);
   const config = {
-    runtime: "hermes",
-    employee: {
-      id: pkg?.identity?.id || "",
-      name: pkg?.identity?.name || pkg?.identity?.english_name || "",
-      target_level: "L3",
+    toolsets,
+    platform_toolsets: {
+      cli: [...toolsets, "no_mcp"],
     },
-    toolsets: {
-      default: unique(tools.map(tool => tool.hermes)),
-      mappings: tools.map(
-        ({ crewclaw, hermes, necessity, permission, description, tier }) => ({
-          crewclaw,
-          hermes,
-          necessity,
-          permission,
-          tier,
-          description,
-        })
-      ),
+    coding_context: "off",
+    agent: {
+      disabled_toolsets: [...HERMES_FORBIDDEN_BROAD_TOOLSETS],
     },
-    permissions: permissionTiers(pkg, tools),
-    artifacts: {
-      mode: "basic",
-      deliverables: toArray(pkg?.deliverables).map(
-        deliverable => deliverable?.type || deliverable?.name || deliverable
-      ),
+    plugins: {
+      enabled: [],
     },
-    outcome: {
-      mode: "basic",
-      rubric: toArray(pkg?.outcome_rubric).map(
-        item => item?.id || item?.criterion || item
-      ),
+    approvals: {
+      mode: "manual",
     },
   };
 
-  return yaml.dump(config, {
-    lineWidth: 120,
-    noRefs: true,
-    sortKeys: false,
-  });
+  // The lightweight repository YAML dumper renders empty arrays as `{}`. Normalize the two
+  // security-sensitive empty allowlists so Hermes receives an actual list and never falls back.
+  return yaml
+    .dump(config, {
+      lineWidth: 120,
+      noRefs: true,
+      sortKeys: false,
+    })
+    .replace(/^toolsets:[ \t]*(?=\r?\n(?![ \t]+-))/m, "toolsets: []")
+    .replace(/^(\s+enabled):[ \t]*(?=\r?\n(?![ \t]+-))/m, "$1: []");
 }
 
 function compileSoul(pkg) {
@@ -258,24 +193,24 @@ function compileSkills(pkg) {
 function publicCapabilities() {
   const capabilities = {
     tools: true,
-    events: true,
-    memory: true,
-    permissions: true,
-    artifacts: "basic",
-    outcome: "basic",
+    events: false,
+    memory: false,
+    permissions: false,
+    artifacts: false,
+    outcome: false,
   };
 
   Object.defineProperties(capabilities, {
     tasks: { value: true },
-    logs: { value: true },
+    logs: { value: false },
     doctor: { value: true },
-    basic_acceptance: { value: true },
+    basic_acceptance: { value: false },
     search: { value: true },
     web: { value: true },
-    browser: { value: true },
-    source: { value: true },
-    evidence: { value: true },
-    artifact: { value: true },
+    browser: { value: false },
+    source: { value: false },
+    evidence: { value: false },
+    artifact: { value: false },
   });
 
   return capabilities;
@@ -301,14 +236,14 @@ function smokeDescriptor(pkg) {
     ...descriptor,
     runtime: "hermes",
     dry_run: true,
-    runner: "hermes task run",
+    runner: "hermes chat -q",
   };
 }
 
 export const hermesAdapter = defineAdapter({
   id: "hermes",
   name: "Hermes Adapter",
-  targetLevel: "L3",
+  targetLevel: "L1",
 
   capabilities: publicCapabilities,
 
@@ -327,7 +262,7 @@ export const hermesAdapter = defineAdapter({
   compile(pkg) {
     return {
       runtime: "hermes",
-      targetLevel: "L3",
+      targetLevel: "L1",
       files: {
         "SOUL.md": compileSoul(pkg),
         "AGENTS.md": compileAgents(pkg),
@@ -342,6 +277,14 @@ export const hermesAdapter = defineAdapter({
     const validation = this.validate(pkg);
     const compatibility = this.computeLevel(pkg);
     const compiled = validation.ok ? this.compile(pkg) : null;
+    const compiledToolsets = compiled ? configuredToolsets(pkg) : [];
+    const unsupportedRequired = Object.entries(pkg?.tool_needs || {})
+      .filter(
+        ([, need]) => String(need?.necessity || "").toLowerCase() === "required"
+      )
+      .map(([capability]) => capability)
+      .filter(capability => !HERMES_TOOLSETS_BY_CAPABILITY[capability])
+      .sort();
     const checks = [
       {
         id: "employee_package",
@@ -352,8 +295,8 @@ export const hermesAdapter = defineAdapter({
       },
       {
         id: "compatibility",
-        status: compatibility.level === "L3" ? "pass" : "warn",
-        detail: `Hermes compatibility computed as ${compatibility.level}.`,
+        status: compatibility.level === "L1" ? "pass" : "warn",
+        detail: `Standalone Hermes compatibility computed as ${compatibility.level}.`,
       },
       {
         id: "compiled_files",
@@ -370,6 +313,14 @@ export const hermesAdapter = defineAdapter({
             ? `${compiled.skills.length} skill descriptors emitted.`
             : "No skills emitted.",
       },
+      {
+        id: "standalone_capability_boundary",
+        status: unsupportedRequired.length > 0 ? "fail" : "pass",
+        detail:
+          unsupportedRequired.length > 0
+            ? `Standalone Hermes cannot safely expose required capabilities without a CrewClaw gateway: ${unsupportedRequired.join(", ")}.`
+            : `Only fail-closed read-only bundles are enabled: ${compiledToolsets.join(", ") || "none"}.`,
+      },
     ];
     const fixes = [];
 
@@ -377,7 +328,11 @@ export const hermesAdapter = defineAdapter({
       fixes.push(
         ...validation.errors.map(error => `Fix package validation: ${error}`)
       );
-    if (compatibility.level !== "L3") fixes.push(...compatibility.reasons);
+    if (compatibility.level !== "L1") fixes.push(...compatibility.reasons);
+    if (unsupportedRequired.length > 0)
+      fixes.push(
+        "Run this employee through the CrewClaw capability gateway, or install a separately audited read-only MCP that covers the missing capabilities."
+      );
 
     return {
       status: checks.every(check => check.status === "pass")

@@ -227,9 +227,7 @@ function profileEntries(repoRoot, slug) {
           file.path
         );
       }
-      if (config?.model && typeof config.model.default === "string") {
-        profileModel = config.model.default;
-      }
+      if (typeof config?.model === "string") profileModel = config.model;
     }
   }
 

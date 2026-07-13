@@ -1,13 +1,20 @@
-model:
-  default: ""
-
 temperature: 0.2
 
-toolsets:
-  default:
-    - terminal
-    - read_file
-    - skills
+# Standalone Hermes has no audited local read-only file/repo bundle. Keep this profile prompt-only;
+# run repository review through CrewClaw's capability gateway.
+toolsets: []
 
-terminal:
-  cwd: null
+platform_toolsets:
+  cli:
+    - no_mcp
+
+coding_context: off
+
+agent:
+  disabled_toolsets: [browser, code_execution, file, skills, terminal]
+
+plugins:
+  enabled: []
+
+approvals:
+  mode: manual

@@ -7,7 +7,8 @@ import {
 
 const macao = getEmployee("macao-networking-agent");
 
-if (!macao) throw new Error("Macao fixture is required for capability grant tests");
+if (!macao)
+  throw new Error("Macao fixture is required for capability grant tests");
 
 describe("website capability grants", () => {
   it("writes only formal capability tokens for a selected hire", () => {

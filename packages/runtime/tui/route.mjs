@@ -67,6 +67,7 @@ export async function routeTurn(message, deps = {}) {
       // bridge performs the same check at its own settlement boundary.
       const verified = verifyPendingArtifact(a, root || process.cwd());
       const acceptedTaskRunId = a.taskRunId || taskRunId;
+      const approvalId = a.approvalId || `delivery-${acceptedTaskRunId}`;
       if (!verified.ok) {
         if (a.artifactId) {
           emit(EVENTS.ARTIFACT_UPDATED, {
@@ -83,15 +84,22 @@ export async function routeTurn(message, deps = {}) {
           gaps: [verified.code],
           reason: verified.reason,
         });
-        emit(EVENTS.TASK_REJECTED, {
-          id: acceptedTaskRunId,
-          taskRunId: acceptedTaskRunId,
-          status: "failed",
-          reason: verified.reason,
-        });
         emit(EVENTS.PENDING_ACTIONS, {
           taskRunId: acceptedTaskRunId,
           actions: [],
+        });
+        emit(EVENTS.APPROVAL_REJECTED, {
+          id: approvalId,
+          taskRunId: acceptedTaskRunId,
+          kind: "deliverable_acceptance",
+          decision: "reject",
+          reason_code: verified.code,
+          reason: verified.reason,
+        });
+        emit(EVENTS.TASK_REVISION_NEEDED, {
+          id: acceptedTaskRunId,
+          taskRunId: acceptedTaskRunId,
+          reason: verified.reason,
         });
         decision.blocked = true;
         return decision;
@@ -110,13 +118,19 @@ export async function routeTurn(message, deps = {}) {
         deliverable: a.path,
         reason: "用户已验收",
       });
-      emit(EVENTS.TOKEN_DELTA, {
-        text: `✓ 已接受交付物${a.path ? "：" + a.path : ""},记为有效任务。`,
-      });
       // v0.15 P0-1: the deliverable is consumed — release the digit bindings so 1-5 switch screens again.
       emit(EVENTS.PENDING_ACTIONS, {
         taskRunId: acceptedTaskRunId,
         actions: [],
+      });
+      emit(EVENTS.APPROVAL_ACCEPTED, {
+        id: approvalId,
+        taskRunId: acceptedTaskRunId,
+        kind: "deliverable_acceptance",
+      });
+      emit(EVENTS.TASK_COMPLETED, {
+        id: acceptedTaskRunId,
+        taskRunId: acceptedTaskRunId,
       });
     } else if (a.action_type === "reveal") {
       // A renderer that cannot execute OS actions must not claim the file was opened. The JSONL
@@ -135,6 +149,34 @@ export async function routeTurn(message, deps = {}) {
           ? `${reveal.command} ${(reveal.args || []).join(" ")}`
           : reveal.fallback?.manual_command,
       });
+    } else if (a.action_type === "revise") {
+      const revisedTaskRunId = a.taskRunId || taskRunId;
+      const approvalId = a.approvalId || `delivery-${revisedTaskRunId}`;
+      const reason = a.payload || a.label || "用户要求修订";
+      if (a.artifactId)
+        emit(EVENTS.ARTIFACT_UPDATED, {
+          id: a.artifactId,
+          taskRunId: revisedTaskRunId,
+          patch: { status: "revision_needed" },
+        });
+      emit(EVENTS.PENDING_ACTIONS, {
+        taskRunId: revisedTaskRunId,
+        actions: [],
+      });
+      emit(EVENTS.APPROVAL_REJECTED, {
+        id: approvalId,
+        taskRunId: revisedTaskRunId,
+        kind: "deliverable_acceptance",
+        decision: "reject",
+        reason_code: "revise",
+        reason,
+      });
+      emit(EVENTS.TASK_REVISION_NEEDED, {
+        id: revisedTaskRunId,
+        taskRunId: revisedTaskRunId,
+        reason,
+      });
+      await runModelTurn(reason);
     } else {
       // revise / other → a fresh model turn on the action's payload.
       // v0.15 P0-1: release the old digit bindings first; the new turn may set its own list.

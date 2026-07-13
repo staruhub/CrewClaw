@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import { capabilityOnboardingRequirements } from "@/lib/capability-onboarding";
 import type { EmployeeToolCapability } from "@/data/employees";
 
-function capability(
-  capabilityId: string
-): EmployeeToolCapability {
+function capability(capabilityId: string): EmployeeToolCapability {
   return {
     capability: capabilityId,
     necessity: "conditional",

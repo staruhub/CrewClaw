@@ -923,9 +923,10 @@ async function runToolWithDeadline(invoke, { signal, timeoutMs } = {}) {
       error => {
         if (
           abortOutcome &&
-          ["process_tree_termination_failed", "tool_termination_timeout"].includes(
-            error?.code
-          )
+          [
+            "process_tree_termination_failed",
+            "tool_termination_timeout",
+          ].includes(error?.code)
         ) {
           finish(reject, error);
         } else {
@@ -1088,8 +1089,13 @@ public static class CrewClawWindowsJobOwner {
       child.ErrorDataReceived += (sender, eventArgs) => {
         if (eventArgs.Data != null) Console.Error.WriteLine(eventArgs.Data);
       };
-      if (!child.Start()) {
-        throw new InvalidOperationException("target failed to start");
+      try {
+        if (!child.Start()) {
+          throw new InvalidOperationException("target failed to start");
+        }
+      } catch (Exception error) {
+        Console.Error.WriteLine("CREW_WINDOWS_TARGET_UNAVAILABLE:" + error.Message);
+        return 71;
       }
       child.BeginOutputReadLine();
       child.BeginErrorReadLine();
@@ -1199,6 +1205,7 @@ function processTreeTerminationError(reason) {
 
 function terminateChildTree(child) {
   if (!child?.pid) return Promise.resolve();
+  if (child.exitCode !== null || child.signalCode) return Promise.resolve();
   if (child.__crewclawJobOwner) {
     return new Promise((resolveTermination, rejectTermination) => {
       if (child.exitCode !== null || child.signalCode) {
@@ -1237,13 +1244,19 @@ function terminateChildTree(child) {
     });
   }
   if (process.platform === "win32") {
-    return new Promise(resolveTermination => {
+    return new Promise((resolveTermination, rejectTermination) => {
       let finished = false;
       const finish = () => {
         if (finished) return;
         finished = true;
         clearTimeout(fallbackTimer);
         resolveTermination();
+      };
+      const fail = reason => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(fallbackTimer);
+        rejectTermination(processTreeTerminationError(reason));
       };
       const directFallback = () => {
         try {
@@ -1254,7 +1267,7 @@ function terminateChildTree(child) {
       };
       const fallbackTimer = setTimeout(() => {
         directFallback();
-        finish();
+        fail("taskkill 在 3s 内未确认进程树终止");
       }, 3000);
       try {
         const killer = spawn(
@@ -1264,15 +1277,18 @@ function terminateChildTree(child) {
         );
         killer.once("error", () => {
           directFallback();
-          finish();
+          fail("无法启动 taskkill");
         });
         killer.once("close", code => {
-          if (code !== 0) directFallback();
-          finish();
+          if (code === 0) finish();
+          else {
+            directFallback();
+            fail(`taskkill 退出码 ${code}`);
+          }
         });
-      } catch {
+      } catch (error) {
         directFallback();
-        finish();
+        fail(error?.message || String(error));
       }
     });
   }
@@ -1290,8 +1306,8 @@ function terminateChildTree(child) {
   return Promise.resolve();
 }
 
-// Run a shell command — prefer bash (so Unix commands work on Windows), fall
-// back to the platform shell. 30s timeout, output truncated.
+// Run a shell command — prefer Git Bash on Windows (the System32 bash.exe may
+// only be a WSL installer stub), otherwise use the platform shell. 30s timeout.
 function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
   return new Promise((resolve, reject) => {
     let out = "";
@@ -1299,6 +1315,26 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
     let timer;
     let activeChild = null;
     const children = new Set();
+    const windowsBash =
+      process.platform === "win32"
+        ? [
+            join(
+              process.env.ProgramFiles || "C:\\Program Files",
+              "Git",
+              "bin",
+              "bash.exe"
+            ),
+            process.env.LOCALAPPDATA
+              ? join(
+                  process.env.LOCALAPPDATA,
+                  "Programs",
+                  "Git",
+                  "bin",
+                  "bash.exe"
+                )
+              : "",
+          ].find(candidate => candidate && existsSync(candidate))
+        : null;
     const cleanup = () => {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
@@ -1313,9 +1349,9 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
       if (done) return;
       done = true;
       cleanup();
-      void Promise.allSettled(
+      void Promise.all(
         [...children].map(child => terminateChildTree(child))
-      ).then(settle);
+      ).then(settle, reject);
     };
     const onAbort = () => {
       const cancellation = generationCancelledError(signal?.reason);
@@ -1335,7 +1371,16 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
         children.delete(child);
         if (done || child !== activeChild) return;
         activeChild = null;
-        if (!isFallback) {
+        if (process.platform === "win32") {
+          done = true;
+          cleanup();
+          reject(
+            windowsJobError(
+              `Windows Job owner 无法启动：${e.message}`,
+              "windows_job_unavailable"
+            )
+          );
+        } else if (!isFallback) {
           try {
             attach(
               spawn(command, {
@@ -1353,37 +1398,92 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
           finish("（无法执行命令：" + e.message + "）");
         }
       });
-      child.once("close", () => {
+      child.once("close", code => {
         children.delete(child);
         if (done || child !== activeChild) return;
         activeChild = null;
+        if (
+          process.platform === "win32" &&
+          code === 70 &&
+          /CREW_WINDOWS_JOB_UNAVAILABLE:/.test(out)
+        ) {
+          done = true;
+          cleanup();
+          reject(windowsJobError(out.trim(), "windows_job_unavailable"));
+          return;
+        }
+        if (
+          process.platform === "win32" &&
+          code === 71 &&
+          /CREW_WINDOWS_TARGET_UNAVAILABLE:/.test(out)
+        ) {
+          if (!isFallback) {
+            out = "";
+            try {
+              attach(spawnShellChild(true), true);
+            } catch (error) {
+              done = true;
+              cleanup();
+              reject(error);
+            }
+            return;
+          }
+          finish(`（无法执行命令：${out.trim()}）`);
+          return;
+        }
         finish(out.trim().slice(0, 4000) || "（无输出）");
       });
+    };
+    const spawnShellChild = isFallback => {
+      if (process.platform === "win32") {
+        if (!isFallback && windowsBash) {
+          return spawnWindowsJobOwner(windowsBash, ["-lc", command], { cwd });
+        }
+        const systemRoot = String(
+          process.env.SystemRoot || process.env.windir || "C:\\Windows"
+        );
+        const commandShell =
+          process.env.ComSpec || join(systemRoot, "System32", "cmd.exe");
+        return spawnWindowsJobOwner(commandShell, ["/d", "/s", "/c", command], {
+          cwd,
+        });
+      }
+      return isFallback
+        ? spawn(command, {
+            shell: true,
+            windowsHide: true,
+            cwd,
+            detached: true,
+          })
+        : spawn("bash", ["-lc", command], {
+            windowsHide: true,
+            cwd,
+            detached: true,
+          });
     };
     timer = setTimeout(() => {
       const timedOut = (out.trim() || "") + "\n（命令超时 30s，已终止）";
       settleAfterTermination(() => resolve(timedOut));
     }, 30000);
     try {
-      attach(
-        spawn("bash", ["-lc", command], {
-          windowsHide: true,
-          cwd,
-          detached: process.platform !== "win32",
-        }),
-        false
-      );
-    } catch {
-      try {
-        attach(
-          spawn(command, {
-            shell: true,
-            windowsHide: true,
-            cwd,
-            detached: process.platform !== "win32",
-          }),
-          true
+      const primaryIsFallback = process.platform === "win32" && !windowsBash;
+      attach(spawnShellChild(primaryIsFallback), primaryIsFallback);
+    } catch (error) {
+      if (process.platform === "win32") {
+        done = true;
+        cleanup();
+        reject(
+          error?.code
+            ? error
+            : windowsJobError(
+                `Windows Job owner 无法启动：${error.message}`,
+                "windows_job_unavailable"
+              )
         );
+        return;
+      }
+      try {
+        attach(spawnShellChild(true), true);
       } catch (err) {
         finish("（无法执行命令：" + err.message + "）");
       }
@@ -1480,7 +1580,8 @@ function runStructuredProcess(
       fail(
         makeError(
           `无法启动结构化工具：${error.message}`,
-          error?.code || (jobOwner ? "windows_job_unavailable" : "tool_spawn_failed")
+          error?.code ||
+            (jobOwner ? "windows_job_unavailable" : "tool_spawn_failed")
         )
       );
       return;
@@ -1960,18 +2061,15 @@ async function runTool(
   };
   if (name === "web_fetch") {
     const webFetchRequest = resolveWebFetchCapability(args);
-    if (webFetchRequest.error)
-      return `（${webFetchRequest.error}）`;
+    if (webFetchRequest.error) return `（${webFetchRequest.error}）`;
     const url = String(webFetchRequest.args?.url ?? "");
     if (isSearchEnginePage(url))
       return "（不要抓取搜索引擎结果页（duckduckgo/bing/google/百度 等）——那是噪音、常被反爬。请改用 web_search 找来源，或直接 web_fetch 官方域名的具体文章页。）";
-    return await runApproved(
-      `读取公开网页 ${url} ?`,
-      () =>
-        webFetch(url, {
-          extract: webFetchRequest.args.extract,
-          signal,
-        })
+    return await runApproved(`读取公开网页 ${url} ?`, () =>
+      webFetch(url, {
+        extract: webFetchRequest.args.extract,
+        signal,
+      })
     );
   }
   if (name === "browser_render") {
@@ -1987,8 +2085,10 @@ async function runTool(
   if (name === "web_search") {
     const query = String(args?.query ?? "").trim();
     if (!query) invalidToolArguments("web_search 缺少 query");
-    return await runApproved(`搜索公开网页：${query} ?`, async () =>
-      (await webSearch(query, { recency: args?.recency, signal })).text
+    return await runApproved(
+      `搜索公开网页：${query} ?`,
+      async () =>
+        (await webSearch(query, { recency: args?.recency, signal })).text
     );
   }
   if (name === "search") {
@@ -2051,11 +2151,14 @@ async function runTool(
   }
   if (name === "read_file") {
     const path = String(args?.path ?? "");
-    return await runApproved(`读取工作区文件 ${path || "(missing)"} ?`, async () => {
-      const r = await readAnyFile(path, { root });
-      throwIfGenerationCancelled(signal);
-      return r.ok ? r.text : `（读取失败：${r.error}）`;
-    });
+    return await runApproved(
+      `读取工作区文件 ${path || "(missing)"} ?`,
+      async () => {
+        const r = await readAnyFile(path, { root });
+        throwIfGenerationCancelled(signal);
+        return r.ok ? r.text : `（读取失败：${r.error}）`;
+      }
+    );
   }
   if (name === "edit_file" || name === "write_file") {
     const path = String(args?.path ?? "");

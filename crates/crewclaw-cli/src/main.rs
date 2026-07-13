@@ -8,6 +8,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod doctor;
@@ -86,24 +87,53 @@ struct ActivityEntry {
     employee: String,
 }
 
+static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
+pub(crate) const INTERRUPTED_EXIT_CODE: i32 = 130;
+
+pub(crate) fn cancel_requested() -> bool {
+    CANCEL_REQUESTED.load(Ordering::SeqCst)
+}
+
 fn main() {
-    install_cancel_handler();
     let args = env::args().skip(1).collect::<Vec<_>>();
+    if needs_graceful_cancel_handler(&args, io::stdout().is_tty()) {
+        install_cancel_handler();
+    }
     let root = repo_root();
-    let code = match run_cli(&args, &root) {
+    let mut code = match run_cli(&args, &root) {
         Ok(code) => code,
         Err(message) => {
             eprintln!("Error: {message}");
             1
         }
     };
+    if cancel_requested() {
+        eprintln!("Cancelled.");
+        code = INTERRUPTED_EXIT_CODE;
+    }
     process::exit(code);
+}
+
+fn needs_graceful_cancel_handler(args: &[String], stdout_is_tty: bool) -> bool {
+    if !stdout_is_tty {
+        return false;
+    }
+    // Keep the handler scoped to raw-mode terminals. Ordinary commands retain the
+    // platform's default foreground-console signal delivery, so a blocking child and
+    // CrewClaw are interrupted together. On Windows, keyboard Ctrl+C is documented as
+    // being passed to every process sharing the console; these Command paths do not
+    // create a detached console.
+    matches!(
+        positionals(args).first().map(String::as_str),
+        Some("workbench")
+    ) || should_use_ratatui_workbench(args, stdout_is_tty)
 }
 
 fn install_cancel_handler() {
     let _ = ctrlc::set_handler(|| {
-        eprintln!("Cancelled.");
-        process::exit(130);
+        // Do not call process::exit here: it bypasses Drop and can leave raw
+        // mode / the alternate screen active. Interactive loops poll this flag.
+        CANCEL_REQUESTED.store(true, Ordering::SeqCst);
     });
 }
 
@@ -150,8 +180,7 @@ fn run_cli(args: &[String], root: &Path) -> Result<i32, String> {
     // `crew workbench --demo` — Ratatui Trial Workbench. In normal mode it
     // consumes TaskEvent JSONL on stdin, so the Node runtime can pipe events in.
     if matches!(command, Some("workbench")) {
-        workbench::run_workbench(has_flag(args, "--demo"))?;
-        return Ok(0);
+        return workbench::run_workbench(has_flag(args, "--demo"));
     }
 
     // `crew badge <agent>` — render the hired employee's manifest as an ID card.
@@ -1914,6 +1943,35 @@ mod tests {
         ));
         assert!(!should_use_ratatui_workbench(
             &strings(&["run", "ai-adoption-whale", "--task", "roi-demo"]),
+            false
+        ));
+    }
+
+    #[test]
+    fn graceful_cancel_handler_is_scoped_to_tty_workbench_paths() {
+        assert!(needs_graceful_cancel_handler(
+            &strings(&["workbench", "--demo"]),
+            true
+        ));
+        assert!(needs_graceful_cancel_handler(
+            &strings(&["chat", "ai-adoption-whale"]),
+            true
+        ));
+        assert!(needs_graceful_cancel_handler(
+            &strings(&["run", "ai-adoption-whale", "--task", "roi-demo"]),
+            true
+        ));
+
+        // Plain/non-interactive commands keep the OS default Ctrl+C behavior. This is
+        // important for blocking Command::status/output calls: the signal reaches both
+        // CrewClaw and normal console children instead of being reduced to an unpolled flag.
+        assert!(!needs_graceful_cancel_handler(
+            &strings(&["run", "ai-adoption-whale", "--plain"]),
+            true
+        ));
+        assert!(!needs_graceful_cancel_handler(&strings(&["doctor"]), true));
+        assert!(!needs_graceful_cancel_handler(
+            &strings(&["workbench", "--demo"]),
             false
         ));
     }

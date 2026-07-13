@@ -35,10 +35,7 @@ const TASK_ENGINE_CAPABILITIES = new Set([
  * employee. Environment variables are deliberately ignored: `.env.local` belongs to the
  * workspace and therefore cannot be allowed to widen a hire-time permission decision.
  */
-export function loadWorkspaceCapabilityGrants({
-  root,
-  employeeId,
-} = {}) {
+export function loadWorkspaceCapabilityGrants({ root, employeeId } = {}) {
   if (!root || !employeeId) {
     return { grants: [], source: "none", warning: null };
   }
@@ -190,7 +187,9 @@ export function validateEmployeeToolNeeds(toolNeeds, { catalog } = {}) {
       add(capability, `${capability} 的 tool need 必须是对象`);
       continue;
     }
-    const unknownKeys = Object.keys(need).filter(key => !TOOL_NEED_KEYS.has(key));
+    const unknownKeys = Object.keys(need).filter(
+      key => !TOOL_NEED_KEYS.has(key)
+    );
     if (unknownKeys.length) {
       add(capability, `${capability} 含未知字段：${unknownKeys.join(", ")}`);
     }
@@ -239,7 +238,10 @@ export function validateEmployeeToolNeeds(toolNeeds, { catalog } = {}) {
           (!Number.isSafeInteger(need.limits.max_calls_per_task) ||
             need.limits.max_calls_per_task <= 0)
         ) {
-          add(capability, `${capability}.limits.max_calls_per_task 必须是正整数`);
+          add(
+            capability,
+            `${capability}.limits.max_calls_per_task 必须是正整数`
+          );
         }
         if (
           need.limits.timeout_ms !== undefined &&
@@ -247,18 +249,27 @@ export function validateEmployeeToolNeeds(toolNeeds, { catalog } = {}) {
             need.limits.timeout_ms <= 0 ||
             need.limits.timeout_ms > 300_000)
         ) {
-          add(capability, `${capability}.limits.timeout_ms 必须是 1..300000 的整数`);
+          add(
+            capability,
+            `${capability}.limits.timeout_ms 必须是 1..300000 的整数`
+          );
         }
       }
     }
     if ((need.necessity === "disabled") !== (need.permission === "disabled")) {
-      add(capability, `${capability} 的 disabled necessity/permission 必须成对声明`);
+      add(
+        capability,
+        `${capability} 的 disabled necessity/permission 必须成对声明`
+      );
     }
     if (
       need.permission === "requires_authorization" &&
       need.approval === "never"
     ) {
-      add(capability, `${capability} requires_authorization 不能使用 approval=never`);
+      add(
+        capability,
+        `${capability} requires_authorization 不能使用 approval=never`
+      );
     }
     if (need.necessity === "required" && need.on_unavailable === "skip") {
       add(capability, `${capability} 是 required，不能静默 skip`);
@@ -374,7 +385,11 @@ export function capabilityRuntimeAvailability(
         provider: health.provider,
       };
     }
-    return { availability: "ready", reason: "运行时 handler 已注册", code: "ready" };
+    return {
+      availability: "ready",
+      reason: "运行时 handler 已注册",
+      code: "ready",
+    };
   }
 
   if (invocation === "engine") {
@@ -401,15 +416,16 @@ export function capabilityRuntimeAvailability(
     };
   }
 
-  return { availability: "ready", reason: "adapter policy 待 provider 检查", code: "ready" };
+  return {
+    availability: "ready",
+    reason: "adapter policy 待 provider 检查",
+    code: "ready",
+  };
 }
 
 function authorizationOf({ necessity, permission, granted, approval }) {
   if (necessity === "disabled" || permission === "disabled") return "denied";
-  if (
-    (necessity === "non_default" || necessity === "conditional") &&
-    !granted
-  )
+  if ((necessity === "non_default" || necessity === "conditional") && !granted)
     return "not_granted";
   // Opt-in changes visibility, never the per-call consent boundary.
   if (necessity === "non_default") return "per_call";
@@ -489,7 +505,9 @@ export function resolveEmployeeTools({
   const errors = [...toolNeedValidation.errors];
 
   for (const [capability, need] of Object.entries(toolNeeds || {})) {
-    if (toolNeedValidation.errors.some(error => error.capability === capability))
+    if (
+      toolNeedValidation.errors.some(error => error.capability === capability)
+    )
       continue;
     const definition = definitionsById.get(capability);
     if (!definition) {

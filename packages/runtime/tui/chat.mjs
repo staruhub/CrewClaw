@@ -52,6 +52,12 @@ function useStore(store) {
   return React.useSyncExternalStore(subscribe, () => store.get());
 }
 
+export function interruptChatTurn(store, state, exit) {
+  if (state.live) return store.cancelTurn("用户取消生成");
+  exit();
+  return false;
+}
+
 export function ChatApp({
   store,
   runTurn,
@@ -70,29 +76,44 @@ export function ChatApp({
     async text => {
       if (!text || !text.trim()) return;
       store.pushUser(text);
-      const run = store.startTurn({ title: text, mode: meta.mode });
+      const pendingAction = store.matchPendingAction(text);
+      const needsNewRun =
+        !pendingAction ||
+        !new Set(["accept", "reveal"]).has(pendingAction.action_type);
+      const run = needsNewRun
+        ? store.startTurn({ title: text, mode: meta.mode })
+        : null;
       try {
         // §6 Intent/Scope Router decides what to do: upgrade to TaskRun / quick utility /
         // memory / matched PendingAction / decline — then runs the model turn if appropriate.
-        await routeTurn(text, {
-          emit: (type, data) => run.emit(type, data),
-          runModelTurn: msg => runTurn(msg, run.sink),
+        const decision = await routeTurn(text, {
+          emit: pendingAction
+            ? (type, data) => store.emitPendingAction(pendingAction, type, data)
+            : (type, data) => run.emit(type, data),
+          runModelTurn: msg => runTurn(msg, run?.sink),
           runQuickUtility: runQuickUtility
-            ? msg => runQuickUtility(msg, run.sink)
+            ? msg => runQuickUtility(msg, run?.sink)
             : undefined, // §10.2 light path
-          pendingActions: store.get().sessionPendingActions, // last task's actions — "1" matches accept (§6.4)
+          pendingActions: pendingAction
+            ? [pendingAction]
+            : store.get().sessionPendingActions, // last task's actions — "1" matches accept (§6.4)
           employeeScope: meta.employeeScope,
           env: process.env,
           role: meta.role,
-          taskRunId: `chat-${Date.now()}`,
+          taskRunId: pendingAction?.taskRunId || run?.get().task?.id,
           root: process.env.CREWCLAW_ROOT || process.cwd(),
         });
-        store.commitTurn();
+        if (run)
+          store.commitTurn(run, {
+            awaitingAcceptance: !!decision?.producedArtifact,
+            artifact: decision?.producedArtifact || null,
+          });
       } catch (e) {
-        store.failTurn(String((e && e.message) || e));
+        if (run && !run.isCancelled())
+          store.failTurn(String((e && e.message) || e), run);
       }
     },
-    [store, runTurn, meta]
+    [store, runTurn, runQuickUtility, meta]
   );
 
   React.useEffect(() => {
@@ -102,7 +123,7 @@ export function ChatApp({
   useInput(
     (ch, key) => {
       if (key.ctrl && ch === "c") {
-        exit();
+        interruptChatTurn(store, state, exit);
         return;
       }
       // L2 approval modal: while the agent awaits a decision, a/d (or y/n) decide; swallow the

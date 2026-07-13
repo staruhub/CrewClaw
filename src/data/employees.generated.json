@@ -47,11 +47,7 @@
         "review-comment-style",
         "pr-summary-writer"
       ],
-      "tools": [
-        "terminal",
-        "read_file",
-        "skills"
-      ],
+      "tools": [],
       "tool_capabilities": [
         {
           "capability": "files.read",
@@ -513,11 +509,7 @@
         "acceptance-criteria-writer",
         "metrics-and-events-planner"
       ],
-      "tools": [
-        "terminal",
-        "read_file",
-        "skills"
-      ],
+      "tools": [],
       "tool_capabilities": [
         {
           "capability": "document.read",
@@ -891,8 +883,7 @@
         "roi-estimator"
       ],
       "tools": [
-        "browser",
-        "skills"
+        "web"
       ],
       "tool_capabilities": [
         {
@@ -1350,10 +1341,7 @@
         "member-onboarding",
         "community-health"
       ],
-      "tools": [
-        "browser",
-        "skills"
-      ],
+      "tools": [],
       "tool_capabilities": [
         {
           "capability": "community.context.read",
@@ -1804,8 +1792,7 @@
         "dinner-recommender"
       ],
       "tools": [
-        "browser",
-        "skills"
+        "web"
       ],
       "tool_capabilities": [
         {

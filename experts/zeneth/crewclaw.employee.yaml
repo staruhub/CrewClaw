@@ -218,8 +218,8 @@ compatibility_targets:
     level: L4
     strategy: 完整 Hire、Onboard、Workbench、Permission、Artifact、Outcome、Dream、评分闭环。
   Hermes:
-    level: L3
-    strategy: 映射为 SOUL.md、Skills、toolsets、approvals 和 smoke test。
+    level: L1
+    strategy: 仅导出 Prompt 与 Playbook；完整工具契约必须经 CrewClaw capability gateway。
   Generic:
     level: L0
     strategy: 只导出 Prompt Card 和社群运营工作方式。

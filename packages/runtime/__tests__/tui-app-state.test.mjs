@@ -246,7 +246,8 @@ assert.ok(
           tool: "test_run",
         }),
       ],
-      verify: state => assert.equal(state.tools["tool-active"].status, "requested"),
+      verify: state =>
+        assert.equal(state.tools["tool-active"].status, "requested"),
     },
     {
       name: "approval",
@@ -282,7 +283,11 @@ assert.ok(
       })
     );
 
-    assert.equal(state.task.id, "task-active", `${phase.name} keeps active task`);
+    assert.equal(
+      state.task.id,
+      "task-active",
+      `${phase.name} keeps active task`
+    );
     phase.verify(state);
     assert.ok(
       state.debug.at(-1).includes("has no explicit terminal event"),
@@ -333,7 +338,8 @@ assert.ok(
         taskRunId,
         turn_id: turnId,
         seq: 2,
-        reason: terminalType === EVENTS.GENERATION_COMPLETED ? undefined : "closed",
+        reason:
+          terminalType === EVENTS.GENERATION_COMPLETED ? undefined : "closed",
       }),
     ]);
     const stable = {
@@ -374,7 +380,9 @@ assert.ok(
         `${eventType} cannot revive ${terminalType}`
       );
       assert.ok(
-        state.debug.at(-1).includes(`after generation ${closed.generation.status}`),
+        state.debug
+          .at(-1)
+          .includes(`after generation ${closed.generation.status}`),
         `${eventType} records the closed generation boundary`
       );
     }
@@ -630,7 +638,9 @@ assert.ok(
   ]);
   assert.equal(stale.task.id, "old");
   assert.equal(stale.status, "outcome_unknown");
-  assert.ok(stale.debug.some(line => line.includes("overlapping task.started")));
+  assert.ok(
+    stale.debug.some(line => line.includes("overlapping task.started"))
+  );
 }
 
 // Chat turns remain artifact-free and settle to idle instead of formal Done.

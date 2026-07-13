@@ -43,6 +43,35 @@ const requiredFiles = [
   "CHANGELOG.md",
 ];
 
+const HERMES_MINIMUM_REQUIREMENT = ">=0.18.2";
+// Deliberately narrow allowlist of Hermes 0.18.2 bundles that CrewClaw currently knows how to
+// derive from employee capabilities. This is not a claim to enumerate every upstream toolset.
+const CREWCLAW_KNOWN_HERMES_TOOLSETS = new Set([
+  "web",
+  "search",
+  "terminal",
+  "file",
+  "browser",
+  "skills",
+]);
+const HERMES_SAFE_STANDALONE_TOOLSETS = new Set(["web", "search"]);
+const HERMES_FORBIDDEN_TOOL_EXPANSIONS: Record<string, string[]> = {
+  browser: ["browser_click", "browser_type"],
+  code_execution: ["execute_code"],
+  file: ["write_file", "patch"],
+  skills: ["skill_manage"],
+  terminal: ["terminal"],
+};
+const HERMES_REQUIRED_DISABLED_TOOLSETS = Object.keys(
+  HERMES_FORBIDDEN_TOOL_EXPANSIONS
+).sort();
+const HERMES_SAFE_CAPABILITIES = new Set([
+  "web.extract",
+  "web.fetch",
+  "web.fetch_extract",
+  "web.search",
+]);
+
 const distributionSchema = z.object({
   name: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   version: z.string().regex(/^\d+\.\d+\.\d+$/),
@@ -51,6 +80,136 @@ const distributionSchema = z.object({
   author: z.string().min(1),
   license: z.string().min(1),
 });
+
+type Distribution = z.infer<typeof distributionSchema>;
+
+function isOfficialHermesToolset(value: string) {
+  return (
+    CREWCLAW_KNOWN_HERMES_TOOLSETS.has(value) ||
+    /^mcp-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
+  );
+}
+
+function validateHermesConfig(raw: string, errors: string[]) {
+  let document: unknown;
+  try {
+    document = (runtimeYaml as { load(raw: string): unknown }).load(raw);
+  } catch (error) {
+    errors.push(
+      `Invalid config.yaml: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return null;
+  }
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    errors.push("Invalid config.yaml: expected a YAML mapping");
+    return null;
+  }
+  const config = document as Record<string, unknown>;
+  if (config.model !== undefined && typeof config.model !== "string") {
+    errors.push(
+      "Invalid config.yaml: model must be a scalar string; legacy model.default is not supported"
+    );
+  }
+  if (!Array.isArray(config.toolsets)) {
+    errors.push(
+      "Invalid config.yaml: toolsets must be an array of official Hermes toolset names; legacy toolsets.default is not supported"
+    );
+  } else {
+    const invalid = config.toolsets.filter(
+      value => typeof value !== "string" || !isOfficialHermesToolset(value)
+    );
+    if (invalid.length > 0) {
+      errors.push(
+        `Invalid config.yaml: unknown Hermes toolset(s): ${invalid.map(String).join(", ")}`
+      );
+    }
+    const unsafe = config.toolsets.filter(
+      (value): value is string =>
+        typeof value === "string" && !HERMES_SAFE_STANDALONE_TOOLSETS.has(value)
+    );
+    for (const toolset of unsafe) {
+      const expansion = HERMES_FORBIDDEN_TOOL_EXPANSIONS[toolset];
+      errors.push(
+        expansion
+          ? `Unsafe standalone Hermes toolset: ${toolset} expands to forbidden tools ${expansion.join(", ")}`
+          : `Unsafe standalone Hermes toolset: ${toolset} is not an audited read-only bundle`
+      );
+    }
+    if (new Set(config.toolsets.map(String)).size !== config.toolsets.length)
+      errors.push("Invalid config.yaml: toolsets must not contain duplicates");
+  }
+  const platformToolsets = config.platform_toolsets;
+  const cliToolsets =
+    platformToolsets &&
+    typeof platformToolsets === "object" &&
+    !Array.isArray(platformToolsets) &&
+    Array.isArray((platformToolsets as Record<string, unknown>).cli)
+      ? ((platformToolsets as Record<string, unknown>).cli as unknown[])
+      : null;
+  if (!cliToolsets) {
+    errors.push(
+      "Invalid config.yaml: platform_toolsets.cli must explicitly pin the standalone CLI toolsets"
+    );
+  } else {
+    const invalidCli = cliToolsets.filter(
+      value =>
+        typeof value !== "string" ||
+        (value !== "no_mcp" && !isOfficialHermesToolset(value))
+    );
+    if (invalidCli.length > 0)
+      errors.push(
+        `Invalid config.yaml: unknown platform_toolsets.cli entries: ${invalidCli.map(String).join(", ")}`
+      );
+    if (!cliToolsets.includes("no_mcp"))
+      errors.push(
+        "Invalid config.yaml: platform_toolsets.cli must include no_mcp to prevent inherited MCP tools"
+      );
+    const effectiveCli = cliToolsets.filter(value => value !== "no_mcp").sort();
+    const rootToolsets = Array.isArray(config.toolsets)
+      ? [...config.toolsets].sort()
+      : [];
+    if (JSON.stringify(effectiveCli) !== JSON.stringify(rootToolsets))
+      errors.push(
+        "Invalid config.yaml: platform_toolsets.cli must match toolsets (apart from no_mcp)"
+      );
+  }
+  if (config.coding_context !== "off")
+    errors.push(
+      "Invalid config.yaml: coding_context must be off for employee profiles"
+    );
+  const agent = config.agent as Record<string, unknown> | undefined;
+  const disabledToolsets = Array.isArray(agent?.disabled_toolsets)
+    ? agent.disabled_toolsets.map(String)
+    : [];
+  const missingDisabled = HERMES_REQUIRED_DISABLED_TOOLSETS.filter(
+    toolset => !disabledToolsets.includes(toolset)
+  );
+  if (missingDisabled.length > 0)
+    errors.push(
+      `Invalid config.yaml: agent.disabled_toolsets must include ${missingDisabled.join(", ")}`
+    );
+  const plugins = config.plugins as Record<string, unknown> | undefined;
+  if (!Array.isArray(plugins?.enabled) || plugins.enabled.length !== 0)
+    errors.push(
+      "Invalid config.yaml: plugins.enabled must be an explicit empty allowlist"
+    );
+  const approvals = config.approvals;
+  if (
+    !approvals ||
+    typeof approvals !== "object" ||
+    Array.isArray(approvals) ||
+    (approvals as Record<string, unknown>).mode !== "manual"
+  ) {
+    errors.push(
+      "Invalid config.yaml: approvals.mode must be manual for employee profiles"
+    );
+  }
+  return Array.isArray(config.toolsets)
+    ? config.toolsets.filter(
+        (value): value is string => typeof value === "string"
+      )
+    : null;
+}
 
 export type ValidationResult = {
   name: string;
@@ -659,6 +818,8 @@ export async function validateExpert(
   const allPaths = walked.allPaths;
   const files = walked.files;
   let employeeSpec: EmployeeSpec | null = null;
+  let distribution: Distribution | null = null;
+  let manifest: EmployeeManifest | null = null;
 
   for (const file of requiredFiles) {
     if (!files.has(file)) errors.push(`Missing required file: ${file}`);
@@ -668,7 +829,6 @@ export async function validateExpert(
     if (isForbiddenPath(path)) errors.push(`Forbidden path found: ${path}`);
   }
 
-  let distributionVersion: string | null = null;
   if (files.has("distribution.yaml")) {
     const raw = await readPackageText("distribution.yaml", files, errors);
     if (raw === null) {
@@ -676,7 +836,24 @@ export async function validateExpert(
     }
     const parsed = distributionSchema.safeParse(parseTopLevelYaml(raw));
     if (!parsed.success) errors.push("Invalid distribution.yaml");
-    else distributionVersion = parsed.data.version;
+    else {
+      distribution = parsed.data;
+      if (distribution.name !== name) {
+        errors.push(
+          `Distribution name mismatch: directory=${name} distribution.yaml=${distribution.name}`
+        );
+      }
+      if (registryExpert && distribution.name !== registryExpert.name) {
+        errors.push(
+          `Distribution name mismatch: registry=${registryExpert.name} distribution.yaml=${distribution.name}`
+        );
+      }
+      if (distribution.hermes_requires !== HERMES_MINIMUM_REQUIREMENT) {
+        errors.push(
+          `Unsupported Hermes requirement: distribution.yaml=${distribution.hermes_requires} expected=${HERMES_MINIMUM_REQUIREMENT}`
+        );
+      }
+    }
   }
 
   // v0.18 A4: the two-file employee standard is MANDATORY for available experts — a listed
@@ -692,6 +869,7 @@ export async function validateExpert(
     if (!parsed.success) {
       errors.push(`Invalid hire.yaml: ${formatZodIssues(parsed.error)}`);
     } else {
+      manifest = parsed.data;
       const highRiskPermissions =
         parsed.data.permissions.filter(isHighRiskPermission);
       if (highRiskPermissions.length > 0) {
@@ -707,12 +885,35 @@ export async function validateExpert(
           cwd,
           errors
         );
+      if (parsed.data.metadata.id !== name) {
+        errors.push(
+          `Hire identity mismatch: directory=${name} hire.yaml=${parsed.data.metadata.id}`
+        );
+      }
+      if (distribution && distribution.name !== parsed.data.metadata.id) {
+        errors.push(
+          `Distribution name mismatch: hire.yaml=${parsed.data.metadata.id} distribution.yaml=${distribution.name}`
+        );
+      }
       if (
-        distributionVersion &&
-        distributionVersion !== parsed.data.metadata.version
+        distribution &&
+        distribution.version !== parsed.data.metadata.version
       ) {
         errors.push(
-          `Version mismatch: distribution.yaml=${distributionVersion} hire.yaml=${parsed.data.metadata.version}`
+          `Version mismatch: distribution.yaml=${distribution.version} hire.yaml=${parsed.data.metadata.version}`
+        );
+      }
+      if (parsed.data.requires.hermes !== HERMES_MINIMUM_REQUIREMENT) {
+        errors.push(
+          `Unsupported Hermes requirement: hire.yaml=${parsed.data.requires.hermes} expected=${HERMES_MINIMUM_REQUIREMENT}`
+        );
+      }
+      if (
+        distribution &&
+        distribution.hermes_requires !== parsed.data.requires.hermes
+      ) {
+        errors.push(
+          `Hermes requirement mismatch: distribution.yaml=${distribution.hermes_requires} hire.yaml=${parsed.data.requires.hermes}`
         );
       }
     }
@@ -744,6 +945,40 @@ export async function validateExpert(
         const spec: EmployeeSpec = parsed.data;
         employeeSpec = spec;
         errors.push(...validateEmployeeToolContract(spec));
+        const hermesTarget = spec.compatibility_targets?.Hermes;
+        if (hermesTarget?.level !== "L1") {
+          errors.push(
+            `Standalone Hermes compatibility must be declared L1 (prompt/playbook only), got ${hermesTarget?.level || "missing"}`
+          );
+        }
+        const unsupportedStandalone = Object.entries(spec.tool_needs)
+          .filter(
+            ([, need]) =>
+              String(need.necessity || "").toLowerCase() === "required"
+          )
+          .map(([capability]) => capability)
+          .filter(capability => !HERMES_SAFE_CAPABILITIES.has(capability))
+          .sort();
+        if (unsupportedStandalone.length > 0) {
+          warnings.push(
+            `Standalone Hermes profile is capability-incomplete and requires the CrewClaw gateway: ${unsupportedStandalone.join(", ")}`
+          );
+        }
+        if (spec.identity.id !== name) {
+          errors.push(
+            `Spec identity.id mismatch: directory=${name} spec=${spec.identity.id}`
+          );
+        }
+        if (manifest && spec.identity.id !== manifest.metadata.id) {
+          errors.push(
+            `Spec identity.id mismatch: hire.yaml=${manifest.metadata.id} spec=${spec.identity.id}`
+          );
+        }
+        if (distribution && spec.identity.id !== distribution.name) {
+          errors.push(
+            `Spec identity.id mismatch: distribution.yaml=${distribution.name} spec=${spec.identity.id}`
+          );
+        }
         if (registryExpert && spec.identity.id !== registryExpert.name) {
           errors.push(
             `Spec identity.id mismatch: registry=${registryExpert.name} spec=${spec.identity.id}`
@@ -758,6 +993,21 @@ export async function validateExpert(
             `Version mismatch: registry=${registryExpert.version} crewclaw.employee.yaml=${spec.identity.version}`
           );
         }
+      }
+    }
+  }
+
+  if (files.has("config.yaml")) {
+    const raw = await readPackageText("config.yaml", files, errors);
+    const configToolsets =
+      raw === null ? null : validateHermesConfig(raw, errors);
+    if (manifest && configToolsets) {
+      const hireToolsets = [...manifest.tools].sort();
+      const profileToolsets = [...configToolsets].sort();
+      if (JSON.stringify(hireToolsets) !== JSON.stringify(profileToolsets)) {
+        errors.push(
+          `Hermes toolset mismatch: hire.yaml=${hireToolsets.join(",")} config.yaml=${profileToolsets.join(",")}`
+        );
       }
     }
   }

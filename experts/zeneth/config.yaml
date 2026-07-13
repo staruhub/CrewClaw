@@ -1,8 +1,18 @@
-model:
-  default: "" # falls back to the runtime default (HERMES_MODEL)
-
 temperature: 0.4
 
-toolsets:
-  default:
-    - skills
+toolsets: []
+
+platform_toolsets:
+  cli:
+    - no_mcp
+
+coding_context: off
+
+agent:
+  disabled_toolsets: [browser, code_execution, file, skills, terminal]
+
+plugins:
+  enabled: []
+
+approvals:
+  mode: manual

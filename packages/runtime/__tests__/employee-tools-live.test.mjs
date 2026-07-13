@@ -24,12 +24,7 @@ import { startJsonlBridge } from "../tui/jsonl-bridge.mjs";
 
 const expectedVisible = {
   "ai-adoption-whale": ["web_fetch", "web_search"],
-  "code-review-shrimp": [
-    "git_diff",
-    "git_status",
-    "read_file",
-    "search",
-  ],
+  "code-review-shrimp": ["git_diff", "git_status", "read_file", "search"],
   "product-prd-crab": ["read_file"],
   "macao-networking-agent": ["web_fetch", "web_search"],
   zeneth: ["read_file"],

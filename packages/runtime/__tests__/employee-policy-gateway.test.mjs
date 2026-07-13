@@ -142,8 +142,16 @@ assert.deepEqual(extractFetch.capabilities, ["web.fetch", "web.fetch_extract"]);
 assert.equal(extractFetch.decision, "confirm");
 
 for (const [declared, allowedArgs, deniedArgs] of [
-  ["web.fetch", { url: "https://example.com/plain" }, { url: "https://example.com", extract: "price" }],
-  ["web.fetch_extract", { url: "https://example.com", extract: "price" }, { url: "https://example.com/plain" }],
+  [
+    "web.fetch",
+    { url: "https://example.com/plain" },
+    { url: "https://example.com", extract: "price" },
+  ],
+  [
+    "web.fetch_extract",
+    { url: "https://example.com", extract: "price" },
+    { url: "https://example.com/plain" },
+  ],
 ]) {
   const singleAlias = makeGateway({
     employeePolicy: {

@@ -26,7 +26,8 @@ export function capabilityOnboardingRequirements(
       : "Review the employee's capability authorization before onboarding.",
   ];
   const scopedReadCapabilities = active.filter(
-    capability => capability.operation === "read" && capability.scopes.length > 0
+    capability =>
+      capability.operation === "read" && capability.scopes.length > 0
   );
   if (scopedReadCapabilities.length > 0) {
     requirements.push(

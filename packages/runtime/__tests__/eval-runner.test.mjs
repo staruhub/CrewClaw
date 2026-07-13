@@ -539,7 +539,11 @@ function loadsRealWhaleSpec() {
   assert.equal(spec.subjectContract, EVAL_SUBJECT_CONTRACT_VERSION);
   assert.match(spec.dependencyHash, /^[a-f0-9]{64}$/);
   assert.deepEqual(spec.runtimeIdentity, RUNTIME_IDENTITY);
-  assert.equal(spec.profileModel, "");
+  assert.equal(
+    spec.profileModel,
+    null,
+    "an omitted profile model inherits the frozen environment model"
+  );
   console.log(
     "  ✓ loadEmployeeSpec reads a real employee's eval_suite + rubric"
   );
@@ -965,7 +969,7 @@ async function profileModelOverridesEnvironmentModel() {
     const profile = createSubjectFixture(root, "profile-model-subject");
     fs.writeFileSync(
       path.join(profile, "config.yaml"),
-      "model:\n  default: profile/model-b\ntemperature: 0.2\n"
+      "model: profile/model-b\ntemperature: 0.2\n"
     );
     const spec = loadEmployeeSpec(root, "profile-model-subject");
     assert.equal(spec.profileModel, "profile/model-b");

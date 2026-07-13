@@ -398,8 +398,9 @@ test("agentLoop turns an employee tool timeout into a recoverable failed lifecyc
     .map(event => event.phase);
   assert.deepEqual(lifecycle, ["requested", "running", "failed"]);
   assert.equal(
-    events.find(event => event.id === "timeout-call" && event.phase === "failed")
-      ?.code,
+    events.find(
+      event => event.id === "timeout-call" && event.phase === "failed"
+    )?.code,
     "tool_timeout"
   );
 });
@@ -829,7 +830,10 @@ test(
         8_000
       );
       const started = JSON.parse(readFileSync(startedPath, "utf8"));
-      assert.ok(Number.isSafeInteger(started.pid), "started marker includes hold PID");
+      assert.ok(
+        Number.isSafeInteger(started.pid),
+        "started marker includes hold PID"
+      );
       input.push("/exit\n");
       await done;
       closed = true;
@@ -868,7 +872,74 @@ test(
 );
 
 test(
-  "Windows test_run fails closed when the Job owner cannot initialize",
+  "Windows bash cancellation kills the controlled process tree",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "crew-bash-job-cancel-"));
+    const startedPath = join(root, "tree-started.json");
+    const latePath = join(root, "tree-late.flag");
+    const controller = new AbortController();
+    writeFileSync(
+      join(root, "hold-tree.cjs"),
+      [
+        'const fs = require("node:fs");',
+        'fs.writeFileSync("tree-started.json", JSON.stringify({pid:process.pid,ppid:process.ppid}));',
+        'setTimeout(() => fs.writeFileSync("tree-late.flag", "late"), 1400);',
+        "setInterval(() => {}, 1000);",
+      ].join("\n")
+    );
+    try {
+      const pending = runTool(
+        "bash",
+        { command: "node hold-tree.cjs" },
+        {
+          root,
+          signal: controller.signal,
+          permission: {
+            decision: "allow",
+            level: "L4",
+            scope: "node hold-tree.cjs",
+            reason: "Windows Job cancellation test",
+          },
+        }
+      );
+      await waitFor(
+        () => existsSync(startedPath),
+        "bash child did not start",
+        10_000
+      );
+      const started = JSON.parse(readFileSync(startedPath, "utf8"));
+      controller.abort("user_exit");
+      await assert.rejects(
+        pending,
+        error => error?.code === "CREW_GENERATION_CANCELLED"
+      );
+      await pause(1_700);
+      assert.equal(
+        existsSync(latePath),
+        false,
+        "bash descendant survived cancellation"
+      );
+      await waitFor(
+        () => !processIsAlive(started.pid),
+        "bash descendant PID survived cancellation",
+        3_000
+      );
+    } finally {
+      controller.abort("test_cleanup");
+      await pause(300);
+      rmSync(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
+    }
+  }
+);
+
+test(
+  "Windows test_run and bash fail closed when the Job owner cannot initialize",
   { skip: process.platform !== "win32" },
   async () => {
     const root = mkdtempSync(join(tmpdir(), "crew-job-owner-fail-"));
@@ -905,13 +976,32 @@ test(
           error?.code === "windows_job_unavailable" &&
           /forced Windows Job setup failure/.test(error.message)
       );
+      await assert.rejects(
+        runTool(
+          "bash",
+          { command: "node should-not-start.cjs" },
+          {
+            root,
+            permission: {
+              decision: "allow",
+              level: "L4",
+              scope: "node should-not-start.cjs",
+              reason: "bash Job owner fail-closed test",
+            },
+          }
+        ),
+        error =>
+          error?.code === "windows_job_unavailable" &&
+          /forced Windows Job setup failure/.test(error.message)
+      );
       assert.equal(
         existsSync(startedPath),
         false,
         "a Job setup failure must not fall back to an uncontrolled npm command"
       );
     } finally {
-      if (prior === undefined) delete process.env.CREW_FORCE_WINDOWS_JOB_SETUP_FAIL;
+      if (prior === undefined)
+        delete process.env.CREW_FORCE_WINDOWS_JOB_SETUP_FAIL;
       else process.env.CREW_FORCE_WINDOWS_JOB_SETUP_FAIL = prior;
       rmSync(root, { recursive: true, force: true });
     }

@@ -24,10 +24,7 @@ skills:
   - acceptance-criteria-writer
   - metrics-and-events-planner
 
-tools:
-  - terminal
-  - read_file
-  - skills
+tools: []
 
 permissions:
   - prd_docs:read
@@ -35,7 +32,7 @@ permissions:
   - business_decisions:human_confirmation_required
 
 requires:
-  hermes: ">=0.12.0"
+  hermes: ">=0.18.2"
   runtime: openclaw
   env: []
 
