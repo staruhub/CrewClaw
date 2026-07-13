@@ -10,12 +10,13 @@
 // Usage: node packages/runtime/run.mjs <agent-id> ["<task>"] [--input <file>] [--json]
 //   env: ZENMUX_API_KEY (required), ZENMUX_BASE_URL, HERMES_MODEL  (from .env.local)
 
-import { existsSync, lstatSync, unlinkSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { existsSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { agentBadge, statusBar, userRailPrompt, visibleLen } from "./ui.mjs";
 import { renderMdLine, renderMessage } from "./ui-markdown.mjs";
 import { toolLine } from "./ui-tools.mjs";
@@ -43,6 +44,8 @@ import {
   makeGateway,
   auditRecord,
   isPublicHttpUrlAsync,
+  resolvePathInsideRoot,
+  resolveWebFetchCapability,
 } from "./tool-gateway.mjs";
 import {
   newTaskRun,
@@ -80,6 +83,13 @@ import { isJsShell, routeBySize, extractPrompt } from "./web-extract.mjs";
 import { renderPage } from "./render-provider.mjs";
 import { requestPublicText } from "./safe-http.mjs";
 import { loadProfileSources } from "./profile-skills.mjs";
+import {
+  configuredProvidersFromEnv,
+  loadToolCatalog,
+  loadWorkspaceCapabilityGrants,
+  resolveEmployeeTools,
+  validateEmployeeToolNeeds,
+} from "./employee-tools.mjs";
 import { readStateFileGuarded, writeStateFileAtomic } from "./state-lock.mjs";
 import {
   captureArtifactFingerprint,
@@ -106,6 +116,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // CREWCLAW_ROOT: authorization and execution must resolve relative paths against the same root.
 const INSTALL_ROOT = resolve(__dirname, "../..");
 const WORKSPACE_ROOT = resolve(process.env.CREWCLAW_ROOT || process.cwd());
+const TOOL_CATALOG = loadToolCatalog(INSTALL_ROOT);
 const TIMEOUT_MS = Number(process.env.HERMES_TIMEOUT_MS || 45000);
 const MAX_DOTENV_BYTES = 1024 * 1024;
 const MAX_INPUT_BYTES = 1024 * 1024;
@@ -121,11 +132,15 @@ function pathEntryExists(path) {
   }
 }
 
-async function loadDotEnv() {
-  if (process.env.CREW_DISABLE_DOTENV === "1") return;
+async function loadDotEnv({
+  workspaceRoot = WORKSPACE_ROOT,
+  installRoot = INSTALL_ROOT,
+  env = process.env,
+} = {}) {
+  if (env.CREW_DISABLE_DOTENV === "1") return;
   const candidates = [
-    { path: join(WORKSPACE_ROOT, ".env.local"), root: WORKSPACE_ROOT },
-    { path: join(INSTALL_ROOT, ".env.local"), root: INSTALL_ROOT },
+    { path: join(workspaceRoot, ".env.local"), root: workspaceRoot },
+    { path: join(installRoot, ".env.local"), root: installRoot },
   ];
   let text = null;
   for (const candidate of candidates) {
@@ -149,7 +164,7 @@ async function loadDotEnv() {
     // Strip surrounding quotes and a trailing inline comment (B1 hardening).
     let value = m[2].replace(/\s+#.*$/, "").trim();
     value = value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
-    if (process.env[m[1]] === undefined) process.env[m[1]] = value;
+    if (env[m[1]] === undefined) env[m[1]] = value;
   }
 }
 
@@ -266,6 +281,7 @@ async function callModel({
   onDelta,
   onThinking,
   mock = false,
+  signal,
 }) {
   if (mock === true) {
     const content = mockModelReply({ messages });
@@ -286,7 +302,14 @@ async function callModel({
     };
   }
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let timedOut = false;
+  const cancelFromCaller = () => controller.abort(signal?.reason);
+  if (signal?.aborted) cancelFromCaller();
+  else signal?.addEventListener("abort", cancelFromCaller, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, TIMEOUT_MS);
   try {
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
@@ -321,11 +344,15 @@ async function callModel({
 
     if (!stream) {
       const data = await response.json();
-      return {
+      const result = {
         content: data?.choices?.[0]?.message?.content ?? "",
         usage: data?.usage ?? null,
         toolCalls: data?.choices?.[0]?.message?.tool_calls ?? [],
       };
+      if (!String(result.content).trim() && !result.toolCalls.length) {
+        throw new Error("model returned an empty response without tool calls");
+      }
+      return result;
     }
 
     const decoder = new TextDecoder();
@@ -333,51 +360,80 @@ async function callModel({
     let content = "";
     let usage = null;
     const toolAcc = [];
-    for await (const chunk of response.body) {
+    let done = false;
+    const consumeLine = line => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) return false;
+      const payload = trimmed.slice(5).trim();
+      if (payload === "[DONE]") return true;
+      if (!payload) return false;
+      let parsed;
+      try {
+        parsed = JSON.parse(payload);
+      } catch (error) {
+        const context = payload.replace(/\s+/g, " ").slice(0, 160);
+        throw new Error(
+          `invalid SSE data frame (${error?.message || "invalid JSON"}): ${context}`
+        );
+      }
+      if (parsed?.usage) usage = parsed.usage;
+      const delta = parsed?.choices?.[0]?.delta;
+      const reasoning = delta?.reasoning_content ?? delta?.reasoning;
+      if (reasoning) onThinking?.(reasoning);
+      if (delta?.content) {
+        content += delta.content;
+        onDelta?.(delta.content);
+      }
+      if (Array.isArray(delta?.tool_calls)) {
+        for (const tc of delta.tool_calls) {
+          const i = tc.index ?? 0;
+          if (!toolAcc[i])
+            toolAcc[i] = {
+              id: "",
+              type: "function",
+              function: { name: "", arguments: "" },
+            };
+          if (tc.id) toolAcc[i].id = tc.id;
+          if (tc.function?.name) toolAcc[i].function.name += tc.function.name;
+          if (tc.function?.arguments)
+            toolAcc[i].function.arguments += tc.function.arguments;
+        }
+      }
+      return false;
+    };
+    streamLoop: for await (const chunk of response.body) {
       buffer += decoder.decode(chunk, { stream: true });
-      const lines = buffer.split("\n");
+      const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const payload = trimmed.slice(5).trim();
-        if (payload === "[DONE]") continue;
-        try {
-          const parsed = JSON.parse(payload);
-          if (parsed?.usage) usage = parsed.usage;
-          const delta = parsed?.choices?.[0]?.delta;
-          // v0.11 M4：真·思考——OpenAI 兼容聚合器把推理放在 delta.reasoning_content（部分为 reasoning）。
-          // 有则透出，无则不发（不造假：非推理模型/端点自然不出思考块）。
-          const reasoning = delta?.reasoning_content ?? delta?.reasoning;
-          if (reasoning) onThinking?.(reasoning);
-          if (delta?.content) {
-            content += delta.content;
-            onDelta?.(delta.content);
-          }
-          if (Array.isArray(delta?.tool_calls)) {
-            for (const tc of delta.tool_calls) {
-              const i = tc.index ?? 0;
-              if (!toolAcc[i])
-                toolAcc[i] = {
-                  id: "",
-                  type: "function",
-                  function: { name: "", arguments: "" },
-                };
-              if (tc.id) toolAcc[i].id = tc.id;
-              if (tc.function?.name)
-                toolAcc[i].function.name += tc.function.name;
-              if (tc.function?.arguments)
-                toolAcc[i].function.arguments += tc.function.arguments;
-            }
-          }
-        } catch {
-          // ignore keep-alive / non-JSON lines
+        if (consumeLine(line)) {
+          done = true;
+          break streamLoop;
         }
       }
     }
-    return { content, usage, toolCalls: toolAcc.filter(Boolean) };
+    buffer += decoder.decode();
+    if (!done && buffer) {
+      const tailLines = buffer.split(/\r?\n/);
+      for (const line of tailLines) {
+        if (consumeLine(line)) {
+          done = true;
+          break;
+        }
+      }
+    }
+    const toolCalls = toolAcc.filter(Boolean);
+    if (!content.trim() && !toolCalls.length) {
+      throw new Error("model returned an empty response without tool calls");
+    }
+    return { content, usage, toolCalls };
   } catch (error) {
-    if (error.name === "AbortError") {
+    if (controller.signal.aborted && signal?.aborted && !timedOut) {
+      const cancelled = new Error("generation cancelled");
+      cancelled.code = "CREW_GENERATION_CANCELLED";
+      throw cancelled;
+    }
+    if (timedOut || error.name === "AbortError") {
       throw new Error(
         `timed out after ${Math.round(TIMEOUT_MS / 1000)}s (network or endpoint stalled)`
       );
@@ -385,6 +441,7 @@ async function callModel({
     throw error;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", cancelFromCaller);
   }
 }
 
@@ -413,7 +470,15 @@ async function callDreamModel(input, { baseUrl, apiKey, model, onUsage } = {}) {
   return content;
 }
 
-async function loadProfile(agentId) {
+async function loadProfile(
+  agentId,
+  {
+    workspaceRoot = WORKSPACE_ROOT,
+    env = process.env,
+    surface = "chat",
+    configuredProviders,
+  } = {}
+) {
   const sources = await loadProfileSources(INSTALL_ROOT, agentId);
   if (!sources)
     throw new Error(
@@ -433,6 +498,7 @@ async function loadProfile(agentId) {
   let title = "";
   let runtime = null;
   let dreamPolicy = null;
+  let employeeSpec = null;
   if (sources.hire) {
     try {
       const mf = yaml.load(sources.hire.text) || {};
@@ -444,7 +510,7 @@ async function loadProfile(agentId) {
     }
   }
   if (sources.employeeSpec) {
-    const employeeSpec = yaml.load(sources.employeeSpec.text) || {};
+    employeeSpec = yaml.load(sources.employeeSpec.text) || {};
     if (
       employeeSpec.dream_policy &&
       typeof employeeSpec.dream_policy === "object"
@@ -457,6 +523,38 @@ async function loadProfile(agentId) {
     .split(/\r?\n/)
     .filter(line => line.length > 0)
     .slice(0, 8);
+  const grantSnapshot = loadWorkspaceCapabilityGrants({
+    root: workspaceRoot,
+    employeeId: agentId,
+  });
+  if (sources.employeeSpec) {
+    const validation = validateEmployeeToolNeeds(employeeSpec?.tool_needs, {
+      catalog: TOOL_CATALOG,
+    });
+    if (!validation.ok) {
+      throw new Error(
+        `invalid employee tool_needs: ${validation.errors
+          .map(error => `${error.capability}: ${error.reason}`)
+          .join("; ")}`
+      );
+    }
+  }
+  const toolResolution = resolveEmployeeTools({
+    catalog: TOOL_CATALOG,
+    toolSchemas: TOOLS,
+    toolNeeds: employeeSpec?.tool_needs || {},
+    grants: grantSnapshot.grants,
+    configuredProviders: configuredProviders ?? configuredProvidersFromEnv(env),
+    env,
+    surface,
+  });
+  toolResolution.grantSource = grantSnapshot.source;
+  toolResolution.grantWarning = grantSnapshot.warning;
+  const degradedPrompt = toolResolution.degraded.length
+    ? `\n\n# 当前工具降级\n${toolResolution.degraded
+        .map(item => `- ${item.capability}: ${item.reason}`)
+        .join("\n")}\n不得声称调用了不可用工具；请使用现有输入或明确说明缺口。`
+    : "";
   return {
     temperature,
     model:
@@ -468,10 +566,92 @@ async function loadProfile(agentId) {
     title,
     runtime,
     dreamPolicy,
+    employeeSpec,
+    toolResolution,
+    grantSnapshot,
+    surface,
     profileDir: sources.profileDir,
     avatar,
-    system: buildSystemPrompt(soul, skills),
+    system: buildSystemPrompt(soul, skills) + degradedPrompt,
   };
+}
+
+function employeeAgentLoopDeps(profile, root = WORKSPACE_ROOT) {
+  const resolution = profile?.toolResolution || {
+    visibleTools: [],
+    employeePolicy: { tools: {} },
+  };
+  return {
+    tools: resolution.visibleTools || [],
+    gateway: makeGateway({
+      root,
+      employeePolicy: resolution.employeePolicy || { tools: {} },
+    }),
+  };
+}
+
+function requiredToolPreflight(toolResolution) {
+  const blocking = Array.isArray(toolResolution?.blocking)
+    ? toolResolution.blocking
+    : [];
+  return {
+    ok: blocking.length === 0,
+    code: blocking.length ? "tool_preflight_blocked" : "ready",
+    blocking,
+    degraded: Array.isArray(toolResolution?.degraded)
+      ? toolResolution.degraded
+      : [],
+    reason: blocking.length
+      ? `必需工具不可用：${blocking
+          .map(item => `${item.capability}（${item.reason}）`)
+          .join("；")}`
+      : "必需工具可用",
+  };
+}
+
+async function denyUnavailableApproval() {
+  return false;
+}
+
+function normalizeOfficialDomains(values) {
+  return [
+    ...new Set(
+      (Array.isArray(values) ? values : [])
+        .map(value => {
+          const raw = String(value || "")
+            .trim()
+            .toLowerCase();
+          if (!raw) return "";
+          try {
+            return new URL(
+              raw.includes("://") ? raw : `https://${raw}`
+            ).hostname
+              .replace(/^\*\./, "")
+              .replace(/^\.+|\.+$/g, "");
+          } catch {
+            return "";
+          }
+        })
+        .filter(Boolean)
+    ),
+  ];
+}
+
+function createTaskEvidenceCard(sourceUrl, { officialDomains, degraded }) {
+  const card = newEvidenceCard({
+    field: "来源",
+    value: sourceUrl,
+    sourceUrl,
+    officialDomains,
+  });
+  card.confidence = degraded
+    ? "low"
+    : card.source_type === "official"
+      ? "high"
+      : ["docs", "community", "news"].includes(card.source_type)
+        ? "medium"
+        : "low";
+  return card;
 }
 
 function titleizeId(agentId) {
@@ -590,47 +770,580 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "git_diff",
+      description:
+        "Read a repository diff through a structured, read-only Git invocation. This tool never accepts a shell command.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          base: {
+            type: "string",
+            description: "Optional safe Git revision to compare against.",
+          },
+          staged: {
+            type: "boolean",
+            description:
+              "Read the staged diff instead of the working-tree diff.",
+          },
+          path: {
+            type: "string",
+            description: "Optional workspace-relative path filter.",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "git_status",
+      description:
+        "Read concise repository branch and working-tree status through structured Git arguments.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: {
+            type: "string",
+            description: "Optional workspace-relative path filter.",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "test_run",
+      description:
+        "Run one repository-defined test/check/lint/verify script by exact package.json script name. Arbitrary commands and arguments are not accepted.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          script: {
+            type: "string",
+            description:
+              "Exact package.json script name, such as test, test:unit, check, lint, or ci:check.",
+          },
+        },
+        required: ["script"],
+      },
+    },
+  },
 ];
 
 TOOLS.push(...fsToolSchemas);
 
-function shq(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+function generationCancelledError(reason = "generation cancelled") {
+  const message =
+    typeof reason === "string" && reason.trim()
+      ? reason.trim()
+      : "generation cancelled";
+  const error = new Error(message);
+  error.name = "AbortError";
+  error.code = "CREW_GENERATION_CANCELLED";
+  return error;
+}
+
+function throwIfGenerationCancelled(signal) {
+  if (signal?.aborted) throw generationCancelledError(signal.reason);
+}
+
+function toolTimeoutError(timeoutMs) {
+  const error = new Error(`工具执行超过 ${timeoutMs}ms 的员工策略时限`);
+  error.name = "AbortError";
+  error.code = "tool_timeout";
+  return error;
+}
+
+// A capability timeout is distinct from a user cancelling generation. Pass a
+// child signal to the executor, then give cooperative process/network tools a
+// bounded chance to confirm that their descendants have actually stopped. We
+// never emit a successful cancellation merely because the parent signal fired.
+const TOOL_TERMINATION_GRACE_MS = 3000;
+async function runToolWithDeadline(invoke, { signal, timeoutMs } = {}) {
+  const hasTimeout =
+    Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 300_000;
+  if (!signal && !hasTimeout) return await invoke(undefined);
+  const controller = new AbortController();
+  return await new Promise((resolvePromise, reject) => {
+    let settled = false;
+    let timer = null;
+    let abortTimer = null;
+    let abortOutcome = null;
+    const onParentAbort = () =>
+      requestAbort(generationCancelledError(signal?.reason));
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (abortTimer) clearTimeout(abortTimer);
+      if (signal) signal.removeEventListener("abort", onParentAbort);
+    };
+    const finish = (settle, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (!controller.signal.aborted && value instanceof Error)
+        controller.abort(value);
+      settle(value);
+    };
+    const requestAbort = outcome => {
+      if (settled || abortOutcome) return;
+      abortOutcome = outcome;
+      if (!controller.signal.aborted) controller.abort(outcome);
+      abortTimer = setTimeout(() => {
+        const error = new Error("工具取消后未在 3s 内确认终止");
+        error.code = "tool_termination_timeout";
+        finish(reject, error);
+      }, TOOL_TERMINATION_GRACE_MS);
+    };
+    if (signal?.aborted) {
+      finish(reject, generationCancelledError(signal.reason));
+      return;
+    }
+    if (signal) signal.addEventListener("abort", onParentAbort, { once: true });
+    if (hasTimeout) {
+      timer = setTimeout(
+        () => requestAbort(toolTimeoutError(timeoutMs)),
+        timeoutMs
+      );
+    }
+    const execution = Promise.resolve().then(() => invoke(controller.signal));
+    // The rejection handler remains attached after an abort/timeout wins the
+    // race, so a late non-cooperative adapter cannot create an unhandled error.
+    execution.then(
+      value =>
+        abortOutcome
+          ? finish(reject, abortOutcome)
+          : finish(resolvePromise, value),
+      error => {
+        if (
+          abortOutcome &&
+          ["process_tree_termination_failed", "tool_termination_timeout"].includes(
+            error?.code
+          )
+        ) {
+          finish(reject, error);
+        } else {
+          finish(reject, abortOutcome || error);
+        }
+      }
+    );
+  });
+}
+
+// Windows taskkill can be denied even for a direct child in restricted desktop
+// sandboxes. For explicit test_run, a fixed PowerShell owner first assigns
+// itself to a KILL_ON_CLOSE Job Object, then starts the target. Its descendants
+// inherit that job; killing the direct owner closes the final handle and lets
+// Windows reap the entire tree without taskkill.
+const WINDOWS_JOB_PAYLOAD_ENV = "CREWCLAW_WINDOWS_JOB_PAYLOAD";
+const WINDOWS_JOB_OWNER_PS = String.raw`
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+$source = @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class CrewClawWindowsJobOwner {
+  const uint KillOnJobClose = 0x00002000;
+  const int ExtendedLimitInformation = 9;
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct Basic {
+    public long PerProcessUserTimeLimit;
+    public long PerJobUserTimeLimit;
+    public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize;
+    public UIntPtr MaximumWorkingSetSize;
+    public uint ActiveProcessLimit;
+    public IntPtr Affinity;
+    public uint PriorityClass;
+    public uint SchedulingClass;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct IoCounters {
+    public ulong ReadOperationCount;
+    public ulong WriteOperationCount;
+    public ulong OtherOperationCount;
+    public ulong ReadTransferCount;
+    public ulong WriteTransferCount;
+    public ulong OtherTransferCount;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct Extended {
+    public Basic BasicLimitInformation;
+    public IoCounters IoInfo;
+    public UIntPtr ProcessMemoryLimit;
+    public UIntPtr JobMemoryLimit;
+    public UIntPtr PeakProcessMemoryUsed;
+    public UIntPtr PeakJobMemoryUsed;
+  }
+
+  [DllImport(
+    "kernel32.dll",
+    EntryPoint = "CreateJobObjectW",
+    ExactSpelling = true,
+    CharSet = CharSet.Unicode,
+    SetLastError = true
+  )]
+  static extern IntPtr CreateJobObjectW(IntPtr attributes, string name);
+
+  [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true)]
+  static extern bool SetInformationJobObject(
+    IntPtr job, int infoClass, IntPtr info, uint length);
+
+  [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true)]
+  public static extern bool AssignProcessToJobObject(
+    IntPtr job, IntPtr process);
+
+  static Exception Win32(string operation) {
+    return new Win32Exception(Marshal.GetLastWin32Error(), operation);
+  }
+
+  static IntPtr CreateKillOnCloseJob() {
+    IntPtr job = CreateJobObjectW(IntPtr.Zero, null);
+    if (job == IntPtr.Zero) throw Win32("CreateJobObject");
+    var limits = new Extended();
+    limits.BasicLimitInformation.LimitFlags = KillOnJobClose;
+    int bytes = Marshal.SizeOf(typeof(Extended));
+    IntPtr memory = Marshal.AllocHGlobal(bytes);
+    try {
+      Marshal.StructureToPtr(limits, memory, false);
+      if (!SetInformationJobObject(
+        job, ExtendedLimitInformation, memory, (uint)bytes
+      )) throw Win32("SetInformationJobObject");
+      return job;
+    } finally {
+      Marshal.FreeHGlobal(memory);
+    }
+  }
+
+  // PowerShell 5.1 lacks ProcessStartInfo.ArgumentList. Use the standard CRT
+  // quoting algorithm rather than building an executable shell command.
+  static string Quote(string value) {
+    value = value ?? String.Empty;
+    if (value.Length == 0) return "\"\"";
+    if (!value.Any(c => Char.IsWhiteSpace(c) || c == '"')) return value;
+    var result = new StringBuilder("\"");
+    int slashes = 0;
+    foreach (char c in value) {
+      if (c == '\\') {
+        slashes++;
+        continue;
+      }
+      if (c == '"') {
+        result.Append('\\', slashes * 2 + 1);
+        result.Append(c);
+        slashes = 0;
+        continue;
+      }
+      result.Append('\\', slashes);
+      result.Append(c);
+      slashes = 0;
+    }
+    result.Append('\\', slashes * 2);
+    result.Append('"');
+    return result.ToString();
+  }
+
+  public static int Run(string executable, string[] args, string cwd) {
+    if (String.IsNullOrWhiteSpace(executable)) {
+      throw new ArgumentException("missing executable");
+    }
+    // This wrapper owns the only job handle. It intentionally remains open
+    // until wrapper exit, when KILL_ON_CLOSE terminates every descendant.
+    IntPtr job = CreateKillOnCloseJob();
+    using (var self = Process.GetCurrentProcess()) {
+      if (!AssignProcessToJobObject(job, self.Handle)) {
+        throw Win32("AssignProcessToJobObject(self)");
+      }
+    }
+    var info = new ProcessStartInfo {
+      FileName = executable,
+      Arguments = String.Join(
+        " ", (args ?? new string[0]).Select(Quote).ToArray()
+      ),
+      UseShellExecute = false,
+      RedirectStandardOutput = true,
+      RedirectStandardError = true,
+      CreateNoWindow = true
+    };
+    if (!String.IsNullOrWhiteSpace(cwd)) info.WorkingDirectory = cwd;
+    using (var child = new Process()) {
+      child.StartInfo = info;
+      child.OutputDataReceived += (sender, eventArgs) => {
+        if (eventArgs.Data != null) Console.Out.WriteLine(eventArgs.Data);
+      };
+      child.ErrorDataReceived += (sender, eventArgs) => {
+        if (eventArgs.Data != null) Console.Error.WriteLine(eventArgs.Data);
+      };
+      if (!child.Start()) {
+        throw new InvalidOperationException("target failed to start");
+      }
+      child.BeginOutputReadLine();
+      child.BeginErrorReadLine();
+      child.WaitForExit();
+      child.WaitForExit();
+      return child.ExitCode;
+    }
+  }
+}
+'@
+
+try {
+  if ($env:CREW_FORCE_WINDOWS_JOB_SETUP_FAIL -eq "1") {
+    throw "forced Windows Job setup failure"
+  }
+  Add-Type -TypeDefinition $source -ErrorAction Stop
+  $encoded = $env:CREWCLAW_WINDOWS_JOB_PAYLOAD
+  if ([String]::IsNullOrWhiteSpace($encoded)) {
+    throw "missing Windows Job payload"
+  }
+  $json = [Text.Encoding]::UTF8.GetString(
+    [Convert]::FromBase64String($encoded)
+  )
+  $payload = $json | ConvertFrom-Json
+  if ($null -eq $payload -or
+      [String]::IsNullOrWhiteSpace([string]$payload.executable)) {
+    throw "invalid Windows Job payload"
+  }
+  Remove-Item Env:CREWCLAW_WINDOWS_JOB_PAYLOAD -ErrorAction SilentlyContinue
+  $exitCode = [CrewClawWindowsJobOwner]::Run(
+    [string]$payload.executable,
+    @($payload.args | ForEach-Object { [string]$_ }),
+    [string]$payload.cwd
+  )
+  exit ([int]$exitCode)
+} catch {
+  [Console]::Error.WriteLine(
+    "CREW_WINDOWS_JOB_UNAVAILABLE:" + $_.Exception.Message
+  )
+  exit 70
+}
+`;
+const WINDOWS_JOB_OWNER_COMMAND = Buffer.from(
+  WINDOWS_JOB_OWNER_PS,
+  "utf16le"
+).toString("base64");
+
+function windowsJobError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function spawnWindowsJobOwner(executable, args, { cwd, env } = {}) {
+  const payload = Buffer.from(
+    JSON.stringify({
+      executable: String(executable),
+      args: (args || []).map(value => String(value)),
+      cwd: String(cwd || ""),
+    }),
+    "utf8"
+  ).toString("base64");
+  if (payload.length > 24 * 1024) {
+    throw windowsJobError(
+      "Windows Job 参数过长，拒绝启动未受控进程",
+      "windows_job_payload_too_large"
+    );
+  }
+  const systemRoot = String(
+    process.env.SystemRoot || process.env.windir || "C:\\Windows"
+  );
+  const powershell = join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe"
+  );
+  const child = spawn(
+    powershell,
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      WINDOWS_JOB_OWNER_COMMAND,
+    ],
+    {
+      cwd,
+      env: {
+        ...(env || process.env),
+        [WINDOWS_JOB_PAYLOAD_ENV]: payload,
+      },
+      windowsHide: true,
+      shell: false,
+    }
+  );
+  child.__crewclawJobOwner = true;
+  return child;
+}
+
+function processTreeTerminationError(reason) {
+  const error = new Error(`无法确认进程树已终止：${reason}`);
+  error.code = "process_tree_termination_failed";
+  return error;
+}
+
+function terminateChildTree(child) {
+  if (!child?.pid) return Promise.resolve();
+  if (child.__crewclawJobOwner) {
+    return new Promise((resolveTermination, rejectTermination) => {
+      if (child.exitCode !== null || child.signalCode) {
+        resolveTermination();
+        return;
+      }
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        resolveTermination();
+      };
+      const fail = reason => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        rejectTermination(processTreeTerminationError(reason));
+      };
+      const timer = setTimeout(
+        () => fail("Windows Job owner 在 3s 内未退出"),
+        3000
+      );
+      child.once("close", finish);
+      try {
+        if (
+          child.kill("SIGKILL") === false &&
+          child.exitCode === null &&
+          !child.signalCode
+        ) {
+          fail("Windows Job owner 拒绝终止信号");
+        }
+      } catch (error) {
+        fail(error?.message || String(error));
+      }
+    });
+  }
+  if (process.platform === "win32") {
+    return new Promise(resolveTermination => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(fallbackTimer);
+        resolveTermination();
+      };
+      const directFallback = () => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // already exited
+        }
+      };
+      const fallbackTimer = setTimeout(() => {
+        directFallback();
+        finish();
+      }, 3000);
+      try {
+        const killer = spawn(
+          "taskkill",
+          ["/PID", String(child.pid), "/T", "/F"],
+          { windowsHide: true, shell: false, stdio: "ignore" }
+        );
+        killer.once("error", () => {
+          directFallback();
+          finish();
+        });
+        killer.once("close", code => {
+          if (code !== 0) directFallback();
+          finish();
+        });
+      } catch {
+        directFallback();
+        finish();
+      }
+    });
+  }
+  // POSIX children are spawned detached below, making pid the process-group id. Killing the
+  // negative id reaps package-manager/shell grandchildren as well as the direct child.
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // already exited
+    }
+  }
+  return Promise.resolve();
 }
 
 // Run a shell command — prefer bash (so Unix commands work on Windows), fall
 // back to the platform shell. 30s timeout, output truncated.
-function runShell(command, { cwd = WORKSPACE_ROOT } = {}) {
-  return new Promise(resolve => {
+function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
+  return new Promise((resolve, reject) => {
     let out = "";
     let done = false;
     let timer;
+    let activeChild = null;
     const children = new Set();
-    const finish = (s, { terminate = false } = {}) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const finish = s => {
       if (done) return;
       done = true;
-      clearTimeout(timer);
-      if (terminate) {
-        for (const child of children) {
-          try {
-            child.kill("SIGKILL");
-          } catch {
-            /* already exited */
-          }
-        }
-      }
+      cleanup();
       resolve(s);
     };
+    const settleAfterTermination = settle => {
+      if (done) return;
+      done = true;
+      cleanup();
+      void Promise.allSettled(
+        [...children].map(child => terminateChildTree(child))
+      ).then(settle);
+    };
+    const onAbort = () => {
+      const cancellation = generationCancelledError(signal?.reason);
+      settleAfterTermination(() => reject(cancellation));
+    };
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
     const attach = (child, isFallback) => {
+      activeChild = child;
       children.add(child);
       child.stdout?.on("data", d => (out += d));
       child.stderr?.on("data", d => (out += d));
-      child.on("error", e => {
+      child.once("error", e => {
         children.delete(child);
-        if (!done && !isFallback) {
+        if (done || child !== activeChild) return;
+        activeChild = null;
+        if (!isFallback) {
           try {
             attach(
-              spawn(command, { shell: true, windowsHide: true, cwd }),
+              spawn(command, {
+                shell: true,
+                windowsHide: true,
+                cwd,
+                detached: process.platform !== "win32",
+              }),
               true
             );
           } catch (err) {
@@ -640,26 +1353,37 @@ function runShell(command, { cwd = WORKSPACE_ROOT } = {}) {
           finish("（无法执行命令：" + e.message + "）");
         }
       });
-      child.on("close", () => {
+      child.once("close", () => {
         children.delete(child);
+        if (done || child !== activeChild) return;
+        activeChild = null;
         finish(out.trim().slice(0, 4000) || "（无输出）");
       });
     };
-    timer = setTimeout(
-      () =>
-        finish((out.trim() || "") + "\n（命令超时 30s，已终止）", {
-          terminate: true,
-        }),
-      30000
-    );
+    timer = setTimeout(() => {
+      const timedOut = (out.trim() || "") + "\n（命令超时 30s，已终止）";
+      settleAfterTermination(() => resolve(timedOut));
+    }, 30000);
     try {
       attach(
-        spawn("bash", ["-lc", command], { windowsHide: true, cwd }),
+        spawn("bash", ["-lc", command], {
+          windowsHide: true,
+          cwd,
+          detached: process.platform !== "win32",
+        }),
         false
       );
     } catch {
       try {
-        attach(spawn(command, { shell: true, windowsHide: true, cwd }), true);
+        attach(
+          spawn(command, {
+            shell: true,
+            windowsHide: true,
+            cwd,
+            detached: process.platform !== "win32",
+          }),
+          true
+        );
       } catch (err) {
         finish("（无法执行命令：" + err.message + "）");
       }
@@ -667,14 +1391,353 @@ function runShell(command, { cwd = WORKSPACE_ROOT } = {}) {
   });
 }
 
+function runStructuredProcess(
+  executable,
+  args,
+  {
+    cwd = WORKSPACE_ROOT,
+    timeoutMs = 30000,
+    maxOutput = 12000,
+    allowedExitCodes = [0],
+    env = process.env,
+    signal,
+    requireWindowsJob = false,
+  } = {}
+) {
+  return new Promise((resolveOutput, rejectOutput) => {
+    let output = "";
+    let truncated = false;
+    let settled = false;
+    let timer;
+    let child;
+    let jobOwner = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const append = chunk => {
+      const value = String(chunk || "");
+      const captureLimit = maxOutput * 2;
+      const remaining = Math.max(0, captureLimit - output.length);
+      if (output.length < captureLimit) {
+        output += value.slice(0, remaining);
+      }
+      if (value.length > remaining) truncated = true;
+    };
+    const makeError = (message, code) => {
+      const error = new Error(message);
+      error.code = code;
+      error.output = output.slice(0, maxOutput);
+      return error;
+    };
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolveOutput(
+        String(value || "")
+          .trim()
+          .slice(0, maxOutput) + (truncated ? "\n…（输出已截断）" : "") ||
+          "（无输出）"
+      );
+    };
+    const fail = error => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      rejectOutput(error);
+    };
+    const failAfterTermination = error => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      void terminateChildTree(child).then(
+        () => rejectOutput(error),
+        terminationError => rejectOutput(terminationError)
+      );
+    };
+    const onAbort = () => {
+      if (settled) return;
+      failAfterTermination(generationCancelledError(signal?.reason));
+    };
+    if (signal?.aborted) {
+      fail(generationCancelledError(signal.reason));
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      jobOwner = process.platform === "win32" && requireWindowsJob;
+      child = jobOwner
+        ? spawnWindowsJobOwner(executable, args, { cwd, env })
+        : spawn(executable, args, {
+            cwd,
+            windowsHide: true,
+            shell: false,
+            env,
+            detached: process.platform !== "win32",
+          });
+    } catch (error) {
+      fail(
+        makeError(
+          `无法启动结构化工具：${error.message}`,
+          error?.code || (jobOwner ? "windows_job_unavailable" : "tool_spawn_failed")
+        )
+      );
+      return;
+    }
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    child.stdout?.on("data", append);
+    child.stderr?.on("data", append);
+    child.once("error", error =>
+      fail(
+        makeError(
+          `结构化工具执行失败：${error.message}`,
+          jobOwner ? "windows_job_unavailable" : "tool_spawn_failed"
+        )
+      )
+    );
+    child.once("close", code => {
+      if (settled) return;
+      if (
+        jobOwner &&
+        code === 70 &&
+        /CREW_WINDOWS_JOB_UNAVAILABLE:/.test(output)
+      ) {
+        fail(
+          makeError(
+            `Windows Job 进程树隔离不可用：${output.trim()}`,
+            "windows_job_unavailable"
+          )
+        );
+        return;
+      }
+      if (allowedExitCodes.includes(code)) finish(output);
+      else
+        fail(
+          makeError(
+            `${output.trim() || executable}（进程退出码 ${code}）`,
+            "tool_process_failed"
+          )
+        );
+    });
+    timer = setTimeout(() => {
+      failAfterTermination(
+        makeError(
+          `结构化工具超时 ${Math.round(timeoutMs / 1000)}s`,
+          "tool_timeout"
+        )
+      );
+    }, timeoutMs);
+  });
+}
+
+function invalidToolArguments(message) {
+  const error = new Error(message);
+  error.code = "invalid_tool_arguments";
+  throw error;
+}
+
+function safeGitEnvironment(root) {
+  const env = {};
+  for (const key of [
+    "PATH",
+    "Path",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "SystemRoot",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "HOME",
+    "USERPROFILE",
+    "LANG",
+    "LC_ALL",
+  ]) {
+    if (typeof process.env[key] === "string") env[key] = process.env[key];
+  }
+  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
+  return {
+    ...env,
+    GIT_PAGER: "cat",
+    PAGER: "cat",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: nullDevice,
+    GIT_LITERAL_PATHSPECS: "1",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_DISCOVERY_ACROSS_FILESYSTEM: "0",
+    GIT_CEILING_DIRECTORIES: dirname(resolve(root)),
+  };
+}
+
+function checkedRepoPathspec(rawPath, root) {
+  if (rawPath == null || String(rawPath).trim() === "") {
+    const checkedRoot = resolvePathInsideRoot(".", root, {
+      mustExist: true,
+      rejectSymlinks: true,
+    });
+    return checkedRoot.ok
+      ? { ok: true, root: checkedRoot.rootPath, pathspec: null }
+      : checkedRoot;
+  }
+  const checked = resolvePathInsideRoot(String(rawPath), root, {
+    rejectSymlinks: true,
+  });
+  if (!checked.ok) return checked;
+  return {
+    ok: true,
+    root: checked.rootPath,
+    pathspec: relative(checked.rootPath, checked.path).replaceAll("\\", "/"),
+  };
+}
+
+function safeGitRevision(value) {
+  const revision = String(value || "").trim();
+  return revision && /^[A-Za-z0-9][A-Za-z0-9._/@{}^~:+-]{0,127}$/.test(revision)
+    ? revision
+    : null;
+}
+
+async function runGitDiff(args, root, signal) {
+  const target = checkedRepoPathspec(args?.path, root);
+  if (!target.ok) invalidToolArguments(`git_diff 路径无效：${target.error}`);
+  const command = [
+    "-C",
+    target.root,
+    "-c",
+    "core.pager=cat",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    `core.hooksPath=${process.platform === "win32" ? "NUL" : "/dev/null"}`,
+    "diff",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-color",
+  ];
+  if (args?.staged === true) command.push("--cached");
+  if (args?.base != null) {
+    const base = safeGitRevision(args.base);
+    if (!base) invalidToolArguments("git_diff base 不是安全的 Git revision");
+    command.push(base);
+  }
+  command.push("--");
+  if (target.pathspec) command.push(target.pathspec);
+  return runStructuredProcess("git", command, {
+    cwd: target.root,
+    timeoutMs: 15000,
+    maxOutput: 16000,
+    env: safeGitEnvironment(target.root),
+    signal,
+  });
+}
+
+async function runGitStatus(args, root, signal) {
+  const target = checkedRepoPathspec(args?.path, root);
+  if (!target.ok) invalidToolArguments(`git_status 路径无效：${target.error}`);
+  const command = [
+    "-C",
+    target.root,
+    "-c",
+    "core.pager=cat",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    `core.hooksPath=${process.platform === "win32" ? "NUL" : "/dev/null"}`,
+    "status",
+    "--short",
+    "--branch",
+    "--untracked-files=normal",
+  ];
+  if (target.pathspec) command.push("--", target.pathspec);
+  return runStructuredProcess("git", command, {
+    cwd: target.root,
+    timeoutMs: 10000,
+    env: safeGitEnvironment(target.root),
+    signal,
+  });
+}
+
+const SAFE_TEST_SCRIPT =
+  /^(?:(?:test|check|lint|typecheck|verify|validate)(?::[a-z0-9._-]+)*|ci:check)$/i;
+
+async function runDefinedTestScript(args, root, signal) {
+  const script = String(args?.script || "").trim();
+  if (!SAFE_TEST_SCRIPT.test(script)) {
+    invalidToolArguments(
+      "test_run 只接受仓库定义的 test/check/lint/typecheck/verify/validate/ci:check 类脚本"
+    );
+  }
+  const manifestPath = resolvePathInsideRoot("package.json", root, {
+    mustExist: true,
+    rejectSymlinks: true,
+  });
+  if (!manifestPath.ok)
+    invalidToolArguments(
+      `test_run 无法读取 package.json：${manifestPath.error}`
+    );
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath.path, "utf8"));
+  } catch (error) {
+    invalidToolArguments(`test_run 无法解析 package.json：${error.message}`);
+  }
+  if (
+    !manifest.scripts ||
+    typeof manifest.scripts !== "object" ||
+    typeof manifest.scripts[script] !== "string"
+  ) {
+    invalidToolArguments(`test_run 拒绝：package.json 未定义脚本 ${script}`);
+  }
+  const declaredManager = String(manifest.packageManager || "npm").split(
+    "@"
+  )[0];
+  const manager = ["npm", "pnpm", "yarn", "bun"].includes(declaredManager)
+    ? declaredManager
+    : "npm";
+  const executable =
+    process.platform === "win32"
+      ? process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe"
+      : manager;
+  // Windows cannot CreateProcess a .cmd shim directly. The command string remains closed: both
+  // manager and script passed the allowlists above, and no model-provided arguments are accepted.
+  const commandArgs =
+    process.platform === "win32"
+      ? [
+          "/d",
+          "/s",
+          "/c",
+          `${manager === "bun" ? "bun.exe" : `${manager}.cmd`} run ${script}`,
+        ]
+      : ["run", script];
+  return runStructuredProcess(executable, commandArgs, {
+    cwd: manifestPath.rootPath,
+    timeoutMs: 120000,
+    maxOutput: 16000,
+    signal,
+    requireWindowsJob: process.platform === "win32",
+  });
+}
+
 // Fetch a public URL's text (GET only) so agents can answer live questions
 // (weather, news, APIs). Read-only by nature, so it auto-runs without confirm.
-async function webFetch(url, { extract = "", task = "" } = {}) {
+async function webFetch(url, { extract = "", task = "", signal } = {}) {
   const currentUrl = String(url ?? "").trim();
   if (!/^https?:\/\//i.test(currentUrl))
     return "（web_fetch 需要 http(s):// 开头的 URL）";
+  throwIfGenerationCancelled(signal);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  let timedOut = false;
+  const cancelFromCaller = () => controller.abort(signal?.reason);
+  if (signal?.aborted) cancelFromCaller();
+  else signal?.addEventListener("abort", cancelFromCaller, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, 15000);
   try {
     const res = await requestPublicText(currentUrl, {
       signal: controller.signal,
@@ -692,12 +1755,13 @@ async function webFetch(url, { extract = "", task = "" } = {}) {
     const isHtml = /html|xml/i.test(ct) || /^\s*</.test(body);
     if (isHtml) {
       const md = await htmlToMd(body, res.url);
+      throwIfGenerationCancelled(signal);
       // Step 2 — WebFetchExtract: a JS-rendered shell becomes a clean requires_render
       // state (not 8000 chars of nav chrome); large pages are aux-model compressed.
       if (isJsShell({ markdown: md, html: body })) {
         return "（疑似 JS 渲染空壳：抓到的多是导航/脚本，正文缺失。requires_render —— 别再猜 URL，改用 web_search 找可读来源，或向用户申请 browser_render。）";
       }
-      body = await mdToExtract(md, res.url, { extract, task });
+      body = await mdToExtract(md, res.url, { extract, task, signal });
     } else {
       body = body.trim().slice(0, 8000);
     }
@@ -705,6 +1769,9 @@ async function webFetch(url, { extract = "", task = "" } = {}) {
       return `（HTTP ${res.status}）${String(body).slice(0, 300)}`;
     return body || "（空响应）";
   } catch (e) {
+    if (signal?.aborted && !timedOut) {
+      throw generationCancelledError(signal.reason);
+    }
     return (
       "（web_fetch 失败：" +
       (e.name === "AbortError" ? "超时 15s" : e.message) +
@@ -712,6 +1779,7 @@ async function webFetch(url, { extract = "", task = "" } = {}) {
     );
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", cancelFromCaller);
   }
 }
 
@@ -729,27 +1797,37 @@ async function htmlToMd(html, url) {
 }
 
 // Size-route markdown → full text / aux-extracted / reject (Hermes thresholds).
-async function mdToExtract(md, url, { extract = "", task = "" } = {}) {
+async function mdToExtract(md, url, { extract = "", task = "", signal } = {}) {
+  throwIfGenerationCancelled(signal);
   const route = routeBySize(md.length);
   if (route === "reject")
     return "（页面过大（>2M 字符）：请给更具体的子页面 URL。）";
   return route === "full"
     ? md
-    : await auxExtract(md, { extract, task, url, chunk: route === "chunk" });
+    : await auxExtract(md, {
+        extract,
+        task,
+        url,
+        chunk: route === "chunk",
+        signal,
+      });
 }
 
 // browser.render upgrade channel (Step 3): used ONLY after requires_render. Renders
 // the JS page with the configured provider (default local Playwright), then runs the
 // SAME extract pipeline so the main model gets task facts, not a raw DOM.
-async function webRender(url, { extract = "" } = {}) {
+async function webRender(url, { extract = "", signal } = {}) {
   const u = String(url ?? "").trim();
   if (!/^https?:\/\//i.test(u))
     return "（browser_render 需要 http(s):// 开头的 URL）";
-  if (!(await isPublicHttpUrlAsync(u)))
+  throwIfGenerationCancelled(signal);
+  if (!(await isPublicHttpUrlAsync(u, { signal })))
     return "（browser_render 已阻止本地/内网/元数据 URL）";
+  throwIfGenerationCancelled(signal);
   if (isSearchEnginePage(u))
     return "（搜索引擎结果页不渲染——请用 web_search 找来源。）";
-  const r = await renderPage(u, {});
+  const r = await renderPage(u, { signal });
+  throwIfGenerationCancelled(signal);
   if (!r.ok) {
     if (
       r.reason === "no_render_provider" ||
@@ -764,7 +1842,8 @@ async function webRender(url, { extract = "" } = {}) {
     return "（browser_render 失败：" + (r.note || r.error || r.reason) + "）";
   }
   const md = await htmlToMd(r.html, u);
-  return await mdToExtract(md, u, { extract });
+  throwIfGenerationCancelled(signal);
+  return await mdToExtract(md, u, { extract, signal });
 }
 
 // Compress a long page with a cheap aux model against the task (Hermes-style size
@@ -772,8 +1851,9 @@ async function webRender(url, { extract = "" } = {}) {
 // blocks the agent. Aux model is configurable (CREW_EXTRACT_MODEL), defaults to main.
 async function auxExtract(
   md,
-  { extract = "", task = "", url = "", chunk = false } = {}
+  { extract = "", task = "", url = "", chunk = false, signal } = {}
 ) {
+  throwIfGenerationCancelled(signal);
   const apiKey = flags.mock ? "explicit-cli-mock" : process.env.ZENMUX_API_KEY;
   if (!apiKey)
     return (
@@ -803,13 +1883,15 @@ async function auxExtract(
       system: sys,
       messages: [{ role: "user", content: prompt }],
       stream: false,
+      signal,
     });
     const out = String(r?.content || "").trim();
     return out
       ? `（已按任务从 ${url} 抽取要点${chunk ? "·仅前段，页面很大" : ""}）\n` +
           out
       : md.slice(0, 8000);
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw generationCancelledError(signal.reason);
     return md.slice(0, 8000) + "\n…（抽取失败，返回截断正文）";
   }
 }
@@ -847,8 +1929,10 @@ async function runTool(
     quiet = false,
     permission = { decision: "deny", scope: "unknown", level: "L4" },
     root = WORKSPACE_ROOT,
+    signal,
   } = {}
 ) {
+  throwIfGenerationCancelled(signal);
   if (permission.decision === "deny") return "（该动作未授权：权限网关拒绝）";
 
   const requestApproval = async message => {
@@ -861,46 +1945,117 @@ async function runTool(
       reason: permission.reason,
     }));
   };
-
+  // Every executable branch must cross this single gate. The Permission Gateway may strengthen
+  // even a normally read-only tool to `confirm` (employee `requires_authorization` or
+  // `approval: always`), so individual tool implementations must never assume their platform
+  // default is sufficient authorization.
+  const runApproved = async (
+    message,
+    operation,
+    denied = `（${name} 需要人工确认；未获授权，已跳过）`
+  ) => {
+    if (!(await requestApproval(message))) return denied;
+    throwIfGenerationCancelled(signal);
+    return await operation();
+  };
   if (name === "web_fetch") {
-    const url = String(args?.url ?? "");
+    const webFetchRequest = resolveWebFetchCapability(args);
+    if (webFetchRequest.error)
+      return `（${webFetchRequest.error}）`;
+    const url = String(webFetchRequest.args?.url ?? "");
     if (isSearchEnginePage(url))
       return "（不要抓取搜索引擎结果页（duckduckgo/bing/google/百度 等）——那是噪音、常被反爬。请改用 web_search 找来源，或直接 web_fetch 官方域名的具体文章页。）";
-    return await webFetch(url, { extract: args?.extract });
+    return await runApproved(
+      `读取公开网页 ${url} ?`,
+      () =>
+        webFetch(url, {
+          extract: webFetchRequest.args.extract,
+          signal,
+        })
+    );
   }
   if (name === "browser_render") {
     const url = String(args?.url ?? "");
-    if (!(await isPublicHttpUrlAsync(url)))
+    if (!(await isPublicHttpUrlAsync(url, { signal })))
       return "（browser_render 已阻止本地/内网/元数据 URL）";
-    if (
-      !(await requestApproval(
-        "使用 Browser Render 渲染 " + url + "（只读、无登录态）?"
-      ))
-    )
-      return "（用户拒绝渲染）";
-    return await webRender(url, { extract: args?.extract });
+    return await runApproved(
+      "使用 Browser Render 渲染 " + url + "（只读、无登录态）?",
+      () => webRender(url, { extract: args?.extract, signal }),
+      "（用户拒绝渲染）"
+    );
   }
-  if (name === "web_search")
-    return (await webSearch(args?.query, { recency: args?.recency })).text;
+  if (name === "web_search") {
+    const query = String(args?.query ?? "").trim();
+    if (!query) invalidToolArguments("web_search 缺少 query");
+    return await runApproved(`搜索公开网页：${query} ?`, async () =>
+      (await webSearch(query, { recency: args?.recency, signal })).text
+    );
+  }
   if (name === "search") {
     const q = String(args?.query ?? "").trim();
-    if (!q) return "（search 缺少 query）";
-    const path = args?.path ? String(args.path) : ".";
-    return runShell(
-      `rg --line-number --no-heading --color never -S -- ${shq(q)} ${shq(path)} | head -60`,
-      { cwd: root }
+    if (!q) invalidToolArguments("search 缺少 query");
+    const checked = resolvePathInsideRoot(
+      args?.path ? String(args.path) : ".",
+      root,
+      { mustExist: true, rejectSymlinks: true }
+    );
+    if (!checked.ok) invalidToolArguments(`search 路径无效：${checked.error}`);
+    return await runApproved(
+      `在工作区 ${String(args?.path || ".")} 中搜索 ${q} ?`,
+      () =>
+        runStructuredProcess(
+          "rg",
+          [
+            "--line-number",
+            "--no-heading",
+            "--color",
+            "never",
+            "-S",
+            "--",
+            q,
+            checked.path,
+          ],
+          {
+            cwd: checked.rootPath,
+            timeoutMs: 15000,
+            maxOutput: 12000,
+            allowedExitCodes: [0, 1],
+            signal,
+          }
+        )
+    );
+  }
+  if (name === "git_diff")
+    return await runApproved("读取当前仓库差异 ?", () =>
+      runGitDiff(args, root, signal)
+    );
+  if (name === "git_status")
+    return await runApproved("读取当前仓库状态 ?", () =>
+      runGitStatus(args, root, signal)
+    );
+  if (name === "test_run") {
+    return await runApproved(
+      `运行仓库脚本 ${String(args?.script || "")} ?`,
+      () => runDefinedTestScript(args, root, signal),
+      "（test_run 需要人工确认；未获授权，已跳过）"
     );
   }
   if (name === "bash") {
     const cmd = String(args?.command ?? "").trim();
     if (!cmd) return "（bash 缺少 command）";
-    if (!(await requestApproval("执行命令: " + cmd)))
-      return `（该命令需要人工确认；未获授权，已跳过）\n命令: ${cmd}`;
-    return runShell(cmd, { cwd: root });
+    return await runApproved(
+      "执行命令: " + cmd,
+      () => runShell(cmd, { cwd: root, signal }),
+      `（该命令需要人工确认；未获授权，已跳过）\n命令: ${cmd}`
+    );
   }
   if (name === "read_file") {
-    const r = await readAnyFile(args?.path, { root });
-    return r.ok ? r.text : `（读取失败：${r.error}）`;
+    const path = String(args?.path ?? "");
+    return await runApproved(`读取工作区文件 ${path || "(missing)"} ?`, async () => {
+      const r = await readAnyFile(path, { root });
+      throwIfGenerationCancelled(signal);
+      return r.ok ? r.text : `（读取失败：${r.error}）`;
+    });
   }
   if (name === "edit_file" || name === "write_file") {
     const path = String(args?.path ?? "");
@@ -923,33 +2078,63 @@ async function runTool(
           "\n"
       );
     }
-    if (!(await requestApproval("应用以上改动到 " + path + " ?")))
-      return "（用户取消，未写入）";
-    const w = applyWrite(path, r.newContent, { root, guard: r.guard });
-    return w.ok ? `✓ 已写入 ${path}` : `（写入失败：${w.error}）`;
+    return await runApproved(
+      "应用以上改动到 " + path + " ?",
+      () => {
+        const w = applyWrite(path, r.newContent, { root, guard: r.guard });
+        return w.ok ? `✓ 已写入 ${path}` : `（写入失败：${w.error}）`;
+      },
+      "（用户取消，未写入）"
+    );
   }
   return `（未知工具：${name}）`;
 }
 
-const AGENT_GUIDE = `
-
-# 工作方式（重要）
-你可以调用工具：bash（在用户机器上执行命令/看文件/git），search（用 ripgrep 搜本机文件内容），web_search（联网搜索任意问题、拿到排好序的来源），web_fetch（抓取某个 URL 的正文），read_file/edit_file/write_file（读写文件）。
-需要**实时/联网信息**就联网，别回答「我不能联网」：
-- 已知数据源（天气等）直接 web_fetch，例如 https://wttr.in/北京?format=3 。
-- 开放式「搜索X / 最新 / 有什么」类问题：先 **web_search** 找来源，再对最相关的结果 **web_fetch** 读详情，最后综合作答并给出 URL。搜不到就如实说，绝不编。
-
-# 研究纪律（联网/调研任务必读）
-- **绝不 web_fetch 搜索引擎结果页**（bing.com/search、google、百度结果页都是噪音）：用 web_search 拿来源列表，再 web_fetch 最相关的**目标站点/官方域名**读正文。
-- 官方优先：查产品/模型/价格，先官方域名（如 volcengine.com、平台文档），其次新闻、社区。
-- 失败别投降：一次搜不到就**换策略**再来——精确短语 → 官方域名 site: → 中文别名 → 英文别名 → 产品/API ID → 新闻源 → 文档源；至少换 3 种再说「查不到」，并说明已试过哪些路径。
-- 证据纪律：每个关键结论带**来源 URL + 置信度（高/中/低）**；查不到的字段写 unknown，**绝不脑补数字/价格**。
-- 读长页用 web_fetch 时带上 **extract**（要抽什么）——拿到的是按任务抽好的要点，不是整页噪音；若返回 **requires_render**（JS 空壳），别再猜 URL，改 web_search 或申请 browser_render。
-读本机文件/文档（.txt/.md/代码，以及 .pptx/.docx/.xlsx/.pdf）一律用 **read_file**——它直接吃 Windows 路径（C:\\...）并自动提取 Office/PDF 文本。**别用 bash 去 cat/ls 本机文件**：这台机的 bash 是 Git Bash，Windows 路径要写成 /c/Users/... 才认；read_file 最省事，用户贴的 C:\\ 路径直接丢给它。
-- 先规划：回答前先输出一小段「## 计划」，说明你要怎么做、查什么、用哪个工具（2-4 步即可）。
-- 再执行：需要真实信息时**调用工具**去看，绝不凭空假设路径或文件内容。
-- 后结论：基于工具返回的真实结果，给清晰、可执行的回答。
-只读命令会自动执行；写入/危险命令需用户确认。看不到的就用工具看，或标 [placeholder]。`;
+function buildAgentGuide(tools) {
+  const names = (tools || [])
+    .map(tool => tool?.function?.name)
+    .filter(name => typeof name === "string" && name);
+  const available = new Set(names);
+  const lines = [
+    "",
+    "# 工作方式（重要）",
+    `本轮唯一可调用的模型工具：${names.length ? names.join("、") : "无"}。不得调用、暗示已调用或请求未列出的工具。`,
+    "- 先规划：回答前先给 2–4 步短计划。",
+    "- 再执行：需要真实信息时只使用上面列出的工具；能力不可用就明确标注缺口。",
+    "- 后结论：只基于真实工具结果和用户输入作答；看不到的标 [placeholder]。",
+  ];
+  if (available.has("web_search") || available.has("web_fetch")) {
+    lines.push(
+      "",
+      "# 联网研究纪律",
+      "- 官方来源优先；关键结论给来源 URL 和置信度，查不到就写 unknown。"
+    );
+    if (available.has("web_search") && available.has("web_fetch")) {
+      lines.push(
+        "- 先用 web_search 找目标来源，再用 web_fetch 读取具体页面；不要抓取搜索引擎结果页。"
+      );
+    }
+    if (available.has("browser_render")) {
+      lines.push(
+        "- 仅当 web_fetch 明确返回 requires_render 时，才申请 browser_render。"
+      );
+    }
+  }
+  if (available.has("read_file")) {
+    lines.push("- 本地文件使用 read_file，路径必须在获准的工作区范围内。");
+  }
+  if (available.has("git_diff") || available.has("git_status")) {
+    lines.push(
+      "- 仓库检查使用结构化 git_diff/git_status，不要尝试拼接 shell 命令。"
+    );
+  }
+  if (available.has("test_run")) {
+    lines.push(
+      "- test_run 只运行 package.json 已定义的测试、检查或 lint 脚本，并需要人工授权。"
+    );
+  }
+  return lines.join("\n");
+}
 
 // One agent turn: plan → (optional tool calls) → answer. Streams text with
 // markdown rendering, shows each tool call + result in the TUI, and loops until
@@ -969,9 +2154,14 @@ async function agentLoop({
   gateway,
   root = WORKSPACE_ROOT,
   onInvocation,
+  onToolEvent,
   budget,
   onDelta,
   onThinking,
+  tools = TOOLS,
+  signal,
+  callModelFn = callModel,
+  runToolFn = runTool,
   mock = false,
 }) {
   // Ink/sink mode: when onDelta is provided, stream text to the UI and NEVER draw to
@@ -985,9 +2175,13 @@ async function agentLoop({
   const today = new Date().toISOString().slice(0, 10);
   const sys =
     system +
-    AGENT_GUIDE +
-    `\n\n# 时间锚点\n今天是 ${today}。你的训练知识可能截止得更早——所以**日期/模型/事件比你印象中新，并不代表它是假的**，很可能就是真实的近期信息。判断真假要看**来源是否可信**（官方域名、HTTP 200 的正文就是可信来源），而不是"日期超出我的认知就当成虚构/污染"。该存疑时标 [需核实]、尽量交叉验证，但别把真实的最新信息误判成假的。`;
+    buildAgentGuide(tools) +
+    `\n\n# 时间锚点\n今天是 ${today}。你的训练知识可能截止得更早——所以**日期/模型/事件比你印象中新，并不代表它是假的**，很可能就是真实的近期信息。HTTP 200 只证明页面可读取，不证明内容可信或域名官方；官方性只能依据任务显式声明的官方域名，关键结论仍需检查来源质量并尽量交叉验证。不要仅因日期超出认知就判成虚构；该存疑时标 [需核实]。`;
   let renderCount = 0; // browser_render is capped per task (Step 3 safety)
+  // Per-agentLoop means per chat turn / formal task. Employee capability limits must reset for
+  // the next task, while every logical invocation in this turn (including refused confirmations)
+  // consumes one slot so a model cannot approval-spam around the bound.
+  const toolCallCounts = new Map();
   // Step 5 — Budget Guard: stop flailing (cost / repeated empty search / JS shells).
   let spentPrompt = 0,
     spentCompletion = 0,
@@ -996,6 +2190,11 @@ async function agentLoop({
     costOkd = false;
 
   for (let step = 0; step < 8; step++) {
+    if (signal?.aborted) {
+      const cancelled = new Error("generation cancelled");
+      cancelled.code = "CREW_GENERATION_CANCELLED";
+      throw cancelled;
+    }
     if (!quiet) process.stdout.write("\n");
     let fi = 0;
     const spin =
@@ -1020,14 +2219,14 @@ async function agentLoop({
     let streamed = "";
     let res;
     try {
-      res = await callModel({
+      res = await callModelFn({
         baseUrl,
         apiKey,
         model,
         temperature,
         system: sys,
         messages,
-        tools: TOOLS,
+        tools,
         stream: true,
         onDelta: d => {
           streamed += d;
@@ -1041,6 +2240,7 @@ async function agentLoop({
         onThinking: t => {
           if (quiet) onThinking?.(t);
         },
+        signal,
         mock,
       });
     } catch (error) {
@@ -1070,32 +2270,111 @@ async function agentLoop({
 
     const { content, toolCalls } = res;
     if (toolCalls && toolCalls.length) {
+      const calls = toolCalls.map(tc => ({
+        ...tc,
+        id: tc.id || `call-${randomUUID()}`,
+      }));
       messages.push({
         role: "assistant",
         content: content || "",
-        tool_calls: toolCalls,
+        tool_calls: calls,
       });
       if (!quiet) process.stdout.write("\n");
-      for (const tc of toolCalls) {
+      for (const tc of calls) {
+        if (signal?.aborted) {
+          const cancelled = new Error("generation cancelled");
+          cancelled.code = "CREW_GENERATION_CANCELLED";
+          throw cancelled;
+        }
+        const callId = tc.id;
         let args = {};
+        let argsError = null;
         try {
           args = JSON.parse(tc.function.arguments || "{}");
-        } catch {}
+        } catch (error) {
+          argsError = error;
+        }
         const toolName = tc.function.name;
+        const toolBase = {
+          id: callId,
+          toolName,
+          args,
+          rawArguments: tc.function.arguments || "{}",
+        };
+        onToolEvent?.({
+          ...toolBase,
+          phase: "requested",
+          action: summarizeAction({
+            tool: toolName,
+            args,
+            status: "requested",
+          }),
+        });
         const t0 = Date.now();
         // Permission Gateway (PRD §13): the model declares, one gateway decides, runTool enforces
         // that exact decision. A missing injected gateway falls back to the same fail-closed policy;
         // there is never a second shell allow-list that can downgrade `confirm` to auto-run.
-        const decision = (gateway || makeGateway({ root })).check(
-          toolName,
-          args
-        );
+        let decision = argsError
+          ? {
+              decision: "deny",
+              level: "L4",
+              scope: "invalid_arguments",
+              reason: `工具参数不是有效 JSON：${argsError.message}`,
+              decision_source: "input_validation",
+            }
+          : (gateway || makeGateway({ root })).check(toolName, args);
+        if (decision.decision !== "deny") {
+          const maxCalls = Number(decision.limits?.max_calls_per_task);
+          if (Number.isSafeInteger(maxCalls) && maxCalls > 0) {
+            // Shared runtime functions (for example web_fetch) can resolve to
+            // separate capabilities. Count against the selected capability, not
+            // the broad function name, so a denied/limited extract alias cannot
+            // consume or evade the plain-fetch allowance.
+            const quotaKey = decision.capability || toolName;
+            const used = toolCallCounts.get(quotaKey) || 0;
+            if (used >= maxCalls) {
+              decision = {
+                ...decision,
+                decision: "deny",
+                reason: `${decision.capability || toolName} 已达到本任务最多 ${maxCalls} 次调用上限`,
+                decision_source: "employee_limit",
+                limit: { max_calls_per_task: maxCalls, used },
+              };
+            } else {
+              toolCallCounts.set(quotaKey, used + 1);
+            }
+          }
+        }
         let result;
+        let executionError = null;
+        let lifecycleTerminalEmitted = false;
+        let forcedBlocked = false;
         if (decision.decision === "deny") {
           result = `（该动作未授权：${decision.reason}）`;
+          onToolEvent?.({
+            ...toolBase,
+            phase: "blocked",
+            decision,
+            code: argsError
+              ? "invalid_tool_arguments"
+              : decision.decision_source === "employee_limit"
+                ? "tool_call_limit_exceeded"
+                : "permission_denied",
+            detail: result,
+          });
+          lifecycleTerminalEmitted = true;
         } else if (toolName === "browser_render" && ++renderCount > 2) {
+          forcedBlocked = true;
           result =
             "（本任务已渲染 2 次，达上限——继续渲染需用户确认，避免浏览器乱点烧钱。）";
+          onToolEvent?.({
+            ...toolBase,
+            phase: "blocked",
+            decision,
+            code: "browser_render_limit",
+            detail: result,
+          });
+          lifecycleTerminalEmitted = true;
         } else {
           // confirm (L2+): surface a human-readable permission request before the
           // y/n prompt that runTool itself raises. (PRD §13.2 — "讲人话".)
@@ -1115,29 +2394,65 @@ async function agentLoop({
                 "\n"
             );
           }
-          result = await runTool(toolName, args, {
-            confirm,
-            quiet,
-            permission: decision,
-            root,
+          onToolEvent?.({
+            ...toolBase,
+            phase: "running",
+            decision,
           });
+          try {
+            const timeoutMs = Number(decision.limits?.timeout_ms);
+            result = await runToolWithDeadline(
+              toolSignal =>
+                runToolFn(toolName, args, {
+                  confirm,
+                  quiet,
+                  permission: decision,
+                  root,
+                  signal: toolSignal,
+                }),
+              {
+                signal,
+                timeoutMs,
+              }
+            );
+          } catch (error) {
+            executionError = error;
+            result = `（工具执行失败：${error?.message || error}）`;
+          }
         }
         const elapsedMs = Date.now() - t0;
+        const cancelled =
+          !!signal?.aborted &&
+          ![
+            "process_tree_termination_failed",
+            "tool_termination_timeout",
+          ].includes(executionError?.code);
         // a denied/refused/skipped call shows as "not confirmed" in the tool line
         const skipped =
           decision.decision === "deny" ||
-          /^（(用户拒绝|该命令需要人工确认|用户取消|非交互|该动作未授权|不要抓取|疑似)/.test(
+          forcedBlocked ||
+          /^（(用户拒绝|该命令需要人工确认|test_run 需要人工确认|用户取消|非交互|该动作未授权|不要抓取|疑似)/.test(
             result
           );
         const invocation = auditRecord({
           toolName,
+          capability: decision.capability,
+          capabilities: decision.capabilities,
           args,
           decision: decision.decision,
+          decisionSource: decision.decision_source,
           level: decision.level,
           startedAt: t0,
           endedAt: t0 + elapsedMs,
-          status: skipped ? "blocked" : "success",
+          status: cancelled
+            ? "cancelled"
+            : executionError
+              ? "error"
+              : skipped
+                ? "blocked"
+                : "success",
           output: result,
+          error: executionError,
         });
         invocation.action = summarizeAction({
           tool: toolName,
@@ -1145,7 +2460,52 @@ async function agentLoop({
           status: invocation.status,
           decision: invocation.decision,
         });
+        invocation.call_id = callId;
+        invocation.args = args;
         onInvocation?.(invocation);
+        if (cancelled && !lifecycleTerminalEmitted) {
+          onToolEvent?.({
+            ...toolBase,
+            phase: "cancelled",
+            decision,
+            code: "generation_cancelled",
+            detail: "工具所在生成已取消",
+          });
+          lifecycleTerminalEmitted = true;
+        } else if (executionError && !lifecycleTerminalEmitted) {
+          onToolEvent?.({
+            ...toolBase,
+            phase: "failed",
+            decision,
+            code: executionError.code || "tool_execution_failed",
+            detail: result,
+            error: executionError.message || String(executionError),
+          });
+          lifecycleTerminalEmitted = true;
+        } else if (!skipped && !lifecycleTerminalEmitted) {
+          onToolEvent?.({
+            ...toolBase,
+            phase: "succeeded",
+            decision,
+            summary: invocation.action,
+            detail: result,
+          });
+          lifecycleTerminalEmitted = true;
+        } else if (
+          !lifecycleTerminalEmitted &&
+          decision.decision !== "deny" &&
+          !(toolName === "browser_render" && renderCount > 2)
+        ) {
+          onToolEvent?.({
+            ...toolBase,
+            phase: "blocked",
+            decision,
+            code: "authorization_not_granted",
+            summary: invocation.action,
+            detail: result,
+          });
+          lifecycleTerminalEmitted = true;
+        }
         if (toolName === "web_search" && /无搜索结果|没搜到/.test(result))
           searchEmpty++;
         if (
@@ -1170,7 +2530,12 @@ async function agentLoop({
               ) +
               "\n"
           );
-        messages.push({ role: "tool", tool_call_id: tc.id, content: result });
+        messages.push({ role: "tool", tool_call_id: callId, content: result });
+        if (cancelled) {
+          const error = new Error("generation cancelled");
+          error.code = "CREW_GENERATION_CANCELLED";
+          throw error;
+        }
       }
       if (budget) {
         const { cost } = estimateCost({
@@ -1249,6 +2614,7 @@ async function interactiveChat({
     title,
     avatar,
     dreamPolicy,
+    toolResolution,
   } = profile;
   let name = displayName || titleizeId(agentId);
   let currentAgentId = agentId;
@@ -1282,7 +2648,7 @@ async function interactiveChat({
         system,
         name,
         isTTY: false,
-        gateway: makeGateway({ root: WORKSPACE_ROOT }),
+        ...employeeAgentLoopDeps({ toolResolution }, WORKSPACE_ROOT),
         root: WORKSPACE_ROOT,
         confirm: async () => true,
         mock,
@@ -1296,6 +2662,14 @@ async function interactiveChat({
         agentId: currentAgentId,
         avatar: avatar || [],
         dreamPolicy,
+        toolCatalog: toolResolution.sessionCatalog,
+        canonicalToolCatalog: TOOL_CATALOG.capabilities,
+        toolCatalogVersion: TOOL_CATALOG.version,
+        toolBlocking: toolResolution.blocking,
+        toolDegraded: toolResolution.degraded,
+        toolSurface: toolResolution.surface,
+        toolGrantSource: toolResolution.grantSource,
+        toolGrantWarning: toolResolution.grantWarning,
       },
       history: rHistory,
       saveSession: () => saveSession(WORKSPACE_ROOT, currentAgentId, rHistory),
@@ -1358,9 +2732,10 @@ async function interactiveChat({
         system,
         name,
         isTTY: true,
-        gateway: makeGateway({ root: WORKSPACE_ROOT }),
+        ...employeeAgentLoopDeps({ toolResolution }, WORKSPACE_ROOT),
         root: WORKSPACE_ROOT,
-        confirm: async () => true, // v1: auto-approve L2 confirms (gateway still denies L3/L4); Ink confirm modal = follow-up
+        // Ink 尚无授权 modal：任何 confirm 决策都必须 fail closed，绝不静默代用户批准。
+        confirm: denyUnavailableApproval,
         mock,
       },
       history: inkHistory,
@@ -1427,7 +2802,9 @@ async function interactiveChat({
         agentId: currentAgentId,
         name,
         model,
-        tools: TOOLS.map(t => t.function?.name).filter(Boolean),
+        tools: (toolResolution.visibleTools || [])
+          .map(t => t.function?.name)
+          .filter(Boolean),
         root: WORKSPACE_ROOT,
         color: colorOn,
       });
@@ -1439,8 +2816,26 @@ async function interactiveChat({
       }
       if (action?.type === "switch") {
         try {
-          const np = await loadProfile(action.agent);
-          ({ model, temperature, system, skills, displayName, title } = np);
+          const np = await loadProfile(action.agent, {
+            workspaceRoot: WORKSPACE_ROOT,
+            env: process.env,
+            surface: "chat",
+          });
+          const candidatePreflight = requiredToolPreflight(np.toolResolution);
+          if (!candidatePreflight.ok) {
+            throw new Error(candidatePreflight.reason);
+          }
+          // Commit only after the candidate profile and its required tools have both passed. A
+          // failed switch keeps the current employee, tool policy, and conversation untouched.
+          ({
+            model,
+            temperature,
+            system,
+            skills,
+            displayName,
+            title,
+            toolResolution,
+          } = np);
           name = displayName || titleizeId(action.agent);
           currentAgentId = action.agent;
           history.length = 0;
@@ -1560,7 +2955,7 @@ async function interactiveChat({
         isTTY,
         renderMd: isTTY || process.env.CREW_MD === "1",
         confirm,
-        gateway: makeGateway({ root: WORKSPACE_ROOT }),
+        ...employeeAgentLoopDeps({ toolResolution }, WORKSPACE_ROOT),
         root: WORKSPACE_ROOT,
         onUsage: u => {
           if (!u) return;
@@ -2930,6 +4325,7 @@ async function runTaskMode({
     title,
     runtime,
     dreamPolicy,
+    toolResolution,
   } = profile;
   const name = displayName || titleizeId(agentId);
   const taskArtifacts = new Map();
@@ -2944,7 +4340,20 @@ async function runTaskMode({
         resolveArtifact: id => taskArtifacts.get(id),
       })
     : null;
-  taskSink?.sessionReady({ name, role: title, mode: "Task", model });
+  taskSink?.emitRaw("session.ready", {
+    employee: { name, role: title, mode: "Task", model },
+    tool_catalog: {
+      version: TOOL_CATALOG.version,
+      capabilities: TOOL_CATALOG.capabilities,
+      resolution: toolResolution.sessionCatalog,
+      declarations: toolResolution.sessionCatalog,
+      blocking: toolResolution.blocking,
+      degraded: toolResolution.degraded,
+      surface: toolResolution.surface,
+      grant_source: toolResolution.grantSource,
+      grant_warning: toolResolution.grantWarning,
+    },
+  });
   const tasks = Array.isArray(runtime?.demo_tasks) ? runtime.demo_tasks : [];
   const demo = tasks.find(t => t && t.id === taskId);
   if (!demo) {
@@ -2974,6 +4383,9 @@ async function runTaskMode({
     process.exit(1);
   }
   const taskText = demo.input?.task_text || demo.title || taskId;
+  const officialDomains = normalizeOfficialDomains(
+    demo.research_hints?.official_domains
+  );
   const required = Array.isArray(demo.output_schema?.required_sections)
     ? demo.output_schema.required_sections
     : [];
@@ -3007,9 +4419,69 @@ async function runTaskMode({
 
   const run = newTaskRun({ employeeId: agentId, goal: taskText });
   run.requested_task_id = taskId;
-  const gateway = makeGateway({ root: WORKSPACE_ROOT });
+  run.degraded = toolResolution.degraded.length > 0;
+  if (run.degraded) {
+    addEvent(run, {
+      type: "tool_preflight_degraded",
+      summary: toolResolution.degraded
+        .map(item => `${item.capability}: ${item.reason}`)
+        .join("；"),
+      status: "degraded",
+    });
+  }
+  const { gateway, tools: employeeTools } = employeeAgentLoopDeps(
+    { toolResolution },
+    WORKSPACE_ROOT
+  );
 
   taskSink?.taskStarted({ id: run.id, title: demo.title || taskText });
+  for (const capability of toolResolution.resolved.filter(
+    item => item.necessity === "required"
+  )) {
+    taskSink?.toolPreflightChecked({
+      id: `capability:${capability.capability}`,
+      tool: capability.runtime_tool || capability.capability,
+      status: capability.availability,
+      ok: capability.availability === "ready",
+      label: capability.capability,
+      reason: capability.reason,
+    });
+  }
+  const toolPreflight = requiredToolPreflight(toolResolution);
+  if (!toolPreflight.ok) {
+    const reason = toolPreflight.reason;
+    addEvent(run, {
+      type: "tool_preflight_blocked",
+      summary: reason,
+      status: "blocked",
+    });
+    transition(run, "failed");
+    saveTaskRun(WORKSPACE_ROOT, run);
+    if (taskSink) {
+      taskSink.emitRaw("task.blocked", {
+        id: run.id,
+        taskRunId: run.id,
+        status: toolPreflight.code,
+        reason,
+        blocking: toolPreflight.blocking,
+      });
+      actionReader?.close(toolPreflight.code);
+    } else {
+      console.error(`Error: ${reason}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+  for (const capability of toolResolution.degraded) {
+    taskSink?.toolPreflightChecked({
+      id: `capability:${capability.capability}`,
+      tool: capability.capability,
+      status: "degraded",
+      ok: true,
+      label: capability.capability,
+      reason: capability.reason,
+    });
+  }
   if (!taskSink) {
     console.log(statusHeader({ name, role: title, status: "working", model }));
     console.log(GUTTER + `\x1b[2m▸ ${demo.title || taskId}\x1b[0m\n`);
@@ -3023,7 +4495,7 @@ async function runTaskMode({
     const queries = generateQueries({
       entity: h.entity,
       aliases: h.aliases,
-      officialDomains: h.official_domains,
+      officialDomains,
       productIds: h.product_ids,
     });
     run.plan = {
@@ -3060,7 +4532,11 @@ async function runTaskMode({
   // Step 1 — Search Provider Preflight (Preflight Doctor, Search Harness v1): a
   // research employee must have a verifiable search link. No provider → don't start
   // formally; let the user configure, or degrade to "知识库初判"(NOT counted effective).
-  let degradeNote = "";
+  let degradeNote = toolResolution.degraded.length
+    ? `\n\n# 工具降级\n以下条件能力当前不可用，禁止声称已调用，改用现有证据或明确标注缺口：\n${toolResolution.degraded
+        .map(item => `- ${item.capability}: ${item.reason}`)
+        .join("\n")}`
+    : "";
   if (demo.research_hints && pickBackend().name === "ddg") {
     taskSink?.toolPreflightChecked({
       id: "web_search",
@@ -3098,7 +4574,7 @@ async function runTaskMode({
           "\x1b[2m   → 降级运行：仅基于已有知识，关键数字标 [需核实]。\x1b[0m\n"
       );
     }
-    degradeNote =
+    degradeNote +=
       "\n\n# 重要：本次没有可靠联网检索（无 Search Provider，web_search 大概率返回空），任务已降级为「仅凭已有知识的初步判断」。不要靠反复 web_fetch 猜 URL 或抓搜索引擎结果页硬凑——既烧钱又拿不到结果。请：①开头说明本次为降级初判、需用户配置 TAVILY_API_KEY（免费）才能做可靠调研；②按交付物结构（含 来源/置信度/建议）给初步结论，关键数字一律标 [需核实]，置信度标「低」；③最多试 1–2 个官方 URL 后即收尾。";
   }
 
@@ -3123,6 +4599,7 @@ async function runTaskMode({
         isTTY: !!process.stdout.isTTY,
         renderMd: !!process.stdout.isTTY || process.env.CREW_MD === "1",
         gateway,
+        tools: employeeTools,
         root: WORKSPACE_ROOT,
         onInvocation: rec => {
           run.tool_invocations.push(rec);
@@ -3416,11 +4893,9 @@ async function runTaskMode({
     addEvidence(
       WORKSPACE_ROOT,
       run.id,
-      newEvidenceCard({
-        field: "来源",
-        value: src,
-        sourceUrl: src,
-        confidence: run.degraded ? "low" : "high",
+      createTaskEvidenceCard(src, {
+        officialDomains,
+        degraded: run.degraded,
       })
     );
   }
@@ -3677,8 +5152,19 @@ async function main() {
   }
 
   let profile;
+  const surface = flags.task
+    ? "task"
+    : flags.json
+      ? "json"
+      : !baseTask && !flags.input
+        ? "chat"
+        : "run";
   try {
-    profile = await loadProfile(agentId);
+    profile = await loadProfile(agentId, {
+      workspaceRoot: WORKSPACE_ROOT,
+      env: process.env,
+      surface,
+    });
   } catch (error) {
     console.error(`Error: ${error.message}`);
     process.exit(1);
@@ -3695,6 +5181,28 @@ async function main() {
       taskId: flags.task,
       mock: flags.mock,
     });
+    return;
+  }
+
+  // `on_unavailable` is executable policy: fail/ask_user blocks, while degrade remains visible
+  // in the frozen session truth and prompt. Never silently downgrade a required capability here.
+  const preflight = requiredToolPreflight(profile.toolResolution);
+  if (!preflight.ok) {
+    if (flags.json) {
+      process.stdout.write(
+        `${JSON.stringify({
+          agent: agentId,
+          error: preflight.reason,
+          code: preflight.code,
+          surface,
+          blocking: preflight.blocking,
+          degraded: preflight.degraded,
+        })}\n`
+      );
+    } else {
+      console.error(`Error: ${preflight.reason}`);
+    }
+    process.exitCode = 1;
     return;
   }
 
@@ -3729,28 +5237,47 @@ async function main() {
     process.exit(2);
   }
 
-  const { model, temperature, system, skills, displayName } = profile;
+  const { model, temperature, system, skills, displayName, toolResolution } =
+    profile;
   const name = displayName || titleizeId(agentId);
   const started = Date.now();
 
   if (flags.json) {
-    // Machine-readable: used by `crew standup` to fan out in parallel.
+    // Machine-readable, but still the real employee runtime: quiet agentLoop preserves filtered
+    // tools, per-call policy, limits, and gateway audit semantics without polluting stdout.
     try {
-      const { content, usage } = await callModel({
+      let promptTokens = 0;
+      let completionTokens = 0;
+      const content = await agentLoop({
         baseUrl,
         apiKey,
         model,
         temperature,
         system,
         messages: [{ role: "user", content: task }],
-        stream: false,
+        name,
+        isTTY: false,
+        renderMd: false,
+        ...employeeAgentLoopDeps({ toolResolution }, WORKSPACE_ROOT),
+        root: WORKSPACE_ROOT,
+        confirm: denyUnavailableApproval,
+        onDelta() {},
+        onUsage(usage) {
+          promptTokens += usage?.prompt_tokens || 0;
+          completionTokens += usage?.completion_tokens || 0;
+        },
         mock: flags.mock,
       });
       process.stdout.write(
         JSON.stringify({
           agent: agentId,
           content,
-          usage,
+          usage: {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+          },
+          surface,
+          tool_degraded: profile.toolResolution?.degraded || [],
           elapsed_ms: Date.now() - started,
         }) + "\n"
       );
@@ -3780,7 +5307,7 @@ async function main() {
       name,
       isTTY: !!process.stdout.isTTY,
       renderMd: !!process.stdout.isTTY || process.env.CREW_MD === "1",
-      gateway: makeGateway({ root: WORKSPACE_ROOT }),
+      ...employeeAgentLoopDeps({ toolResolution }, WORKSPACE_ROOT),
       root: WORKSPACE_ROOT,
       mock: flags.mock,
     });
@@ -3790,7 +5317,30 @@ async function main() {
   }
 }
 
-main().catch(error => {
-  console.error(`Error: ${error?.message ?? error}`);
-  process.exit(1);
-});
+const isMainModule =
+  !!process.argv[1] &&
+  resolve(process.argv[1]).toLowerCase() ===
+    fileURLToPath(import.meta.url).toLowerCase();
+
+if (isMainModule) {
+  main().catch(error => {
+    console.error(`Error: ${error?.message ?? error}`);
+    process.exit(1);
+  });
+}
+
+export {
+  TOOL_CATALOG,
+  TOOLS,
+  agentLoop,
+  callModel,
+  createTaskEvidenceCard,
+  denyUnavailableApproval,
+  employeeAgentLoopDeps,
+  loadDotEnv,
+  loadProfile,
+  normalizeOfficialDomains,
+  requiredToolPreflight,
+  runStructuredProcess,
+  runTool,
+};

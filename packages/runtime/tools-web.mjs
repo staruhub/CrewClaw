@@ -42,9 +42,13 @@ async function httpRequest(
     timeoutMs = 12000,
     maxBytes,
     resolveTarget,
+    signal,
   } = {}
 ) {
   const controller = new AbortController();
+  const cancelFromCaller = () => controller.abort(signal?.reason);
+  if (signal?.aborted) cancelFromCaller();
+  else signal?.addEventListener("abort", cancelFromCaller, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await requestPublicText(url, {
@@ -63,6 +67,7 @@ async function httpRequest(
     };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", cancelFromCaller);
   }
 }
 
@@ -83,6 +88,7 @@ async function braveSearch(q, opts = {}) {
       headers: { "X-Subscription-Token": key, Accept: "application/json" },
       resolveTarget: opts.resolveTarget,
       maxBytes: opts.maxBytes,
+      signal: opts.signal,
     }
   );
   if (!ok) return [];
@@ -108,6 +114,7 @@ async function serperSearch(q, opts = {}) {
     body: JSON.stringify({ q, num: opts.count || 5 }),
     resolveTarget: opts.resolveTarget,
     maxBytes: opts.maxBytes,
+    signal: opts.signal,
   });
   if (!ok) return [];
   let data;
@@ -145,6 +152,7 @@ async function ddgSearch(q, opts = {}) {
       headers: { Accept: "text/html" },
       resolveTarget: opts.resolveTarget,
       maxBytes: opts.maxBytes,
+      signal: opts.signal,
     }
   );
   if (!ok) return [];
@@ -192,6 +200,7 @@ async function tavilySearch(q, opts = {}) {
     body: JSON.stringify(body),
     resolveTarget: opts.resolveTarget,
     maxBytes: opts.maxBytes,
+    signal: opts.signal,
   });
   if (!ok) return [];
   let data;
@@ -215,6 +224,24 @@ export function pickBackend(env = process.env) {
   if (env.SERPER_API_KEY) return { name: "serper", fn: serperSearch };
   if (env.BRAVE_API_KEY) return { name: "brave", fn: braveSearch };
   return { name: "ddg", fn: ddgSearch };
+}
+
+export function searchProviderHealth(env = process.env) {
+  const backend = pickBackend(env);
+  if (backend.name === "ddg") {
+    return {
+      ready: false,
+      provider: backend.name,
+      code: "missing_key",
+      reason: "仅有 DDG keyless fallback，不能作为可验证的正式 Search Provider",
+    };
+  }
+  return {
+    ready: true,
+    provider: backend.name,
+    code: "ready",
+    reason: `${backend.name} Search Provider 已配置`,
+  };
 }
 
 // Dedupe by normalized host+path so the same page from different query params
@@ -268,7 +295,8 @@ export async function webSearch(query, opts = {}) {
   let results = [];
   try {
     results = await backend.fn(q, opts);
-  } catch {
+  } catch (error) {
+    if (opts.signal?.aborted) throw error;
     results = [];
   }
   results = dedupe(results).slice(0, opts.count || 5);

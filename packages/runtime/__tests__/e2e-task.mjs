@@ -52,8 +52,11 @@ async function run() {
             id: "b1",
             type: "function",
             function: {
-              name: "bash",
-              arguments: JSON.stringify({ command: "ls" }),
+              name: "web_fetch",
+              arguments: JSON.stringify({
+                url: "http://127.0.0.1/private",
+                extract: "Seed 2.1 pricing",
+              }),
             },
           },
         ],
@@ -170,8 +173,8 @@ async function run() {
     );
     assert.match(
       plain,
-      /正在执行命令/,
-      "the bash call should render as a human action line"
+      /抓取网页|web_fetch/,
+      "the role-allowed web tool should render as a human action line"
     );
 
     console.log(

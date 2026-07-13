@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEmployeePackage } from "../employee-package.mjs";
@@ -8,6 +10,7 @@ import {
   packageDoctor,
   runtimeDoctor,
 } from "../doctor.mjs";
+import { loadDotEnv } from "../run.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..", "..", "..");
@@ -40,6 +43,30 @@ function statusRank(status) {
 const loaded = loadEmployeePackage(whalePackagePath);
 assert.equal(loaded.ok, true, loaded.errors?.join("\n"));
 const whale = loaded.package;
+const TOOL_SCHEMAS = ["web_search", "web_fetch", "browser_render"].map(
+  name => ({ function: { name } })
+);
+const doctorOpts = { toolSchemas: TOOL_SCHEMAS };
+
+{
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "crewclaw-doctor-dotenv-"));
+  try {
+    writeFileSync(
+      join(workspaceRoot, ".env.local"),
+      "TAVILY_API_KEY=workspace-doctor-key\nIGNORED=from-dotenv\n"
+    );
+    const env = { IGNORED: "explicit-env" };
+    await loadDotEnv({ workspaceRoot, env });
+    assert.equal(
+      env.TAVILY_API_KEY,
+      "workspace-doctor-key",
+      "doctor can load the same workspace .env.local used by run"
+    );
+    assert.equal(env.IGNORED, "explicit-env", "dotenv never overrides env");
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+}
 
 {
   const result = packageDoctor(whale);
@@ -63,7 +90,7 @@ const whale = loaded.package;
 }
 
 {
-  const result = onboardingDoctor(whale, {});
+  const result = onboardingDoctor(whale, {}, doctorOpts);
   assertDoctorShape(result);
   assert.ok(["warning", "broken"].includes(result.status));
   assert.ok(
@@ -79,8 +106,12 @@ const whale = loaded.package;
 }
 
 {
-  const emptyEnvResult = onboardingDoctor(whale, {});
-  const tavilyResult = onboardingDoctor(whale, { TAVILY_API_KEY: "test-key" });
+  const emptyEnvResult = onboardingDoctor(whale, {}, doctorOpts);
+  const tavilyResult = onboardingDoctor(
+    whale,
+    { TAVILY_API_KEY: "test-key" },
+    doctorOpts
+  );
   assertDoctorShape(tavilyResult);
   assert.ok(
     statusRank(tavilyResult.status) > statusRank(emptyEnvResult.status)
@@ -89,6 +120,44 @@ const whale = loaded.package;
     tavilyResult.checks.some(
       check => check.name === "tool.web.search" && check.ok
     )
+  );
+}
+
+{
+  const noRuntimeSchemas = onboardingDoctor(
+    whale,
+    { TAVILY_API_KEY: "test-key" },
+    { toolSchemas: [] }
+  );
+  assert.equal(noRuntimeSchemas.status, "broken");
+  assert.ok(
+    noRuntimeSchemas.checks.some(
+      check =>
+        check.name === "tool.web.search" &&
+        !check.ok &&
+        /未注册 web_search/.test(check.detail)
+    ),
+    "a configured provider must not bypass an unavailable employee runtime tool"
+  );
+}
+
+{
+  const drifted = onboardingDoctor(
+    {
+      ...whale,
+      tool_needs: {
+        "web.extract": {
+          necessity: "required",
+          permission: "readonly",
+        },
+      },
+    },
+    { TAVILY_API_KEY: "test-key" },
+    doctorOpts
+  );
+  assert.equal(drifted.status, "broken");
+  assert.ok(
+    drifted.checks.some(check => check.name === "tool.web.extract" && !check.ok)
   );
 }
 

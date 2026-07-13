@@ -49,13 +49,35 @@ try {
   assert.equal(verifySourceType("https://github.com/a/b"), "community");
   assert.equal(
     verifySourceType("https://www.volcengine.com/product/ark"),
+    "unknown",
+    "an arbitrary public URL is not promoted to official without employee/task context"
+  );
+  assert.equal(
+    verifySourceType("https://www.volcengine.com/product/ark", {
+      officialDomains: ["volcengine.com"],
+    }),
     "official"
+  );
+  assert.equal(
+    verifySourceType("https://docs.volcengine.com/ark", {
+      officialDomains: ["https://volcengine.com"],
+    }),
+    "official",
+    "an explicitly declared official domain wins over a generic docs heuristic"
+  );
+  assert.equal(
+    verifySourceType("https://evilvolcengine.com/product/ark", {
+      officialDomains: ["volcengine.com"],
+    }),
+    "unknown",
+    "official-domain matching is hostname-boundary safe"
   );
 
   const card = newEvidenceCard({
     field: "provider",
     value: "Volcengine Ark",
     sourceUrl: "https://www.volcengine.com/product/ark",
+    officialDomains: ["volcengine.com"],
     confidence: "high",
   });
   assert.equal(card.field, "provider");

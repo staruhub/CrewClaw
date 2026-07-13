@@ -3,6 +3,8 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use serde::Deserialize;
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct EmployeeManifest {
     pub api_version: String,
@@ -42,6 +44,80 @@ pub(crate) struct ManifestRequires {
 pub(crate) struct ManifestExamples {
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EmployeeToolNecessity {
+    Required,
+    Conditional,
+    NonDefault,
+    Disabled,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EmployeeToolPermission {
+    Readonly,
+    Write,
+    RequiresAuthorization,
+    Disabled,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EmployeeToolApproval {
+    Never,
+    WhenNeeded,
+    Always,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EmployeeToolUnavailablePolicy {
+    Fail,
+    Degrade,
+    AskUser,
+    Skip,
+}
+
+// Only limits which the Node executor actually enforces are accepted.  Keeping
+// a declarative-but-unimplemented host/path/byte limit would make a manifest
+// look safer than the runtime really is, so serde rejects those fields.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EmployeeToolLimits {
+    pub max_calls_per_task: Option<u32>,
+    pub timeout_ms: Option<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EmployeeToolNeed {
+    pub necessity: EmployeeToolNecessity,
+    pub permission: EmployeeToolPermission,
+    pub description: String,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    pub approval: Option<EmployeeToolApproval>,
+    pub purpose: Option<String>,
+    pub limits: Option<EmployeeToolLimits>,
+    pub on_unavailable: Option<EmployeeToolUnavailablePolicy>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmployeeToolNeedsDocument {
+    tool_needs: BTreeMap<String, EmployeeToolNeed>,
+}
+
+#[derive(Deserialize)]
+struct ToolCatalogDocument {
+    capabilities: Vec<ToolCatalogEntry>,
+}
+
+#[derive(Deserialize)]
+struct ToolCatalogEntry {
+    id: String,
 }
 
 impl EmployeeManifest {
@@ -404,6 +480,149 @@ pub(crate) fn read_manifest(
     Ok(parse_manifest(&content))
 }
 
+/// Read the canonical runtime capability declarations used by `crew hire --grant-capability`.
+///
+/// The CLI deliberately does not infer capability grants from the legacy `hire.yaml.permissions`
+/// namespace. Only an exact `tool_needs.<capability>` entry can be opted into, and the caller still
+/// has to enforce its necessity/permission policy before persisting it.
+pub(crate) fn read_employee_tool_needs(
+    root: &Path,
+    expert_name: &str,
+    local_source: &str,
+) -> Result<BTreeMap<String, EmployeeToolNeed>, String> {
+    let source = resolve_local_source(root, expert_name, local_source)?;
+    let path = source.join("crewclaw.employee.yaml");
+    let content = read_manifest_content(&source, &path)?;
+    let needs = parse_employee_tool_needs(&content)?;
+    validate_tool_needs_against_catalog(root, &needs)?;
+    Ok(needs)
+}
+
+fn validate_tool_needs_against_catalog(
+    root: &Path,
+    needs: &BTreeMap<String, EmployeeToolNeed>,
+) -> Result<(), String> {
+    let path = root.join("contracts/tool-catalog.json");
+    let content = fs::read_to_string(&path).map_err(|error| {
+        format!(
+            "Failed to read canonical ToolCatalog {}: {error}",
+            path.display()
+        )
+    })?;
+    let catalog: ToolCatalogDocument = serde_json::from_str(&content)
+        .map_err(|error| format!("Invalid canonical ToolCatalog {}: {error}", path.display()))?;
+    let ids = catalog
+        .capabilities
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<std::collections::BTreeSet<_>>();
+    for capability in needs.keys() {
+        if !ids.contains(capability) {
+            return Err(format!(
+                "Unknown tool_needs capability in canonical ToolCatalog: {capability}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn valid_capability_id(value: &str) -> bool {
+    let mut segments = value.split('.');
+    let mut count = 0usize;
+    for segment in &mut segments {
+        count += 1;
+        let mut bytes = segment.bytes();
+        let Some(first) = bytes.next() else {
+            return false;
+        };
+        if !first.is_ascii_lowercase()
+            || !bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        {
+            return false;
+        }
+    }
+    count >= 2
+}
+
+fn parse_employee_tool_needs(content: &str) -> Result<BTreeMap<String, EmployeeToolNeed>, String> {
+    let document: EmployeeToolNeedsDocument = serde_saphyr::from_str(content)
+        .map_err(|error| format!("Invalid crewclaw.employee.yaml tool_needs: {error}"))?;
+    let needs = document.tool_needs;
+    if needs.is_empty() {
+        return Err("crewclaw.employee.yaml has no tool_needs declarations".to_string());
+    }
+    for (capability, need) in &needs {
+        if !valid_capability_id(capability) {
+            return Err(format!(
+                "Invalid tool_needs capability id in crewclaw.employee.yaml: {capability}"
+            ));
+        }
+        if (need.necessity == EmployeeToolNecessity::Disabled)
+            != (need.permission == EmployeeToolPermission::Disabled)
+        {
+            return Err(format!(
+                "Disabled tool_needs necessity/permission mismatch for {capability}"
+            ));
+        }
+        if need.description.trim().is_empty() {
+            return Err(format!(
+                "tool_needs description must be non-empty for {capability}"
+            ));
+        }
+        if need.scopes.iter().any(|scope| scope.trim().is_empty()) {
+            return Err(format!(
+                "tool_needs scopes must not contain empty values for {capability}"
+            ));
+        }
+        if need
+            .purpose
+            .as_ref()
+            .is_some_and(|purpose| purpose.trim().is_empty())
+        {
+            return Err(format!(
+                "tool_needs purpose must be non-empty when present for {capability}"
+            ));
+        }
+        if need.permission == EmployeeToolPermission::RequiresAuthorization
+            && need.approval == Some(EmployeeToolApproval::Never)
+        {
+            return Err(format!(
+                "requires_authorization cannot use approval=never for {capability}"
+            ));
+        }
+        if need.necessity == EmployeeToolNecessity::Required
+            && need.on_unavailable == Some(EmployeeToolUnavailablePolicy::Skip)
+        {
+            return Err(format!(
+                "required capability cannot use on_unavailable=skip for {capability}"
+            ));
+        }
+        if need.necessity == EmployeeToolNecessity::NonDefault
+            && need.permission != EmployeeToolPermission::RequiresAuthorization
+        {
+            return Err(format!(
+                "non_default capability must retain per-call requires_authorization for {capability}"
+            ));
+        }
+        if let Some(limits) = &need.limits {
+            if limits.max_calls_per_task == Some(0) {
+                return Err(format!(
+                    "max_calls_per_task must be positive for {capability}"
+                ));
+            }
+            if limits
+                .timeout_ms
+                .is_some_and(|timeout| timeout == 0 || timeout > 300_000)
+            {
+                return Err(format!(
+                    "timeout_ms must be between 1 and 300000 for {capability}"
+                ));
+            }
+        }
+    }
+    Ok(needs)
+}
+
 fn parse_manifest(content: &str) -> EmployeeManifest {
     let mut manifest = EmployeeManifest::default();
     let mut section = String::new();
@@ -626,6 +845,79 @@ lifecycle:
         assert_eq!(manifest.requires.env, vec!["HERMES_MODEL"]);
         assert_eq!(manifest.examples.inputs, vec!["Find an event."]);
         assert!(manifest.missing_required_fields().is_empty());
+    }
+
+    #[test]
+    fn canonical_tool_needs_parser_matches_yaml_quoted_and_flow_forms() {
+        let block = parse_employee_tool_needs(
+            r#"
+tool_needs:
+  "contacts.read":
+    necessity: non_default
+    permission: requires_authorization
+    description: Contacts
+"#,
+        )
+        .expect("quoted block mapping");
+        let flow = parse_employee_tool_needs(
+            r#"tool_needs: {"contacts.read": {necessity: non_default, permission: requires_authorization, description: Contacts}}"#,
+        )
+        .expect("flow mapping");
+        assert_eq!(block, flow);
+        assert_eq!(
+            block["contacts.read"].necessity,
+            EmployeeToolNecessity::NonDefault
+        );
+        assert!(
+            parse_employee_tool_needs(
+                "tool_needs: {\"contacts.read\": {necessity: sometimes, permission: readonly}}"
+            )
+            .is_err(),
+            "necessity is a closed enum"
+        );
+        assert!(
+            parse_employee_tool_needs(
+                "tool_needs: {\"contacts.read\": {necessity: non_default, permission: requires_authorization, description: Contacts, limits: {allowed_hosts: [example.com]}}}"
+            )
+            .is_err(),
+            "unimplemented limits fail closed instead of becoming decorative policy"
+        );
+        assert!(
+            parse_employee_tool_needs(
+                "tool_needs: {\"contacts.read\": {necessity: non_default, permission: requires_authorization, description: Contacts, approvel: always}}"
+            )
+            .is_err(),
+            "unknown tool_need fields fail closed"
+        );
+        assert!(
+            parse_employee_tool_needs(
+                "tool_needs: {\"contacts.read\": {necessity: non_default, permission: readonly, description: Contacts}}"
+            )
+            .is_err(),
+            "non_default remains per-call authorized across Rust and Zod"
+        );
+    }
+
+    #[test]
+    fn rejects_tool_needs_not_in_canonical_catalog_before_hire() {
+        let root = unique_test_root("tool-catalog-membership");
+        let source = root.join("experts/catalog-test");
+        fs::create_dir_all(&source).expect("expert source");
+        fs::create_dir_all(root.join("contracts")).expect("catalog directory");
+        fs::write(
+            root.join("contracts/tool-catalog.json"),
+            r#"{"capabilities":[{"id":"files.read"}]}"#,
+        )
+        .expect("catalog");
+        fs::write(
+            source.join("crewclaw.employee.yaml"),
+            "tool_needs:\n  evil.foo:\n    necessity: required\n    permission: readonly\n    description: should fail\n",
+        )
+        .expect("employee spec");
+        let error = read_employee_tool_needs(&root, "catalog-test", "experts/catalog-test")
+            .expect_err("unknown capability must fail before a team grant is persisted");
+        assert!(error.contains("Unknown tool_needs capability"), "{error}");
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

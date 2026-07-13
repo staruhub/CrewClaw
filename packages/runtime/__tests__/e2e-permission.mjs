@@ -1,11 +1,12 @@
 // Proof that an L2 (confirm) tool surfaces a human-readable permission request
 // before acting — the gateway "讲人话" path. (PRD v0.3 §13.2.) The model attempts a
-// write_file; the runtime should print the permission copy, then (non-interactive)
-// decline to write.
+// test_run; the runtime should print the permission copy, then (non-interactive)
+// decline to execute it. The employee contract explicitly disables arbitrary writes.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { startMockModel } from "./mock-model.mjs";
 import {
   createRuntimeTestRoot,
@@ -26,8 +27,8 @@ async function run() {
             id: "w1",
             type: "function",
             function: {
-              name: "write_file",
-              arguments: JSON.stringify({ path: "note.txt", content: "hi" }),
+              name: "test_run",
+              arguments: JSON.stringify({ script: "test" }),
             },
           },
         ],
@@ -38,11 +39,22 @@ async function run() {
 
   const { url, close } = await startMockModel(scenario);
   const root = createRuntimeTestRoot("crew-e2e-permission-");
+  mkdirSync(join(root, ".crewclaw"), { recursive: true });
+  writeFileSync(
+    join(root, ".crewclaw", "team.json"),
+    JSON.stringify([
+      {
+        employee_id: "code-review-shrimp",
+        status: "active",
+        permissions_granted: ["capability:test.run"],
+      },
+    ])
+  );
 
   try {
     const child = spawn(
       process.execPath,
-      [RUNTIME_ENTRY, "ai-adoption-whale", "帮我把 hi 写进 note.txt"],
+      [RUNTIME_ENTRY, "code-review-shrimp", "请运行仓库测试"],
       {
         cwd: REPO_ROOT,
         env: {
@@ -78,7 +90,7 @@ async function run() {
     const plain = stripAnsi(stdout);
     assert.match(
       plain,
-      /想使用 write_file/,
+      /想使用 test_run/,
       "should announce the tool in human terms"
     );
     assert.match(

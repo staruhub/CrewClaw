@@ -230,6 +230,9 @@ async function makeCliFixtureRoot() {
     cp(join(repoRoot, "experts"), join(root, "experts"), {
       recursive: true,
     }),
+    cp(join(repoRoot, "contracts"), join(root, "contracts"), {
+      recursive: true,
+    }),
   ]);
   return root;
 }

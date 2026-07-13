@@ -1,0 +1,148 @@
+{
+  "$id": "https://crewclaw.dev/schema/tool-catalog.schema.json",
+  "title": "CrewClaw Executable Tool Catalog",
+  "description": "Canonical capability registry used by employee contracts, runtime tool resolution, and validator policy checks.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "crewclaw.tool-catalog/v1"
+    },
+    "catalog_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "capabilities": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "invocation": {
+            "type": "string",
+            "enum": [
+              "model",
+              "engine",
+              "adapter"
+            ]
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write",
+              "send",
+              "execute"
+            ]
+          },
+          "risk_tier": {
+            "type": "string",
+            "enum": [
+              "P0",
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          },
+          "runtime_tool": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_bindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "tools": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "provider",
+                "tools"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "side_effects": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "supports_preview": {
+            "type": "boolean"
+          },
+          "idempotent": {
+            "type": "boolean"
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 300000
+          },
+          "error_codes": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]+$"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "invocation",
+          "operation",
+          "risk_tier",
+          "runtime_tool",
+          "provider_bindings",
+          "side_effects",
+          "supports_preview",
+          "idempotent",
+          "timeout_ms",
+          "error_codes"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "catalog_version",
+    "capabilities"
+  ],
+  "additionalProperties": false
+}

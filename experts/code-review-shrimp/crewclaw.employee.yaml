@@ -57,26 +57,50 @@ tool_needs:
     necessity: required
     permission: readonly
     description: 读取被改动文件和邻近调用点。
-  git.diff:
+    scopes:
+      - workspace
+    on_unavailable: fail
+  repo.diff.read:
     necessity: required
     permission: readonly
     description: 获取评审目标相对基线的改动。
+    on_unavailable: fail
+  repo.search:
+    necessity: required
+    permission: readonly
+    description: 搜索定义、引用和邻近调用点。
+    on_unavailable: fail
+  repo.status.read:
+    necessity: required
+    permission: readonly
+    description: 确认评审基线和工作树状态。
+    on_unavailable: fail
   artifact.report:
     necessity: required
     permission: write
     description: 生成评审报告和摘要。
-  shell.run:
+    on_unavailable: fail
+  test.run:
     necessity: conditional
     permission: requires_authorization
-    description: 经授权跑测试或只读检查命令，不做破坏性操作。
-  notify:
+    description: 经授权运行仓库定义的测试，不接受任意命令。
+    approval: always
+    limits:
+      max_calls_per_task: 3
+      timeout_ms: 120000
+    on_unavailable: ask_user
+  shell.run:
     necessity: disabled
     permission: disabled
-    description: 评审员工不外发消息。
-  email:
+    description: 禁止任意 shell；测试只能走 test.run。
+  files.write:
     necessity: disabled
     permission: disabled
-    description: 评审员工不外发邮件。
+    description: 评审员工不改代码，只写受管 Artifact。
+  repo.push:
+    necessity: disabled
+    permission: disabled
+    description: 不推送分支或提交。
   production.deploy:
     necessity: disabled
     permission: disabled
@@ -92,18 +116,18 @@ permission_policy:
     P4: 禁止外发消息、邮件、合并、部署和改动密钥。
   grants:
     files.read: P0
-    git.diff: P0
+    repo.diff.read: P0
+    repo.search: P0
+    repo.status.read: P0
     artifact.report: P1
-    shell.run: P2
+    test.run: P2
   denied:
-    notify: P4
-    email: P4
+    shell.run: P4
+    files.write: P4
+    repo.push: P4
     production.deploy: P4
-    secrets.write: P4
   human_authorization_required:
-    - shell.run
-    - merge.approve
-    - file.delete
+    - test.run
 
 playbooks:
   - id: pr_review

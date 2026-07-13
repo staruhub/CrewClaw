@@ -9,7 +9,7 @@ import {
   ShieldCheck,
   Undo2,
 } from "lucide-react";
-import { PermissionLevel } from "@/components/employee/PermissionLevel";
+import { ToolCapabilityList } from "@/components/employee/ToolCapabilityList";
 import {
   PricingBadge,
   PricingBulletList,
@@ -29,11 +29,16 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { getEmployee } from "@/data/employees";
+import {
+  getEmployee,
+  isToolCapabilityEnabledByDefault,
+  isToolCapabilitySelectable,
+  toolCapabilitiesForHire,
+  type EmployeeToolCapability,
+} from "@/data/employees";
 import { track } from "@/hooks/use-analytics";
 import { useTeam } from "@/hooks/use-team";
 
@@ -127,6 +132,93 @@ function defaultPlanForPricing(pricing: string): CheckoutPlanId {
   return pricingTone(pricing) === "Pro" ? "pro" : "free";
 }
 
+const TOOL_RISK_RANK: Record<EmployeeToolCapability["risk_tier"], number> = {
+  P0: 0,
+  P1: 1,
+  P2: 2,
+  P3: 3,
+  P4: 4,
+};
+
+const TOOL_OPERATION_COPY: Record<EmployeeToolCapability["operation"], string> =
+  {
+    read: "read access",
+    write: "task-scoped writes",
+    send: "external sends",
+    execute: "bounded execution",
+  };
+
+const listFormatter = new Intl.ListFormat("en", {
+  style: "long",
+  type: "conjunction",
+});
+
+function summarizeToolContract(
+  capabilities: EmployeeToolCapability[],
+  selectedCapabilityIds: string[],
+  roleBoundary?: string
+) {
+  const granted = new Set(
+    toolCapabilitiesForHire(capabilities, selectedCapabilityIds)
+  );
+  const selected = capabilities.filter(capability =>
+    granted.has(capability.capability)
+  );
+  const requiredCount = selected.filter(
+    capability => capability.necessity === "required"
+  ).length;
+  const scopedCount = selected.filter(
+    capability => capability.scopes.length > 0
+  ).length;
+  const optionalOffCount = capabilities.filter(
+    capability =>
+      capability.necessity === "non_default" &&
+      !granted.has(capability.capability)
+  ).length;
+  const conditionalOffCount = capabilities.filter(
+    capability =>
+      capability.necessity === "conditional" &&
+      !granted.has(capability.capability)
+  ).length;
+  const operations = [
+    ...new Set(selected.map(capability => capability.operation)),
+  ].map(operation => TOOL_OPERATION_COPY[operation]);
+  const authorizationCount = selected.filter(
+    capability => capability.permission === "requires_authorization"
+  ).length;
+  const adapterCount = selected.filter(
+    capability => capability.availability === "adapter_required"
+  ).length;
+  const disabledCount = capabilities.filter(
+    capability => capability.necessity === "disabled"
+  ).length;
+  const highestRisk = selected.reduce<EmployeeToolCapability["risk_tier"]>(
+    (highest, capability) =>
+      TOOL_RISK_RANK[capability.risk_tier] > TOOL_RISK_RANK[highest]
+        ? capability.risk_tier
+        : highest,
+    "P0"
+  );
+  const sideEffects = [
+    ...new Set(selected.flatMap(capability => capability.side_effects)),
+  ];
+
+  const offCopy = [
+    optionalOffCount > 0
+      ? `${optionalOffCount} optional ${optionalOffCount === 1 ? "capability remains" : "capabilities remain"} off`
+      : null,
+    conditionalOffCount > 0
+      ? `${conditionalOffCount} conditional ${conditionalOffCount === 1 ? "capability is" : "capabilities are"} off`
+      : null,
+  ].filter((value): value is string => value !== null);
+
+  return {
+    access: `Current selection enables ${selected.length} declared ${selected.length === 1 ? "capability" : "capabilities"} (${requiredCount} required). ${scopedCount > 0 ? `${scopedCount} ${scopedCount === 1 ? "capability has" : "capabilities have"} an explicit data scope.` : "Access stays within each capability's declared task scope."}${offCopy.length > 0 ? ` ${listFormatter.format(offCopy)}.` : ""}`,
+    actions: `The selected contract permits ${listFormatter.format(operations)}. ${authorizationCount > 0 ? `${authorizationCount} ${authorizationCount === 1 ? "capability pauses" : "capabilities pause"} for human authorization.` : "No selected capability requires call-time human authorization."} ${adapterCount > 0 ? `${adapterCount} ${adapterCount === 1 ? "capability depends" : "capabilities depend"} on a configured provider adapter.` : "No selected capability depends on a provider adapter."}`,
+    risk: `Highest enabled risk tier: ${highestRisk}. ${sideEffects.length > 0 ? sideEffects[0] : "Selected capabilities declare no external side effects."}${sideEffects.length > 1 ? ` ${sideEffects.length - 1} additional declared ${sideEffects.length === 2 ? "side effect is" : "side effects are"} detailed below.` : ""} ${disabledCount} policy-disabled ${disabledCount === 1 ? "capability remains" : "capabilities remain"} unavailable.${roleBoundary ? ` Role boundary: ${roleBoundary}` : ""}`,
+  };
+}
+
 function NotFound() {
   return (
     <main className="min-h-screen bg-crew-bg px-4 py-10 text-crew-heading sm:px-6">
@@ -149,64 +241,28 @@ function NotFound() {
   );
 }
 
-function PermissionCard({
-  summary,
-  checked,
-  onToggle,
-}: {
-  summary: PermissionSummary;
-  checked: boolean;
-  onToggle: () => void;
-}) {
+function LegacyPermissionContext({ summary }: { summary: PermissionSummary }) {
   return (
-    <label
-      className={cn(
-        "block cursor-pointer rounded-[8px] border p-4 transition",
-        checked
-          ? "border-crew-copper/45 bg-crew-copper/10"
-          : "border-white/10 bg-white/[0.025] hover:border-white/20"
-      )}
-    >
-      <div className="flex items-start gap-3">
-        <Checkbox
-          checked={checked}
-          className="mt-1 border-white/25 data-[state=checked]:border-crew-copper data-[state=checked]:bg-crew-copper"
-          onCheckedChange={onToggle}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium text-crew-heading">
-              {summary.label}
-            </span>
-            {!summary.enabledByDefault ? (
-              <Badge
-                className="border-white/10 bg-white/[0.04] text-crew-muted"
-                variant="outline"
-              >
-                Not default
-              </Badge>
-            ) : null}
-          </div>
-          <div className="mt-3">
-            <PermissionLevel permission={summary.permission} />
-          </div>
-          <dl className="mt-4 grid gap-3 text-sm leading-6 text-crew-body md:grid-cols-2">
-            <div>
-              <dt className="text-crew-muted">It wants to access</dt>
-              <dd>{summary.access}</dd>
-            </div>
-            <div>
-              <dt className="text-crew-muted">Confirmation point</dt>
-              <dd>{summary.confirmation}</dd>
-            </div>
-            <div className="md:col-span-2">
-              <dt className="text-crew-muted">Risk</dt>
-              <dd>{summary.risk}</dd>
-            </div>
-          </dl>
-        </div>
+    <article className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="break-all font-mono text-sm text-crew-heading">
+          {summary.permission}
+        </code>
+        <Badge
+          className="border-white/10 bg-white/[0.04] text-crew-muted"
+          variant="outline"
+        >
+          Legacy context
+        </Badge>
       </div>
-    </label>
+      <p className="mt-3 text-sm leading-6 text-crew-body">
+        {summary.label}: {summary.access}
+      </p>
+      <p className="mt-2 text-xs leading-5 text-crew-muted">
+        Declared by legacy package metadata for context only. It cannot grant a
+        runtime capability and cannot be changed here.
+      </p>
+    </article>
   );
 }
 
@@ -218,14 +274,16 @@ export default function HireConfirm() {
     () => employee?.permissions.map(summarizePermission) ?? [],
     [employee]
   );
-  const defaultPermissions = useMemo(
+  const defaultToolCapabilities = useMemo(
     () =>
-      permissionSummaries
-        .filter(summary => summary.enabledByDefault)
-        .map(summary => summary.permission),
-    [permissionSummaries]
+      employee?.tool_capabilities
+        .filter(isToolCapabilityEnabledByDefault)
+        .map(capability => capability.capability) ?? [],
+    [employee]
   );
-  const [permissions, setPermissions] = useState<string[]>(defaultPermissions);
+  const [toolCapabilities, setToolCapabilities] = useState<string[]>(
+    defaultToolCapabilities
+  );
   const [selectedPlan, setSelectedPlan] = useState<CheckoutPlanId>(
     employee ? defaultPlanForPricing(employee.pricing) : "free"
   );
@@ -238,7 +296,7 @@ export default function HireConfirm() {
   const [prevEmployeeId, setPrevEmployeeId] = useState(employee?.employee_id);
   if (employee?.employee_id !== prevEmployeeId) {
     setPrevEmployeeId(employee?.employee_id);
-    setPermissions(defaultPermissions);
+    setToolCapabilities(defaultToolCapabilities);
     setSelectedPlan(
       employee ? defaultPlanForPricing(employee.pricing) : "free"
     );
@@ -253,7 +311,8 @@ export default function HireConfirm() {
     track("permission_viewed", {
       employee_id: employee.employee_id,
       employee_name: employee.name,
-      permission_count: employee.permissions.length,
+      legacy_context_count: employee.permissions.length,
+      tool_capability_count: employee.tool_capabilities.length,
     });
   }, [employee]);
 
@@ -262,12 +321,21 @@ export default function HireConfirm() {
   const alreadyHired = team.isHired(employee.employee_id);
   const selectedCheckoutPlan =
     CHECKOUT_PLANS.find(plan => plan.id === selectedPlan) ?? CHECKOUT_PLANS[0];
+  const toolContractOverview = summarizeToolContract(
+    employee.tool_capabilities,
+    toolCapabilities,
+    employee.safety_notes[0] ?? employee.limitations[0]
+  );
 
-  const togglePermission = (permission: string) => {
-    setPermissions(current =>
-      current.includes(permission)
-        ? current.filter(item => item !== permission)
-        : [...current, permission]
+  const toggleToolCapability = (capabilityId: string) => {
+    const capability = employee.tool_capabilities.find(
+      candidate => candidate.capability === capabilityId
+    );
+    if (!capability || !isToolCapabilitySelectable(capability)) return;
+    setToolCapabilities(current =>
+      current.includes(capabilityId)
+        ? current.filter(item => item !== capabilityId)
+        : [...current, capabilityId]
     );
   };
 
@@ -284,7 +352,7 @@ export default function HireConfirm() {
           <p className="mt-4 text-base leading-7 text-crew-body">
             {employee.name} is active in your team with the{" "}
             {selectedCheckoutPlan.name}
-            package and the permissions you confirmed.
+            package and the capabilities you authorized.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Button
@@ -328,12 +396,13 @@ export default function HireConfirm() {
               Hire Confirmation
             </Badge>
             <h1 className="mt-5 text-4xl font-light leading-tight md:text-5xl">
-              Confirm permissions before hiring {employee.name}
+              Review capabilities before hiring {employee.name}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
               This employee can join your local demo team after you choose a
-              package, confirm the simulated checkout, and review what it can
-              access. No real payment is processed in this prototype.
+              package, confirm the simulated checkout, and authorize the
+              declared capabilities. No real payment is processed in this
+              prototype.
             </p>
 
             {alreadyHired ? (
@@ -367,8 +436,8 @@ export default function HireConfirm() {
               <div className="flex gap-3">
                 <KeyRound className="mt-1 size-4 shrink-0 text-crew-copper" />
                 <p>
-                  Keep optional or disabled permissions off until a task needs
-                  them.
+                  Optional capabilities stay off until you enable them.
+                  Policy-disabled capabilities can never be selected.
                 </p>
               </div>
             </CardContent>
@@ -409,7 +478,7 @@ export default function HireConfirm() {
               {CHECKOUT_PLANS.map(plan => (
                 <label
                   className={cn(
-                    "block cursor-pointer rounded-[8px] border p-4 transition",
+                    "block cursor-pointer rounded-[8px] border p-4 transition-colors",
                     selectedPlan === plan.id
                       ? "border-crew-copper/45 bg-crew-copper/10"
                       : "border-white/10 bg-white/[0.025] hover:border-white/20"
@@ -511,31 +580,37 @@ export default function HireConfirm() {
         <section className="mt-8 grid gap-5 md:grid-cols-3">
           <Card className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <CardContent className="pt-6">
-              <ShieldCheck className="size-5 text-crew-copper" />
+              <ShieldCheck
+                aria-hidden="true"
+                className="size-5 text-crew-copper"
+              />
               <h2 className="mt-4 text-sm font-semibold">It wants to access</h2>
               <p className="mt-2 text-sm leading-6 text-crew-body">
-                Public web sources by default. Private contact or CRM access
-                remains off unless explicitly enabled.
+                {toolContractOverview.access}
               </p>
             </CardContent>
           </Card>
           <Card className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <CardContent className="pt-6">
-              <CircleAlert className="size-5 text-crew-copper" />
+              <CircleAlert
+                aria-hidden="true"
+                className="size-5 text-crew-copper"
+              />
               <h2 className="mt-4 text-sm font-semibold">It can do</h2>
               <p className="mt-2 text-sm leading-6 text-crew-body">
-                Read research sources and draft recommendations. Sending or
-                external writes require human review.
+                {toolContractOverview.actions}
               </p>
             </CardContent>
           </Card>
           <Card className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <CardContent className="pt-6">
-              <AlertTriangle className="size-5 text-crew-copper" />
+              <AlertTriangle
+                aria-hidden="true"
+                className="size-5 text-crew-copper"
+              />
               <h2 className="mt-4 text-sm font-semibold">Main risk</h2>
               <p className="mt-2 text-sm leading-6 text-crew-body">
-                Sources may be stale and outreach drafts can be wrong. Review
-                names, facts, and messages before acting.
+                {toolContractOverview.risk}
               </p>
             </CardContent>
           </Card>
@@ -544,15 +619,41 @@ export default function HireConfirm() {
         <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
             <CardTitle className="text-base font-semibold">
-              Permissions requested
+              Tool capabilities
             </CardTitle>
+            <p className="text-sm leading-6 text-crew-body">
+              Required capabilities are locked on. Conditional capabilities are
+              enabled for relevant tasks and can be turned off. Optional
+              capabilities require an explicit opt-in; policy-disabled ones stay
+              unavailable.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <ToolCapabilityList
+              capabilities={employee.tool_capabilities}
+              enabledCapabilities={toolCapabilities}
+              onToggle={capability =>
+                toggleToolCapability(capability.capability)
+              }
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="mt-5 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
+          <CardHeader>
+            <CardTitle className="text-base font-semibold">
+              Declared legacy context
+            </CardTitle>
+            <p className="text-sm leading-6 text-crew-body">
+              These hire.yaml declarations are read-only context, not runtime
+              authorization. Only the capability selections above create formal
+              capability tokens for this employee.
+            </p>
           </CardHeader>
           <CardContent className="space-y-4">
             {permissionSummaries.map(summary => (
-              <PermissionCard
-                checked={permissions.includes(summary.permission)}
+              <LegacyPermissionContext
                 key={summary.permission}
-                onToggle={() => togglePermission(summary.permission)}
                 summary={summary}
               />
             ))}
@@ -593,21 +694,31 @@ export default function HireConfirm() {
             className="rounded-[8px] bg-crew-copper px-6 text-white hover:bg-crew-bronze"
             disabled={alreadyHired || !mockCheckoutConfirmed}
             onClick={() => {
+              const grantedToolCapabilities = toolCapabilitiesForHire(
+                employee.tool_capabilities,
+                toolCapabilities
+              );
               track("hire_confirmed", {
                 employee_id: employee.employee_id,
                 employee_name: employee.name,
-                permission_count: permissions.length,
-                permissions,
+                tool_capability_count: grantedToolCapabilities.length,
+                tool_capabilities: grantedToolCapabilities,
+                legacy_context_count: employee.permissions.length,
                 checkout_plan: selectedPlan,
                 simulated_checkout: true,
               });
-              const result = team.hire(employee.employee_id, permissions);
+              const result = team.hire(
+                employee.employee_id,
+                grantedToolCapabilities.map(
+                  capability => `capability:${capability}`
+                )
+              );
               setResultMessage(result.message);
               track(result.ok ? "hire_succeeded" : "hire_failed", {
                 employee_id: employee.employee_id,
                 employee_name: employee.name,
                 message: result.message,
-                permission_count: permissions.length,
+                tool_capability_count: grantedToolCapabilities.length,
                 checkout_plan: selectedPlan,
                 simulated_checkout: true,
               });

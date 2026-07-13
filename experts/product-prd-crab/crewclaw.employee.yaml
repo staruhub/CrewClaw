@@ -54,23 +54,38 @@ deliverables:
     name: 指标与埋点建议
 
 tool_needs:
-  files.read:
+  document.read:
     necessity: required
     permission: readonly
     description: 读取 PRD 文档和相关材料。
+    scopes:
+      - user_provided_documents
+    on_unavailable: fail
   artifact.report:
     necessity: required
     permission: write
     description: 生成评审报告和拆解文档。
+    on_unavailable: fail
   web.search:
     necessity: conditional
     permission: readonly
     description: 经需要核对公开事实，市场判断仍标注为假设。
-  notify:
+    on_unavailable: degrade
+  web.fetch:
+    necessity: conditional
+    permission: readonly
+    description: 读取用于核对 PRD 声明的公开来源。
+    on_unavailable: degrade
+  source.verify:
+    necessity: conditional
+    permission: readonly
+    description: 区分可核实事实、来源主张和产品假设。
+    on_unavailable: degrade
+  message.send:
     necessity: disabled
     permission: disabled
     description: 评审员工不外发消息。
-  email:
+  email.send:
     necessity: disabled
     permission: disabled
     description: 评审员工不外发邮件。
@@ -88,18 +103,16 @@ permission_policy:
     P3: 保留级别，当前无授予。
     P4: 禁止外发消息、邮件、定价、合规和最终商业决策。
   grants:
-    files.read: P0
+    document.read: P0
     artifact.report: P1
     web.search: P2
+    web.fetch: P2
+    source.verify: P2
   denied:
-    notify: P4
-    email: P4
-    payments: P4
+    message.send: P4
+    email.send: P4
     production.deploy: P4
-  human_authorization_required:
-    - business_decisions
-    - pricing.decision
-    - compliance.signoff
+  human_authorization_required: []
 
 playbooks:
   - id: prd_review

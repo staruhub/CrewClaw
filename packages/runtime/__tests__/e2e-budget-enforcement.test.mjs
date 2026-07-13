@@ -129,9 +129,27 @@ async function bridgeRefusesNewTaskOverBudget() {
   await sleep(150);
   const types = events.map(e => e.type);
 
-  assert.ok(
-    !types.includes("task.started"),
-    "an over-budget new task must NOT start"
+  const lifecycle = types.filter(type =>
+    [
+      "task.started",
+      "generation.started",
+      "token.delta",
+      "assistant.rendered",
+      "generation.completed",
+      "task.blocked",
+    ].includes(type)
+  );
+  assert.deepEqual(
+    lifecycle,
+    [
+      "task.started",
+      "generation.started",
+      "token.delta",
+      "assistant.rendered",
+      "generation.completed",
+      "task.blocked",
+    ],
+    "budget refusal is a complete correlated turn and cannot leave the UI working"
   );
   const warn = events.find(e => e.type === "budget.warning");
   assert.ok(warn, "a budget.warning is emitted on refusal");
@@ -178,7 +196,28 @@ async function bridgeRefusesNewTaskWhenLedgerIsInvalid() {
   input.push("开始新任务\n");
   await sleep(100);
 
-  assert.ok(!events.some(event => event.type === "task.started"));
+  assert.deepEqual(
+    events
+      .map(event => event.type)
+      .filter(type =>
+        [
+          "task.started",
+          "generation.started",
+          "token.delta",
+          "assistant.rendered",
+          "generation.completed",
+          "task.blocked",
+        ].includes(type)
+      ),
+    [
+      "task.started",
+      "generation.started",
+      "token.delta",
+      "assistant.rendered",
+      "generation.completed",
+      "task.blocked",
+    ]
+  );
   const warning = events.find(event => event.type === "budget.warning");
   assert.equal(warning?.data?.reason_code, "budget_state_unavailable");
   assert.ok(

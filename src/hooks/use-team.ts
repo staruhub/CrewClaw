@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DoctorReport, WorkspaceEmployee } from "@contracts/types";
-import { getEmployee } from "@/data/employees";
+import { getEmployee, type Employee } from "@/data/employees";
+import { validateCapabilityGrantTokens } from "@/lib/capability-grants";
 
 const TEAM_STORAGE_KEY = "crewclaw.team.v1";
 const WORKSPACE_ID = "local-demo-workspace";
@@ -32,24 +33,21 @@ function writeStoredTeam(team: WorkspaceEmployee[]) {
 }
 
 function createWorkspaceEmployee(
-  employeeId: string,
-  permissions: string[]
-): WorkspaceEmployee | null {
-  const employee = getEmployee(employeeId);
-  if (!employee) return null;
-
+  employee: Employee,
+  capabilityTokens: string[]
+): WorkspaceEmployee {
   const now = new Date().toISOString();
 
   return {
-    workspace_employee_id: `${WORKSPACE_ID}:${employeeId}`,
+    workspace_employee_id: `${WORKSPACE_ID}:${employee.employee_id}`,
     workspace_id: WORKSPACE_ID,
-    employee_id: employeeId,
+    employee_id: employee.employee_id,
     version: employee.version,
     status: "active",
     hired_by: HIRED_BY,
     hired_at: now,
     fired_at: null,
-    permissions_granted: permissions,
+    permissions_granted: capabilityTokens,
   };
 }
 
@@ -71,7 +69,7 @@ export function useTeam() {
   );
 
   const hire = useCallback(
-    (id: string, permissions: string[]): TeamActionResult => {
+    (id: string, grants: string[]): TeamActionResult => {
       if (isHired(id)) {
         const existing = team.find(
           employee =>
@@ -85,13 +83,31 @@ export function useTeam() {
         };
       }
 
-      const nextEmployee = createWorkspaceEmployee(id, permissions);
-      if (!nextEmployee) {
+      const employee = getEmployee(id);
+      if (!employee) {
         return {
           ok: false,
           message: "This employee is not available in the marketplace.",
         };
       }
+      const validation = validateCapabilityGrantTokens(
+        employee.tool_capabilities,
+        grants
+      );
+      if (
+        validation.invalidCapabilityTokens.length > 0 ||
+        validation.missingRequiredCapabilities.length > 0
+      ) {
+        return {
+          ok: false,
+          message:
+            "This employee's capability authorization is incomplete or invalid.",
+        };
+      }
+      const nextEmployee = createWorkspaceEmployee(
+        employee,
+        validation.capabilityTokens
+      );
 
       setTeam(currentTeam => {
         const existingIndex = currentTeam.findIndex(
@@ -178,24 +194,32 @@ export function useTeam() {
         };
       }
 
-      const missingPermissions = employee.permissions.filter(
-        permission =>
-          !workspaceEmployee.permissions_granted.includes(permission)
+      const validation = validateCapabilityGrantTokens(
+        employee.tool_capabilities,
+        workspaceEmployee.permissions_granted
       );
+      const issues = [
+        ...validation.missingRequiredCapabilities.map(
+          token => `Missing required capability authorization: ${token}`
+        ),
+        ...validation.invalidCapabilityTokens.map(
+          token => `Invalid capability authorization: ${token}`
+        ),
+      ];
 
       return {
         report_id: `doctor:${id}:${checkedAt}`,
         workspace_employee_id: workspaceEmployee.workspace_employee_id,
-        health_status: missingPermissions.length > 0 ? "warning" : "healthy",
+        health_status: issues.length > 0 ? "warning" : "healthy",
         issues:
-          missingPermissions.length > 0
-            ? missingPermissions.map(
-                permission => `Missing permission: ${permission}`
-              )
+          issues.length > 0
+            ? issues
             : ["This employee is healthy and ready to work."],
         suggestions:
-          missingPermissions.length > 0
-            ? ["Review the missing permissions before assigning more tasks."]
+          issues.length > 0
+            ? [
+                "Review the capability authorization before assigning more tasks.",
+              ]
             : ["Start with a demo task or inspect the employee resume."],
         checked_at: checkedAt,
       };

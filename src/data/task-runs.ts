@@ -16,10 +16,17 @@ export type TaskEvent = {
 
 export type ToolInvocation = {
   tool_name: string;
+  capability?: string;
   input_summary: string;
   permission_level: string | null;
+  decision_source?: string;
   decision: "allow" | "confirm" | "deny";
-  status: "success" | "blocked";
+  status: "success" | "blocked" | "error" | "cancelled";
+  /** Runtime audit timestamps are the canonical source for elapsed display. */
+  started_at?: string;
+  ended_at?: string;
+  /** Compatibility field for task runs persisted before audit timestamps existed. */
+  elapsed_ms?: number;
   action?: string;
 };
 
@@ -214,26 +221,38 @@ const SEED_RUN: TaskRun = {
   tool_invocations: [
     {
       tool_name: "web_search",
+      capability: "web.search",
       input_summary: "site:volcengine.com Seed 2.1 定价",
       permission_level: "L0",
       decision: "allow",
+      decision_source: "employee_policy",
       status: "success",
+      started_at: "2026-06-25T09:00:01.100Z",
+      ended_at: "2026-06-25T09:00:01.942Z",
       action: "正在搜索来源：Seed 2.1 定价",
     },
     {
       tool_name: "web_fetch",
+      capability: "web.fetch_extract",
       input_summary: "https://www.volcengine.com/product/ark",
       permission_level: "L0",
       decision: "allow",
+      decision_source: "employee_policy",
       status: "success",
+      started_at: "2026-06-25T09:00:02.100Z",
+      ended_at: "2026-06-25T09:00:03.294Z",
       action: "正在阅读 www.volcengine.com",
     },
     {
       tool_name: "write_crm",
+      capability: "crm.write",
       input_summary: "把联系人写入 CRM",
       permission_level: "L3",
       decision: "deny",
+      decision_source: "employee_policy",
       status: "blocked",
+      started_at: "2026-06-25T09:00:03.350Z",
+      ended_at: "2026-06-25T09:00:03.350Z",
       action: "已拦截越权操作：write_crm",
     },
   ],

@@ -22,7 +22,25 @@ function evidenceFile(root, taskRunId) {
   );
 }
 
-export function verifySourceType(url) {
+function normalizedOfficialDomains(values) {
+  return (Array.isArray(values) ? values : [])
+    .map(value => {
+      const raw = String(value || "")
+        .trim()
+        .toLowerCase();
+      if (!raw) return "";
+      try {
+        return new URL(raw.includes("://") ? raw : `https://${raw}`).hostname
+          .replace(/^\*\./, "")
+          .replace(/^\.+|\.+$/g, "");
+      } catch {
+        return "";
+      }
+    })
+    .filter(Boolean);
+}
+
+export function verifySourceType(url, { officialDomains = [] } = {}) {
   let parsed;
   try {
     parsed = new URL(url);
@@ -45,6 +63,14 @@ export function verifySourceType(url) {
   ) {
     return "search";
   }
+
+  // Officiality is a task-scoped trust assertion, so an explicitly declared official host wins
+  // over generic shape heuristics such as `docs.` or `/documentation`. Search result pages remain
+  // search sources even if somebody mistakenly allowlists the search engine itself.
+  const isDeclaredOfficial = normalizedOfficialDomains(officialDomains).some(
+    domain => host === domain || host.endsWith(`.${domain}`)
+  );
+  if (isDeclaredOfficial) return "official";
 
   if (
     host.includes("docs.") ||
@@ -77,13 +103,14 @@ export function verifySourceType(url) {
     return "news";
   }
 
-  return "official";
+  return "unknown";
 }
 
 export function newEvidenceCard({
   field,
   value,
   sourceUrl,
+  officialDomains,
   confidence,
   snippet,
 } = {}) {
@@ -91,7 +118,7 @@ export function newEvidenceCard({
     field,
     value,
     source_url: sourceUrl,
-    source_type: verifySourceType(sourceUrl),
+    source_type: verifySourceType(sourceUrl, { officialDomains }),
     confidence: confidence ?? "medium",
     snippet: snippet ?? "",
     ts: new Date().toISOString(),

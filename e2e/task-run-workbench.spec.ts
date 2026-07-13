@@ -43,8 +43,24 @@ test("task run workbench exposes artifact-first panels", async ({ page }) => {
   await expect(page.getByText(primaryArtifact.checks[1].label)).toBeVisible();
 
   await expect(page.getByText("工具与权限")).toBeVisible();
-  await expect(page.getByText("web_search").first()).toBeVisible();
-  await expect(page.getByText("success · allow").first()).toBeVisible();
+  const toolAudit = page
+    .getByRole("heading", { name: "工具与权限" })
+    .locator("..");
+  const searchRow = toolAudit.getByRole("row").filter({
+    has: page.getByText("web.search", { exact: true }),
+  });
+  const searchCells = searchRow.getByRole("cell");
+  await expect(searchCells.nth(0)).toContainText("web_search");
+  await expect(searchCells.nth(0)).toContainText("web.search");
+  await expect(searchCells.nth(2)).toContainText("employee policy");
+  await expect(searchCells.nth(2)).toContainText("L0 · allow");
+  await expect(searchCells.nth(3)).toContainText("success");
+  await expect(searchCells.nth(4)).toHaveText("842 ms");
+
+  const fetchRow = toolAudit.getByRole("row").filter({
+    has: page.getByText("web.fetch_extract", { exact: true }),
+  });
+  await expect(fetchRow.getByRole("cell").nth(0)).toContainText("web_fetch");
 
   const inspectPanel = page
     .getByRole("heading", { name: "Debug / JSONL / Audit" })

@@ -1,10 +1,11 @@
 {
-  "$comment": "GENERATED — do not edit. Run `pnpm run web:employees` after changing the registry or any hire.yaml.",
+  "$comment": "GENERATED — do not edit. Run `pnpm run web:employees` after changing the registry, an employee package, or ToolCatalog.",
   "generated_by": "contracts/scripts/generate-web-employees.ts",
   "sources": [
     "registry/experts.json",
     "experts/*/hire.yaml",
-    "experts/*/crewclaw.employee.yaml"
+    "experts/*/crewclaw.employee.yaml",
+    "contracts/tool-catalog.json"
   ],
   "employees": [
     {
@@ -50,6 +51,387 @@
         "terminal",
         "read_file",
         "skills"
+      ],
+      "tool_capabilities": [
+        {
+          "capability": "files.read",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "读取被改动文件和邻近调用点。",
+          "scopes": [
+            "workspace"
+          ],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "read_file",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "read_file"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "repo.diff.read",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "获取评审目标相对基线的改动。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "git_diff",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "git_diff"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 15000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "repo.search",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "搜索定义、引用和邻近调用点。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "search",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "search"
+              ]
+            },
+            {
+              "provider": "mcp.github",
+              "tools": [
+                "search_code",
+                "list_issues",
+                "get_issue",
+                "list_pull_requests",
+                "get_pull_request"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 15000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "repo.status.read",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "确认评审基线和工作树状态。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "git_status",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "git_status"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "artifact.report",
+          "necessity": "required",
+          "permission": "write",
+          "description": "生成评审报告和摘要。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "write",
+          "risk_tier": "P1",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.artifacts",
+              "tools": [
+                "report_write"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Writes a task-scoped deliverable artifact."
+          ],
+          "supports_preview": true,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "test.run",
+          "necessity": "conditional",
+          "permission": "requires_authorization",
+          "description": "经授权运行仓库定义的测试，不接受任意命令。",
+          "scopes": [],
+          "approval": "always",
+          "purpose": null,
+          "limits": {
+            "max_calls_per_task": 3,
+            "timeout_ms": 120000
+          },
+          "on_unavailable": "ask_user",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "execute",
+          "risk_tier": "P2",
+          "runtime_tool": "test_run",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "test_run"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Executes a repository-defined test command in the workspace."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "shell.run",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "禁止任意 shell；测试只能走 test.run。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "execute",
+          "risk_tier": "P3",
+          "runtime_tool": "bash",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "bash"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Executes an arbitrary workspace command."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "files.write",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "评审员工不改代码，只写受管 Artifact。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "write",
+          "risk_tier": "P3",
+          "runtime_tool": "write_file",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "write_file",
+                "edit_file"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Creates or modifies workspace files."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "repo.push",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "不推送分支或提交。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "send",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "git",
+              "tools": [
+                "push"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Publishes commits to a remote repository."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 60000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "production.deploy",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "不部署，合并与部署由人决定。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "execute",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "deployment",
+              "tools": [
+                "deploy"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Changes a deployed production environment."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 300000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        }
       ],
       "permissions": [
         "repo_files:read",
@@ -136,6 +518,297 @@
         "read_file",
         "skills"
       ],
+      "tool_capabilities": [
+        {
+          "capability": "document.read",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "读取 PRD 文档和相关材料。",
+          "scopes": [
+            "user_provided_documents"
+          ],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "read_file",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "read_file"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "artifact.report",
+          "necessity": "required",
+          "permission": "write",
+          "description": "生成评审报告和拆解文档。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "write",
+          "risk_tier": "P1",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.artifacts",
+              "tools": [
+                "report_write"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Writes a task-scoped deliverable artifact."
+          ],
+          "supports_preview": true,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "web.search",
+          "necessity": "conditional",
+          "permission": "readonly",
+          "description": "经需要核对公开事实，市场判断仍标注为假设。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "web_search",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "web_search"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "web.fetch",
+          "necessity": "conditional",
+          "permission": "readonly",
+          "description": "读取用于核对 PRD 声明的公开来源。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "web_fetch",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "web_fetch"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "source.verify",
+          "necessity": "conditional",
+          "permission": "readonly",
+          "description": "区分可核实事实、来源主张和产品假设。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.evidence",
+              "tools": [
+                "source_verify"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 5000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "message.send",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "评审员工不外发消息。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "send",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "messaging",
+              "tools": [
+                "send"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Sends a message to an external recipient."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "email.send",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "评审员工不外发邮件。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "send",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "email",
+              "tools": [
+                "send"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Sends email to an external recipient."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "production.deploy",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "不做部署和上线决策。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "execute",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "deployment",
+              "tools": [
+                "deploy"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Changes a deployed production environment."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 300000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        }
+      ],
       "permissions": [
         "prd_docs:read",
         "code:write:disabled",
@@ -220,6 +893,379 @@
       "tools": [
         "browser",
         "skills"
+      ],
+      "tool_capabilities": [
+        {
+          "capability": "web.search",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "找来源。",
+          "scopes": [
+            "public_web"
+          ],
+          "approval": null,
+          "purpose": "发现与研究问题直接相关的公开来源。",
+          "limits": {
+            "max_calls_per_task": 12
+          },
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "web_search",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "web_search"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "web.fetch_extract",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "按任务抽字段。",
+          "scopes": [
+            "public_web"
+          ],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "web_fetch",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "web_fetch"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "browser.render",
+          "necessity": "conditional",
+          "permission": "requires_authorization",
+          "description": "JS 页面 fallback。",
+          "scopes": [],
+          "approval": "when_needed",
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P2",
+          "runtime_tool": "browser_render",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "browser_render"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Loads active page resources in a sandboxed browser."
+          ],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 45000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "source.verify",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "判断官方、媒体、社区来源。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.evidence",
+              "tools": [
+                "source_verify"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 5000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "evidence.create",
+          "necessity": "required",
+          "permission": "write",
+          "description": "存证据卡。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "write",
+          "risk_tier": "P1",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.evidence",
+              "tools": [
+                "evidence_create"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Writes a task-scoped evidence record."
+          ],
+          "supports_preview": true,
+          "idempotent": true,
+          "timeout_ms": 5000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "artifact.report",
+          "necessity": "required",
+          "permission": "write",
+          "description": "生成报告。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "write",
+          "risk_tier": "P1",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.artifacts",
+              "tools": [
+                "report_write"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Writes a task-scoped deliverable artifact."
+          ],
+          "supports_preview": true,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "shell.run",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "研究员工不执行任意 shell 命令。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "execute",
+          "risk_tier": "P3",
+          "runtime_tool": "bash",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "bash"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Executes an arbitrary workspace command."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "files.write",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "不直接改写工作区文件，只写受管 Artifact。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "write",
+          "risk_tier": "P3",
+          "runtime_tool": "write_file",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "write_file",
+                "edit_file"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Creates or modifies workspace files."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "message.send",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "研究员工不外发消息。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "send",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "messaging",
+              "tools": [
+                "send"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Sends a message to an external recipient."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "email.send",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "研究员工不外发邮件。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "send",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "email",
+              "tools": [
+                "send"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Sends email to an external recipient."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        }
       ],
       "permissions": [
         "public_web:read",
@@ -308,6 +1354,373 @@
         "browser",
         "skills"
       ],
+      "tool_capabilities": [
+        {
+          "capability": "community.context.read",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "读取用户明确提供的社群口径、历史内容和聚合数据。",
+          "scopes": [
+            "user_provided_context"
+          ],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "read_file",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "read_file"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "artifact.report",
+          "necessity": "required",
+          "permission": "write",
+          "description": "生成排期、玩法和 SOP 文档。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "write",
+          "risk_tier": "P1",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.artifacts",
+              "tools": [
+                "report_write"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Writes a task-scoped deliverable artifact."
+          ],
+          "supports_preview": true,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "web.search",
+          "necessity": "conditional",
+          "permission": "readonly",
+          "description": "找内容素材和行业热点。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "web_search",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "web_search"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "web.fetch",
+          "necessity": "conditional",
+          "permission": "readonly",
+          "description": "读取公开素材原文，避免只凭搜索摘要判断。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "web_fetch",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "web_fetch"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "source.verify",
+          "necessity": "conditional",
+          "permission": "readonly",
+          "description": "核实公开素材来源并区分事实与运营假设。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.evidence",
+              "tools": [
+                "source_verify"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 5000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "analytics.aggregate",
+          "necessity": "non_default",
+          "permission": "requires_authorization",
+          "description": "经授权读取去标识化的聚合健康度指标，不读取成员级数据。",
+          "scopes": [
+            "aggregate_only"
+          ],
+          "approval": "always",
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "ask_user",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "read",
+          "risk_tier": "P2",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.analytics",
+              "tools": [
+                "aggregate"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Reads only pre-aggregated, non-member-level metrics."
+          ],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "broadcast.draft",
+          "necessity": "conditional",
+          "permission": "write",
+          "description": "生成待人工确认的群发草稿 Artifact，不执行发送。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "write",
+          "risk_tier": "P1",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.artifacts",
+              "tools": [
+                "broadcast_draft"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Writes a draft artifact; never sends it."
+          ],
+          "supports_preview": true,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "broadcast.send",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "禁止自动群发；只能使用 broadcast.draft。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "send",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "community",
+              "tools": [
+                "broadcast_send"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Sends content to multiple external recipients."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "member_data.write",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "不写入成员数据。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "write",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "community",
+              "tools": [
+                "member_data_write"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Creates or modifies member-level personal data."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "message.send",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "不自动外发通知。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "send",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "messaging",
+              "tools": [
+                "send"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Sends a message to an external recipient."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        }
+      ],
       "permissions": [
         "public_web:read",
         "community_data:read:with_consent",
@@ -393,6 +1806,451 @@
       "tools": [
         "browser",
         "skills"
+      ],
+      "tool_capabilities": [
+        {
+          "capability": "web.search",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "搜索澳门活动、机构和公开人物信息。",
+          "scopes": [
+            "public_web"
+          ],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "web_search",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "web_search"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "web.fetch",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "读取活动页面和机构介绍。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": "web_fetch",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "web_fetch"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "source.verify",
+          "necessity": "required",
+          "permission": "readonly",
+          "description": "核实活动状态、主办方和人物公开身份。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "read",
+          "risk_tier": "P0",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.evidence",
+              "tools": [
+                "source_verify"
+              ]
+            }
+          ],
+          "side_effects": [],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 5000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "evidence.create",
+          "necessity": "required",
+          "permission": "write",
+          "description": "保存可追溯的活动和机构证据卡。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "write",
+          "risk_tier": "P1",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.evidence",
+              "tools": [
+                "evidence_create"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Writes a task-scoped evidence record."
+          ],
+          "supports_preview": true,
+          "idempotent": true,
+          "timeout_ms": 5000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "artifact.report",
+          "necessity": "required",
+          "permission": "write",
+          "description": "生成活动清单、线索图和草稿交付物。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "fail",
+          "capability_version": "1.0.0",
+          "invocation": "engine",
+          "operation": "write",
+          "risk_tier": "P1",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.artifacts",
+              "tools": [
+                "report_write"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Writes a task-scoped deliverable artifact."
+          ],
+          "supports_preview": true,
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_DENIED",
+            "TOOL_INVALID_INPUT",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "engine_service"
+        },
+        {
+          "capability": "browser.render",
+          "necessity": "conditional",
+          "permission": "requires_authorization",
+          "description": "JS 活动页面 fallback。",
+          "scopes": [],
+          "approval": "when_needed",
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "model",
+          "operation": "read",
+          "risk_tier": "P2",
+          "runtime_tool": "browser_render",
+          "provider_bindings": [
+            {
+              "provider": "crewclaw.runtime",
+              "tools": [
+                "browser_render"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Loads active page resources in a sandboxed browser."
+          ],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 45000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "runtime_implementation"
+        },
+        {
+          "capability": "places.search",
+          "necessity": "conditional",
+          "permission": "requires_authorization",
+          "description": "经授权搜索适合会面的澳门公开场所。",
+          "scopes": [],
+          "approval": "always",
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "degrade",
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "read",
+          "risk_tier": "P2",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "places",
+              "tools": [
+                "search"
+              ]
+            }
+          ],
+          "side_effects": [
+            "May send a location query to a configured places provider."
+          ],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "adapter_required"
+        },
+        {
+          "capability": "contacts.read",
+          "necessity": "non_default",
+          "permission": "requires_authorization",
+          "description": "默认关闭；仅在用户显式授权后读取其提供的联系人上下文。",
+          "scopes": [
+            "user_selected_contacts"
+          ],
+          "approval": "always",
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "ask_user",
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "read",
+          "risk_tier": "P3",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "contacts",
+              "tools": [
+                "read"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Reads user-authorized contact data from a configured provider."
+          ],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "adapter_required"
+        },
+        {
+          "capability": "calendar.availability.read",
+          "necessity": "non_default",
+          "permission": "requires_authorization",
+          "description": "默认关闭；仅查询用户授权日历的忙闲，不读取事件正文。",
+          "scopes": [
+            "availability_only"
+          ],
+          "approval": "always",
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": "ask_user",
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "read",
+          "risk_tier": "P3",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "calendar",
+              "tools": [
+                "availability_read"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Reads user-authorized calendar availability from a configured provider."
+          ],
+          "supports_preview": false,
+          "idempotent": true,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "adapter_required"
+        },
+        {
+          "capability": "crm.write",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "不写 CRM，只草拟和推荐。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "write",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "crm",
+              "tools": [
+                "write"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Creates or modifies an external CRM record."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "message.send",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "外发消息必须由人工确认后手动发送。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "send",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "messaging",
+              "tools": [
+                "send"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Sends a message to an external recipient."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        },
+        {
+          "capability": "email.send",
+          "necessity": "disabled",
+          "permission": "disabled",
+          "description": "外发邮件必须由人工确认后手动发送。",
+          "scopes": [],
+          "approval": null,
+          "purpose": null,
+          "limits": null,
+          "on_unavailable": null,
+          "capability_version": "1.0.0",
+          "invocation": "adapter",
+          "operation": "send",
+          "risk_tier": "P4",
+          "runtime_tool": null,
+          "provider_bindings": [
+            {
+              "provider": "email",
+              "tools": [
+                "send"
+              ]
+            }
+          ],
+          "side_effects": [
+            "Sends email to an external recipient."
+          ],
+          "supports_preview": true,
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "error_codes": [
+            "TOOL_UNAVAILABLE",
+            "TOOL_TIMEOUT",
+            "TOOL_DENIED",
+            "TOOL_EXECUTION_FAILED"
+          ],
+          "availability": "policy_disabled"
+        }
       ],
       "permissions": [
         "public_web:read",

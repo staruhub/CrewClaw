@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod doctor;
 mod hire_demo;
 mod manifest;
+mod permissions;
 mod standup;
 mod state_store;
 mod team;
@@ -68,6 +69,14 @@ struct UpdateCandidate {
     employee_id: String,
     current_version: String,
     registry_version: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct HirePermissionPlan {
+    granted: Vec<String>,
+    pending: Vec<String>,
+    disabled: Vec<String>,
+    source_warning: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -258,6 +267,12 @@ fn show_help(root: &Path) {
     println!();
     println!("Options");
     println!("  --name <profile>  Install with a custom Hermes profile name");
+    println!(
+        "  --grant-capability <id>  Explicitly enable one declared conditional or non_default capability (repeatable)"
+    );
+    println!(
+        "  --skip-capability <id>   Explicitly disable one declared conditional capability (repeatable)"
+    );
     println!("  --yes             Skip CrewClaw prompts where safe");
     println!("  --force           Pass --force to Hermes profile install");
     println!("  --run-first       Start the first Hermes chat test after install");
@@ -409,12 +424,25 @@ fn run_hire(
 
     let employees = team::read_team(root)?;
     if let Some(employee) = team::active_employee(&employees, &expert.name) {
+        ensure_active_rehire_version(root, expert, employee)?;
+        // An active employee's capability selection is frozen. Re-hire starts from that
+        // selection and changes it only through an explicit --grant/--skip option.
+        let permission_plan =
+            rehire_permission_plan(root, expert, args, &employee.permissions_granted)?;
+        let workspace_employee_id = employee.workspace_employee_id.clone();
+        // Re-hire is also a security reconciliation point: old team.json files may contain
+        // disabled or confirmation-gated manifest entries as if they were grants.
+        persist_hire(root, expert, &permission_plan)?;
         println!(
             "Already hired: {} is active as {} (AC-HIRE-004).",
-            expert.name, employee.workspace_employee_id
+            expert.name, workspace_employee_id
         );
         return Ok(0);
     }
+
+    // Freeze and validate the complete legacy-scope + canonical-capability plan before Hermes,
+    // ceremony, or team state can change. An invalid grant must have zero installation effects.
+    let permission_plan = hire_permission_plan(root, expert, args)?;
 
     let code = if !has_flag(args, "--live") && hire_demo::has_ceremony(root, &expert.name) {
         hire_demo::run_hire_ceremony(args, root, &expert.name)?
@@ -423,42 +451,248 @@ fn run_hire(
     };
 
     if code == 0 {
-        persist_hire(root, expert)?;
+        persist_hire(root, expert, &permission_plan)?;
         append_activity(root, "hire", &expert.name)?;
     }
     Ok(code)
 }
 
-fn persist_hire(root: &Path, expert: &Expert) -> Result<(), String> {
-    let permissions = expert
+fn ensure_active_rehire_version(
+    root: &Path,
+    expert: &Expert,
+    employee: &team::WorkspaceEmployee,
+) -> Result<(), String> {
+    let local_source = expert
         .local_source
         .as_deref()
-        .and_then(|local_source| manifest::read_manifest(root, &expert.name, local_source).ok())
-        .map(|manifest| manifest.permissions)
-        .unwrap_or_else(|| {
-            expert
-                .requires
-                .env
-                .iter()
-                .map(|name| format!("env:{name}"))
-                .collect()
-        });
+        .ok_or_else(|| "employee has no local manifest source".to_string())?;
+    let manifest = manifest::read_manifest(root, &expert.name, local_source)?;
+    let registry_version = expert.version.as_deref().unwrap_or("unknown");
+    let spec_version = manifest.metadata.version.trim();
+    if employee.version == registry_version
+        && !spec_version.is_empty()
+        && employee.version == spec_version
+    {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Cannot re-hire {} while its active record is version {} but registry/spec policy is {}/{}. Run `crew update {} --apply` before hiring again.",
+        expert.name,
+        employee.version,
+        registry_version,
+        if spec_version.is_empty() {
+            "missing"
+        } else {
+            spec_version
+        },
+        expert.name
+    ))
+}
+
+fn persist_hire(root: &Path, expert: &Expert, plan: &HirePermissionPlan) -> Result<(), String> {
+    let permissions = plan.granted.clone();
     let version = expert.version.as_deref().unwrap_or("unknown");
-    let record = team::mutate_team(root, |employees| {
-        if let Some(existing) = team::active_employee(employees, &expert.name) {
-            return Ok(existing.clone());
+    let (record, created) = team::mutate_team(root, |employees| {
+        if let Some(existing) = team::active_employee_mut(employees, &expert.name) {
+            // Exact replacement makes re-hire idempotent and revokes grants that are no longer
+            // safe-by-default. Never union with the legacy list: that would preserve escalation.
+            existing.permissions_granted = permissions.clone();
+            return Ok((existing.clone(), false));
         }
-        Ok(team::add_active_employee(
-            employees,
-            &expert.name,
-            version,
-            permissions,
+        Ok((
+            team::add_active_employee(employees, &expert.name, version, permissions),
+            true,
         ))
     })?;
-    println!("Your new AI employee has joined the crew.");
+    if created {
+        println!("Your new AI employee has joined the crew.");
+    } else {
+        println!("Existing employee permissions reconciled (fail-closed).");
+    }
     println!("Team state: {}", team::team_path(root).display());
     println!("workspace_employee_id: {}", record.workspace_employee_id);
+    println!(
+        "Permissions granted by default: {}",
+        display_permission_list(&plan.granted)
+    );
+    if !plan.pending.is_empty() {
+        println!(
+            "Permissions pending review (not granted): {}",
+            plan.pending.join(", ")
+        );
+    }
+    if !plan.disabled.is_empty() {
+        println!(
+            "Permissions disabled by policy (not granted): {}",
+            plan.disabled.join(", ")
+        );
+    }
+    if let Some(warning) = plan.source_warning.as_ref() {
+        println!("Permission manifest warning: {warning}; granted none by default.");
+    }
     Ok(())
+}
+
+fn hire_permission_plan(
+    root: &Path,
+    expert: &Expert,
+    args: &[String],
+) -> Result<HirePermissionPlan, String> {
+    hire_permission_plan_from_selection(root, expert, args, None)
+}
+
+fn rehire_permission_plan(
+    root: &Path,
+    expert: &Expert,
+    args: &[String],
+    existing_permissions: &[String],
+) -> Result<HirePermissionPlan, String> {
+    hire_permission_plan_from_selection(root, expert, args, Some(existing_permissions))
+}
+
+fn hire_permission_plan_from_selection(
+    root: &Path,
+    expert: &Expert,
+    args: &[String],
+    existing_permissions: Option<&[String]>,
+) -> Result<HirePermissionPlan, String> {
+    let local_source = expert
+        .local_source
+        .as_deref()
+        .ok_or_else(|| "employee has no local manifest source".to_string())?;
+    let legacy = manifest::read_manifest(root, &expert.name, local_source)?;
+    let tool_needs = manifest::read_employee_tool_needs(root, &expert.name, local_source)?;
+    let requested = option_values(args, "--grant-capability")?;
+    let requested = requested
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let skipped = option_values(args, "--skip-capability")?;
+    let skipped = skipped
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let existing = existing_permissions.map(|permissions| {
+        permissions
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+    });
+
+    if let Some(capability) = requested.intersection(&skipped).next() {
+        return Err(format!(
+            "Cannot both grant and skip capability {capability} in one hire request"
+        ));
+    }
+
+    for capability in &requested {
+        let Some(need) = tool_needs.get(capability) else {
+            return Err(format!(
+                "Cannot grant unknown capability {capability}; it is not declared by {}",
+                expert.name
+            ));
+        };
+        match need.necessity {
+            manifest::EmployeeToolNecessity::Conditional => {}
+            manifest::EmployeeToolNecessity::NonDefault
+                if need.permission == manifest::EmployeeToolPermission::RequiresAuthorization => {}
+            manifest::EmployeeToolNecessity::NonDefault => {
+                return Err(format!(
+                    "Cannot grant capability {capability}: a non_default capability must remain per-call authorized"
+                ));
+            }
+            manifest::EmployeeToolNecessity::Required
+            | manifest::EmployeeToolNecessity::Disabled => {
+                return Err(format!(
+                    "Cannot grant capability {capability}: only declared conditional or non_default capabilities may be explicitly selected"
+                ));
+            }
+        }
+    }
+
+    for capability in &skipped {
+        let Some(need) = tool_needs.get(capability) else {
+            return Err(format!(
+                "Cannot skip unknown capability {capability}; it is not declared by {}",
+                expert.name
+            ));
+        };
+        if need.necessity != manifest::EmployeeToolNecessity::Conditional {
+            return Err(format!(
+                "Cannot skip capability {capability}: only declared conditional capabilities may be skipped"
+            ));
+        }
+    }
+
+    let mut plan = permission_plan(legacy.permissions);
+    for (capability, need) in tool_needs {
+        let token = format!("capability:{capability}");
+        match need.necessity {
+            manifest::EmployeeToolNecessity::Required => plan.granted.push(token),
+            manifest::EmployeeToolNecessity::Conditional if skipped.contains(&capability) => {
+                plan.pending.push(token)
+            }
+            manifest::EmployeeToolNecessity::Conditional
+                if requested.contains(&capability)
+                    || existing.is_none()
+                    || existing
+                        .as_ref()
+                        .is_some_and(|permissions| permissions.contains(&token)) =>
+            {
+                plan.granted.push(token)
+            }
+            manifest::EmployeeToolNecessity::Conditional => plan.pending.push(token),
+            manifest::EmployeeToolNecessity::NonDefault
+                if need.permission == manifest::EmployeeToolPermission::RequiresAuthorization
+                    && (requested.contains(&capability)
+                        || existing
+                            .as_ref()
+                            .is_some_and(|permissions| permissions.contains(&token))) =>
+            {
+                plan.granted.push(token)
+            }
+            manifest::EmployeeToolNecessity::NonDefault => plan.pending.push(token),
+            manifest::EmployeeToolNecessity::Disabled => plan.disabled.push(token),
+        }
+    }
+    for permissions in [&mut plan.granted, &mut plan.pending, &mut plan.disabled] {
+        permissions.sort();
+        permissions.dedup();
+    }
+    Ok(plan)
+}
+
+fn permission_plan(permissions: Vec<String>) -> HirePermissionPlan {
+    use permissions::DefaultPermissionClass;
+
+    let mut plan = HirePermissionPlan::default();
+    for permission in permissions {
+        let permission = permission.trim().to_string();
+        if permission.is_empty() {
+            continue;
+        }
+        match permissions::classify_default_permission(&permission) {
+            DefaultPermissionClass::Granted => plan.granted.push(permission),
+            DefaultPermissionClass::Disabled => plan.disabled.push(permission),
+            DefaultPermissionClass::Pending => {
+                // Includes disabled_by_default, human_confirmation_required, with_consent,
+                // writes, sends/deploys, and unknown capabilities. They remain visible but
+                // are never auto-granted.
+                plan.pending.push(permission);
+            }
+        }
+    }
+    for permissions in [&mut plan.granted, &mut plan.pending, &mut plan.disabled] {
+        permissions.sort();
+        permissions.dedup();
+    }
+    plan
+}
+
+fn display_permission_list(permissions: &[String]) -> String {
+    if permissions.is_empty() {
+        "none".to_string()
+    } else {
+        permissions.join(", ")
+    }
 }
 
 fn run_fire(
@@ -519,11 +753,92 @@ fn run_employee_doctor(root: &Path, registry: &Registry, target: &str) -> Result
     let employees = team::read_team(root)?;
     let report = doctor::build_report(expert, manifest, &employees);
     doctor::print_report(expert, &report);
-    Ok(if report.health_status == doctor::HealthStatus::Healthy {
-        0
-    } else {
-        1
-    })
+    let runtime_tools_healthy = match run_runtime_tool_doctor(root, target) {
+        Ok(healthy) => healthy,
+        Err(error) => {
+            eprintln!("Runtime tool snapshot failed: {error}");
+            false
+        }
+    };
+    Ok(
+        if report.health_status == doctor::HealthStatus::Healthy && runtime_tools_healthy {
+            0
+        } else {
+            1
+        },
+    )
+}
+
+fn run_runtime_tool_doctor(root: &Path, employee: &str) -> Result<bool, String> {
+    let script = root.join("packages/runtime/tool-doctor-cli.mjs");
+    let output = Command::new(resolve_command_path("node"))
+        .arg(&script)
+        .arg(employee)
+        .arg(root)
+        .current_dir(root)
+        .env("CREWCLAW_ROOT", root)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("failed to launch Node tool doctor: {error}"))?;
+    if !output.status.success() {
+        return Err(non_empty(
+            &String::from_utf8_lossy(&output.stderr),
+            &String::from_utf8_lossy(&output.stdout),
+            "Node tool doctor failed",
+        ));
+    }
+    let snapshot: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("invalid Node tool doctor JSON: {error}"))?;
+    println!();
+    println!("Runtime capability snapshot (canonical ToolCatalog)");
+    println!(
+        "  grant source: {}",
+        snapshot["grant_source"].as_str().unwrap_or("none")
+    );
+    if let Some(grants) = snapshot["grants"].as_array() {
+        let grants = grants
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<Vec<_>>();
+        println!(
+            "  capability grants: {}",
+            if grants.is_empty() {
+                "none".to_string()
+            } else {
+                grants.join(", ")
+            }
+        );
+    }
+    for surface in ["chat", "task"] {
+        let state = &snapshot["surfaces"][surface];
+        let status = state["status"].as_str().unwrap_or("unknown");
+        println!("  {surface}: {status}");
+        for kind in ["blocking", "degraded"] {
+            if let Some(items) = state[kind].as_array() {
+                for item in items {
+                    println!(
+                        "    {kind}: {} — {}",
+                        item["capability"].as_str().unwrap_or("unknown"),
+                        item["reason"].as_str().unwrap_or("no reason")
+                    );
+                }
+            }
+        }
+        if let Some(items) = state["resolution"].as_array() {
+            let not_applicable = items
+                .iter()
+                .filter(|item| item["availability"] == "not_applicable")
+                .filter_map(|item| item["capability"].as_str())
+                .collect::<Vec<_>>();
+            if !not_applicable.is_empty() {
+                println!(
+                    "    not_applicable on {surface}: {}",
+                    not_applicable.join(", ")
+                );
+            }
+        }
+    }
+    Ok(snapshot["surfaces"]["task"]["status"] == "ready")
 }
 
 fn reject_unhireable(expert: &Expert, root: &Path) -> Option<i32> {
@@ -925,7 +1240,7 @@ fn run_update(
     if has_flag(args, "--apply") {
         let changed = team::mutate_team(root, |employees| {
             let current_updates = available_updates(registry, employees, target);
-            Ok(apply_updates(employees, &current_updates))
+            apply_updates(root, registry, employees, &current_updates)
         })?;
         println!("Updated {changed} employee record(s) in .crewclaw/team.json.");
     } else {
@@ -958,18 +1273,80 @@ fn available_updates(
         .collect()
 }
 
-fn apply_updates(employees: &mut [team::WorkspaceEmployee], updates: &[UpdateCandidate]) -> usize {
+fn reconcile_update_permissions(
+    existing: &[String],
+    tool_needs: &std::collections::BTreeMap<String, manifest::EmployeeToolNeed>,
+) -> Vec<String> {
+    let existing = existing.iter().collect::<std::collections::BTreeSet<_>>();
+    let mut retained = existing
+        .iter()
+        .filter(|permission| permissions::is_safe_default_permission(permission))
+        .map(|permission| (*permission).clone())
+        .collect::<Vec<_>>();
+
+    for (capability, need) in tool_needs {
+        let token = format!("capability:{capability}");
+        match need.necessity {
+            // Required is selected by the manifest itself, including migration from
+            // pre-capability team records.
+            manifest::EmployeeToolNecessity::Required => retained.push(token),
+            // Conditional selection is frozen at hire time. A missing token is an
+            // explicit Web/CLI opt-out, never a reason for update to re-enable it.
+            manifest::EmployeeToolNecessity::Conditional if existing.contains(&&token) => {
+                retained.push(token)
+            }
+            // An explicit optional grant survives only when the updated manifest
+            // still declares the same guarded capability. Unknown, disabled, and
+            // policy-weakened old tokens never carry forward.
+            manifest::EmployeeToolNecessity::NonDefault
+                if need.permission == manifest::EmployeeToolPermission::RequiresAuthorization
+                    && existing.contains(&&token) =>
+            {
+                retained.push(token)
+            }
+            manifest::EmployeeToolNecessity::Conditional
+            | manifest::EmployeeToolNecessity::NonDefault
+            | manifest::EmployeeToolNecessity::Disabled => {}
+        }
+    }
+    retained.sort();
+    retained.dedup();
+    retained
+}
+
+fn apply_updates(
+    root: &Path,
+    registry: &Registry,
+    employees: &mut [team::WorkspaceEmployee],
+    updates: &[UpdateCandidate],
+) -> Result<usize, String> {
     let mut changed = 0;
     for update in updates {
         if let Some(employee) = employees.iter_mut().find(|employee| {
             employee.employee_id == update.employee_id
                 && employee.status == team::WorkspaceEmployeeStatus::Active
         }) {
+            let expert = find_expert(registry, &employee.employee_id).ok_or_else(|| {
+                format!(
+                    "Updated employee {} is missing from registry",
+                    employee.employee_id
+                )
+            })?;
+            let local_source = expert.local_source.as_deref().ok_or_else(|| {
+                format!(
+                    "Updated employee {} has no local manifest source",
+                    employee.employee_id
+                )
+            })?;
+            let tool_needs =
+                manifest::read_employee_tool_needs(root, &employee.employee_id, local_source)?;
             employee.version = update.registry_version.clone();
+            employee.permissions_granted =
+                reconcile_update_permissions(&employee.permissions_granted, &tool_needs);
             changed += 1;
         }
     }
-    changed
+    Ok(changed)
 }
 
 fn run_logs(root: &Path, target: Option<&str>) -> Result<i32, String> {
@@ -1284,7 +1661,10 @@ fn positionals(args: &[String]) -> Vec<String> {
     while index < args.len() {
         let value = &args[index];
         if value.starts_with('-') {
-            if value == "--name" {
+            if matches!(
+                value.as_str(),
+                "--name" | "--grant-capability" | "--skip-capability"
+            ) {
                 index += 2;
             } else {
                 index += 1;
@@ -1302,6 +1682,26 @@ fn option_value(args: &[String], option: &str) -> Option<String> {
         .position(|arg| arg == option)
         .and_then(|index| args.get(index + 1))
         .cloned()
+}
+
+fn option_values(args: &[String], option: &str) -> Result<Vec<String>, String> {
+    let mut values = Vec::new();
+    let mut index = 0usize;
+    while index < args.len() {
+        if args[index] != option {
+            index += 1;
+            continue;
+        }
+        let Some(value) = args.get(index + 1) else {
+            return Err(format!("Missing value after {option}"));
+        };
+        if value.starts_with('-') || value.trim().is_empty() {
+            return Err(format!("Invalid value after {option}"));
+        }
+        values.push(value.trim().to_string());
+        index += 2;
+    }
+    Ok(values)
 }
 
 fn has_flag(args: &[String], flag: &str) -> bool {
@@ -1392,13 +1792,17 @@ mod tests {
     }
 
     #[test]
-    fn skips_name_option_when_collecting_positionals() {
+    fn skips_value_options_when_collecting_positionals() {
         assert_eq!(
             positionals(&strings(&[
                 "hire",
                 "code-review-shrimp",
                 "--name",
                 "shrimp",
+                "--grant-capability",
+                "contacts.read",
+                "--skip-capability",
+                "web.search",
                 "--yes"
             ])),
             vec!["hire".to_string(), "code-review-shrimp".to_string()]
@@ -1617,17 +2021,326 @@ mod tests {
     }
 
     #[test]
-    fn applies_registry_versions_to_hired_employees() {
-        let registry = Registry {
-            experts: vec![expert_with_version("code-review-shrimp", "0.2.0")],
+    fn update_permission_reconciliation_freezes_conditional_selection() {
+        let tool_need = |necessity, permission| manifest::EmployeeToolNeed {
+            necessity,
+            permission,
+            description: "test tool".to_string(),
+            scopes: Vec::new(),
+            approval: None,
+            purpose: None,
+            limits: None,
+            on_unavailable: None,
         };
-        let mut team = vec![active_employee("code-review-shrimp", "0.1.0")];
-        let updates = available_updates(&registry, &team, Some("code-review-shrimp"));
+        let tool_needs = std::collections::BTreeMap::from([
+            (
+                "files.read".to_string(),
+                tool_need(
+                    manifest::EmployeeToolNecessity::Required,
+                    manifest::EmployeeToolPermission::Readonly,
+                ),
+            ),
+            (
+                "web.search".to_string(),
+                tool_need(
+                    manifest::EmployeeToolNecessity::Conditional,
+                    manifest::EmployeeToolPermission::Readonly,
+                ),
+            ),
+            (
+                "contacts.read".to_string(),
+                tool_need(
+                    manifest::EmployeeToolNecessity::NonDefault,
+                    manifest::EmployeeToolPermission::RequiresAuthorization,
+                ),
+            ),
+            (
+                "files.write".to_string(),
+                tool_need(
+                    manifest::EmployeeToolNecessity::Disabled,
+                    manifest::EmployeeToolPermission::Disabled,
+                ),
+            ),
+        ]);
+        let retained = reconcile_update_permissions(
+            &strings(&[
+                "repo_files:read",
+                "secrets:read",
+                "code:write:disabled",
+                "merge_and_deploy:human_confirmation_required",
+                "capability:contacts.read",
+                "capability:web.search",
+                "capability:unknown.tool",
+                "capability:files.write",
+            ]),
+            &tool_needs,
+        );
+        assert_eq!(
+            retained,
+            strings(&[
+                "capability:contacts.read",
+                "capability:files.read",
+                "capability:web.search",
+                "repo_files:read",
+            ]),
+            "update retains a frozen conditional selection, preserves still-declared explicit grants, and drops stale escalation"
+        );
 
-        let changed = apply_updates(&mut team, &updates);
+        let opted_out = reconcile_update_permissions(
+            &strings(&[
+                "repo_files:read",
+                "capability:contacts.read",
+                "capability:unknown.tool",
+            ]),
+            &tool_needs,
+        );
+        assert_eq!(
+            opted_out,
+            strings(&[
+                "capability:contacts.read",
+                "capability:files.read",
+                "repo_files:read",
+            ]),
+            "a missing conditional token is a frozen opt-out and update must not re-enable it"
+        );
+    }
 
-        assert_eq!(changed, 1);
-        assert_eq!(team[0].version, "0.2.0");
+    #[test]
+    fn hire_permission_plan_is_fail_closed_and_explainable() {
+        let plan = permission_plan(strings(&[
+            "public_web:read",
+            "repo_files:read",
+            "prd_docs:read",
+            "repo_files:read",
+            "secrets:read",
+            "contacts:read",
+            "internal_docs:read:with_consent",
+            "contacts:read:disabled_by_default",
+            "production:deploy:human_confirmation_required",
+            "code:write:disabled",
+            "unknown",
+            "*:read",
+            "repo files:read",
+            ".hidden:read",
+        ]));
+        assert_eq!(
+            plan.granted,
+            vec![
+                "prd_docs:read".to_string(),
+                "public_web:read".to_string(),
+                "repo_files:read".to_string()
+            ]
+        );
+        assert!(plan.disabled.contains(&"code:write:disabled".to_string()));
+        for permission in [
+            "internal_docs:read:with_consent",
+            "contacts:read:disabled_by_default",
+            "production:deploy:human_confirmation_required",
+            "unknown",
+            "secrets:read",
+            "contacts:read",
+            "*:read",
+            "repo files:read",
+            ".hidden:read",
+        ] {
+            assert!(
+                plan.pending.contains(&permission.to_string()),
+                "{permission}"
+            );
+        }
+    }
+
+    #[test]
+    fn active_rehire_freezes_capability_selection_and_rejects_version_drift() {
+        let root = unique_test_root("safe-hire-permissions");
+        let expert = expert_with_version("security-test", "1.0.0");
+        let source = root.join("experts/security-test");
+        fs::create_dir_all(&source).expect("expert source");
+        fs::create_dir_all(root.join("contracts")).expect("catalog directory");
+        fs::write(
+            root.join("contracts/tool-catalog.json"),
+            r#"{"capabilities":[{"id":"files.read"},{"id":"contacts.read"},{"id":"draft.write"},{"id":"files.write"}]}"#,
+        )
+        .expect("canonical tool catalog");
+        fs::write(
+            source.join("hire.yaml"),
+            "apiVersion: crewclaw/v1\nkind: Employee\nmetadata:\n  id: security-test\n  name: Security Test\n  version: 1.0.0\npermissions:\n  - repo_files:read\n  - code:write:disabled\n  - contacts:read:disabled_by_default\n  - deploy:human_confirmation_required\n",
+        )
+        .expect("manifest");
+        fs::write(
+            source.join("crewclaw.employee.yaml"),
+            "tool_needs:\n  files.read:\n    necessity: required\n    permission: readonly\n    description: read\n  contacts.read:\n    necessity: non_default\n    permission: requires_authorization\n    description: contacts\n  draft.write:\n    necessity: conditional\n    permission: write\n    description: draft\n  files.write:\n    necessity: disabled\n    permission: disabled\n    description: no writes\n",
+        )
+        .expect("employee spec");
+
+        let default_plan = hire_permission_plan(&root, &expert, &[]).expect("default hire plan");
+        assert!(
+            default_plan
+                .granted
+                .contains(&"capability:draft.write".to_string()),
+            "conditional capabilities are selected by default at first hire"
+        );
+        let skipped_plan = hire_permission_plan(
+            &root,
+            &expert,
+            &strings(&["--skip-capability", "draft.write"]),
+        )
+        .expect("conditional skip plan");
+        assert!(
+            !skipped_plan
+                .granted
+                .contains(&"capability:draft.write".to_string())
+        );
+        assert!(
+            skipped_plan
+                .pending
+                .contains(&"capability:draft.write".to_string())
+        );
+        let explicitly_enabled_conditional = hire_permission_plan(
+            &root,
+            &expert,
+            &strings(&["--grant-capability", "draft.write"]),
+        )
+        .expect("explicit conditional grant");
+        assert!(
+            explicitly_enabled_conditional
+                .granted
+                .contains(&"capability:draft.write".to_string())
+        );
+        let conflict = hire_permission_plan(
+            &root,
+            &expert,
+            &strings(&[
+                "--grant-capability",
+                "draft.write",
+                "--skip-capability",
+                "draft.write",
+            ]),
+        )
+        .expect_err("a conditional capability cannot be both granted and skipped");
+        assert!(
+            conflict.contains("Cannot both grant and skip"),
+            "{conflict}"
+        );
+        let skip_required = hire_permission_plan(
+            &root,
+            &expert,
+            &strings(&["--skip-capability", "files.read"]),
+        )
+        .expect_err("required capability cannot be skipped");
+        assert!(
+            skip_required.contains("only declared conditional"),
+            "{skip_required}"
+        );
+
+        let first_plan = hire_permission_plan(
+            &root,
+            &expert,
+            &strings(&["--grant-capability", "contacts.read"]),
+        )
+        .expect("first hire plan");
+        persist_hire(&root, &expert, &first_plan).expect("first hire");
+        let first = team::read_team(&root).expect("team after hire");
+        assert_eq!(first.len(), 1);
+        assert_eq!(
+            first[0].permissions_granted,
+            strings(&[
+                "capability:contacts.read",
+                "capability:draft.write",
+                "capability:files.read",
+                "repo_files:read",
+            ]),
+            "explicit non_default capability is persisted in its own namespace"
+        );
+        let workspace_id = first[0].workspace_employee_id.clone();
+
+        for capability in ["unknown.tool", "files.read", "files.write"] {
+            let error = hire_permission_plan(
+                &root,
+                &expert,
+                &strings(&["--grant-capability", capability]),
+            )
+            .expect_err("unsafe or invalid grant must fail closed");
+            assert!(error.contains("Cannot grant"), "{error}");
+        }
+
+        team::mutate_team(&root, |employees| {
+            employees[0].permissions_granted.extend(strings(&[
+                "secrets:read",
+                "code:write:disabled",
+                "deploy:human_confirmation_required",
+            ]));
+            Ok(())
+        })
+        .expect("seed legacy unsafe grants");
+        let code = run_hire(
+            &expert,
+            &strings(&["--skip-capability", "draft.write"]),
+            &root,
+            false,
+        )
+        .expect("re-hire skip");
+        assert_eq!(code, 0);
+
+        let reconciled = team::read_team(&root).expect("team after re-hire");
+        assert_eq!(reconciled.len(), 1, "re-hire does not duplicate employee");
+        assert_eq!(reconciled[0].workspace_employee_id, workspace_id);
+        assert_eq!(
+            reconciled[0].permissions_granted,
+            strings(&[
+                "capability:contacts.read",
+                "capability:files.read",
+                "repo_files:read",
+            ]),
+            "skip revokes only that conditional; the frozen non_default selection remains while legacy dangerous grants are removed"
+        );
+
+        assert_eq!(run_hire(&expert, &[], &root, false), Ok(0));
+        let still_opted_out = team::read_team(&root).expect("team after ordinary re-hire");
+        assert_eq!(
+            still_opted_out[0].permissions_granted, reconciled[0].permissions_granted,
+            "ordinary re-hire must not turn a skipped conditional back on"
+        );
+
+        assert_eq!(
+            run_hire(
+                &expert,
+                &strings(&["--grant-capability", "draft.write"]),
+                &root,
+                false,
+            ),
+            Ok(0)
+        );
+        let restored = team::read_team(&root).expect("team after explicit restore");
+        assert_eq!(
+            restored[0].permissions_granted,
+            strings(&[
+                "capability:contacts.read",
+                "capability:draft.write",
+                "capability:files.read",
+                "repo_files:read",
+            ]),
+            "only an explicit grant restores the skipped conditional"
+        );
+
+        team::mutate_team(&root, |employees| {
+            employees[0].version = "0.9.0".to_string();
+            Ok(())
+        })
+        .expect("seed stale active version");
+        let error = run_hire(&expert, &[], &root, false)
+            .expect_err("ordinary re-hire must reject registry/spec version drift");
+        assert!(
+            error.contains("crew update security-test --apply"),
+            "{error}"
+        );
+        let stale = team::read_team(&root).expect("team after rejected stale re-hire");
+        assert_eq!(stale[0].version, "0.9.0");
+        assert_eq!(
+            stale[0].permissions_granted, restored[0].permissions_granted,
+            "version rejection must happen before applying the new policy"
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

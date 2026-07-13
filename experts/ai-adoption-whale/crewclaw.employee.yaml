@@ -59,39 +59,53 @@ tool_needs:
     necessity: required
     permission: readonly
     description: 找来源。
-  web.extract:
-    necessity: required
-    permission: readonly
-    description: 读网页。
+    scopes:
+      - public_web
+    purpose: 发现与研究问题直接相关的公开来源。
+    limits:
+      max_calls_per_task: 12
+    on_unavailable: degrade
   web.fetch_extract:
     necessity: required
     permission: readonly
     description: 按任务抽字段。
+    scopes:
+      - public_web
+    on_unavailable: fail
   browser.render:
     necessity: conditional
     permission: requires_authorization
     description: JS 页面 fallback。
+    approval: when_needed
+    on_unavailable: degrade
   source.verify:
     necessity: required
     permission: readonly
     description: 判断官方、媒体、社区来源。
+    on_unavailable: fail
   evidence.create:
     necessity: required
     permission: write
     description: 存证据卡。
+    on_unavailable: fail
   artifact.report:
     necessity: required
     permission: write
     description: 生成报告。
+    on_unavailable: fail
   shell.run:
-    necessity: non_default
-    permission: requires_authorization
-    description: 仅做数据处理，不做系统操作。
-  notify:
+    necessity: disabled
+    permission: disabled
+    description: 研究员工不执行任意 shell 命令。
+  files.write:
+    necessity: disabled
+    permission: disabled
+    description: 不直接改写工作区文件，只写受管 Artifact。
+  message.send:
     necessity: disabled
     permission: disabled
     description: 研究员工不外发消息。
-  email:
+  email.send:
     necessity: disabled
     permission: disabled
     description: 研究员工不外发邮件。
@@ -106,22 +120,18 @@ permission_policy:
     P4: 禁止外发消息、邮件、采购、付款和生产部署。
   grants:
     web.search: P0
-    web.extract: P0
     web.fetch_extract: P0
     source.verify: P0
     evidence.create: P1
     artifact.report: P1
     browser.render: P2
-    shell.run: P3
   denied:
-    notify: P4
-    email: P4
-    payments: P4
-    production.deploy: P4
+    shell.run: P4
+    files.write: P4
+    message.send: P4
+    email.send: P4
   human_authorization_required:
     - browser.render
-    - shell.run
-    - internal_docs.read
 
 playbooks:
   - id: search_harness_research
@@ -222,17 +232,17 @@ workbench_profile:
 runtime_requirements:
   capabilities:
     - web.search
-    - web.extract
     - web.fetch_extract
     - source.verify
     - evidence.create
     - artifact.report
   optional_capabilities:
     - browser.render
-    - shell.run
   disabled_capabilities:
-    - notify
-    - email
+    - shell.run
+    - files.write
+    - message.send
+    - email.send
 
 compatibility_targets:
   OpenWork:

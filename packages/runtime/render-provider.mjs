@@ -17,6 +17,36 @@ export function pickRenderProvider(env = process.env) {
   return "playwright"; // local default; renderPage degrades cleanly if not installed
 }
 
+// One preflight truth for every surface. The current local renderer deliberately refuses to
+// launch until socket-level IP pinning/egress filtering exists; cloud providers are still stubs.
+// Keeping this next to renderPage prevents a registered schema or installed npm package from
+// being mistaken for an executable browser capability.
+export function renderProviderHealth(env = process.env) {
+  const provider = pickRenderProvider(env);
+  if (provider === "playwright") {
+    return {
+      ready: false,
+      provider,
+      code: "network_egress_unverified",
+      reason: "Playwright 出站连接尚未经过可绑定真实 IP 的安全过滤",
+    };
+  }
+  if (provider === "firecrawl" || provider === "browserbase") {
+    return {
+      ready: false,
+      provider,
+      code: "provider_not_implemented",
+      reason: `${provider} render provider 尚未实现`,
+    };
+  }
+  return {
+    ready: false,
+    provider: provider || "none",
+    code: "provider_unavailable",
+    reason: "未配置可执行的 render provider",
+  };
+}
+
 // renderPage(url, opts) -> { ok, html?, status?, provider?, reason?, note?, error? }
 // Never throws. ok:false carries a machine-readable `reason` so callers degrade.
 export async function renderPage(url, { provider, timeoutMs = 20000 } = {}) {

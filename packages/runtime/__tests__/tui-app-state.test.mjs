@@ -3,7 +3,7 @@
 // evidence → answer → artifact → done) reduces correctly + deterministically.
 import assert from "node:assert/strict";
 import { EVENTS, makeEvent } from "../tui/protocol.mjs";
-import { reduceAll, SYM } from "../tui/app-state.mjs";
+import { reduce, reduceAll, SYM } from "../tui/app-state.mjs";
 
 const evs = [
   makeEvent(EVENTS.TASK_STARTED, {
@@ -60,7 +60,7 @@ assert.equal(s.task.title, "调研火山 Seed 2.1");
 assert.equal(s.task.status, "done");
 assert.equal(s.mode, "Trial");
 assert.equal(s.plan.steps.length, 3);
-assert.equal(s.tools.tool1.status, "ok");
+assert.equal(s.tools.tool1.status, "succeeded");
 assert.equal(s.evidence[0].source, "official");
 assert.equal(s.artifacts[0].name, "seed-2.1-research.md");
 assert.equal(s.answer, "根据官方文档，Seed 2.1 适合接入。");
@@ -137,6 +137,325 @@ assert.ok(
     s2.timeline.some(l => l.label.includes("升级")),
     "upgrade shows in timeline"
   );
+}
+
+// Tool lifecycle is one-row and monotonic: requested is observable, duplicate requests do not
+// duplicate the timeline, and a late success cannot overwrite a blocked/failed/cancelled terminal.
+{
+  const state = reduceAll([
+    makeEvent(EVENTS.TASK_STARTED, { id: "tool-monotonic", mode: "Chat" }),
+    makeEvent(EVENTS.TOOL_REQUESTED, {
+      id: "call-1",
+      tool: "test_run",
+      label: "运行测试",
+    }),
+    makeEvent(EVENTS.TOOL_REQUESTED, {
+      id: "call-1",
+      tool: "test_run",
+      label: "运行测试",
+    }),
+    makeEvent(EVENTS.TOOL_BLOCKED, { id: "call-1", code: "not_granted" }),
+    makeEvent(EVENTS.TOOL_SUCCEEDED, { id: "call-1", summary: "late" }),
+  ]);
+  assert.equal(state.tools["call-1"].status, "blocked");
+  assert.equal(state.timeline.filter(line => line.id === "call-1").length, 1);
+  assert.equal(
+    state.timeline.find(line => line.id === "call-1")?.status,
+    SYM.warn
+  );
+  assert.ok(state.debug.some(line => line.includes("non-monotonic")));
+}
+
+// Non-terminal phases cannot move backwards either, including legacy TOOL_CALLED (=running).
+{
+  const state = reduceAll([
+    makeEvent(EVENTS.TASK_STARTED, { id: "tool-order", mode: "Chat" }),
+    makeEvent(EVENTS.TOOL_REQUESTED, { id: "new", tool: "web_search" }),
+    makeEvent(EVENTS.TOOL_RUNNING, { id: "new", tool: "web_search" }),
+    makeEvent(EVENTS.TOOL_REQUESTED, { id: "new", tool: "web_search" }),
+    makeEvent(EVENTS.TOOL_CALLED, { id: "legacy", tool: "web_fetch" }),
+    makeEvent(EVENTS.TOOL_REQUESTED, { id: "legacy", tool: "web_fetch" }),
+  ]);
+  assert.equal(state.tools.new.status, "running");
+  assert.equal(state.tools.legacy.status, "running");
+  assert.equal(state.timeline.filter(line => line.id === "new").length, 1);
+  assert.equal(state.timeline.filter(line => line.id === "legacy").length, 1);
+  assert.equal(
+    state.debug.filter(line => line.includes("non-monotonic")).length,
+    2
+  );
+}
+
+// A high-sequence event from an older turn cannot re-enter the active generation of the same task.
+{
+  const state = reduceAll([
+    makeEvent(EVENTS.TASK_STARTED, { id: "same-task", mode: "Chat" }),
+    makeEvent(EVENTS.GENERATION_STARTED, {
+      id: "generation-new",
+      taskRunId: "same-task",
+      turn_id: "turn-new",
+      seq: 1,
+    }),
+    makeEvent(EVENTS.TOKEN_DELTA, {
+      taskRunId: "same-task",
+      turn_id: "turn-old",
+      seq: 99,
+      text: "stale",
+    }),
+    makeEvent(EVENTS.TOKEN_DELTA, {
+      taskRunId: "same-task",
+      turn_id: "turn-new",
+      seq: 2,
+      text: "fresh",
+    }),
+  ]);
+  assert.equal(state.answer, "fresh");
+  assert.ok(state.debug.some(line => line.includes("active turn is turn-new")));
+}
+
+// A second task.started cannot steal the workbench before the active task emits an explicit
+// terminal event. Preserve each user-visible phase instead of clearing token/tool/approval state.
+{
+  const phases = [
+    {
+      name: "token",
+      events: [
+        makeEvent(EVENTS.GENERATION_STARTED, {
+          id: "generation-active",
+          taskRunId: "task-active",
+          turn_id: "turn-active",
+          seq: 1,
+        }),
+        makeEvent(EVENTS.TOKEN_DELTA, {
+          taskRunId: "task-active",
+          turn_id: "turn-active",
+          seq: 2,
+          text: "partial",
+        }),
+      ],
+      verify: state => {
+        assert.equal(state.answer, "partial");
+        assert.equal(state.generation.id, "generation-active");
+      },
+    },
+    {
+      name: "tool",
+      events: [
+        makeEvent(EVENTS.TOOL_REQUESTED, {
+          id: "tool-active",
+          tool: "test_run",
+        }),
+      ],
+      verify: state => assert.equal(state.tools["tool-active"].status, "requested"),
+    },
+    {
+      name: "approval",
+      events: [
+        makeEvent(EVENTS.APPROVAL_REQUESTED, {
+          id: "approval-active",
+          taskRunId: "task-active",
+          kind: "deliverable_acceptance",
+        }),
+      ],
+      verify: state => {
+        assert.equal(state.approval.id, "approval-active");
+        assert.equal(state.status, "awaiting_approval");
+      },
+    },
+  ];
+
+  for (const phase of phases) {
+    const active = reduceAll([
+      makeEvent(EVENTS.TASK_STARTED, {
+        id: "task-active",
+        title: phase.name,
+        mode: "Task",
+      }),
+      ...phase.events,
+    ]);
+    const state = reduce(
+      active,
+      makeEvent(EVENTS.TASK_STARTED, {
+        id: `task-overlap-${phase.name}`,
+        title: "must not replace active task",
+        mode: "Task",
+      })
+    );
+
+    assert.equal(state.task.id, "task-active", `${phase.name} keeps active task`);
+    phase.verify(state);
+    assert.ok(
+      state.debug.at(-1).includes("has no explicit terminal event"),
+      `${phase.name} records the rejected overlapping start`
+    );
+  }
+}
+
+// A generation terminal is a hard stream boundary. Every late text/render/tool lifecycle event
+// is ignored for completed, failed, and cancelled generations; assistant.message is guarded too.
+{
+  const generationTerminals = [
+    EVENTS.GENERATION_COMPLETED,
+    EVENTS.GENERATION_FAILED,
+    EVENTS.GENERATION_CANCELLED,
+  ];
+  const lateEvents = [
+    [EVENTS.TOKEN_DELTA, { text: "late-token" }],
+    [EVENTS.THINKING_DELTA, { text: "late-thinking" }],
+    [EVENTS.ASSISTANT_MESSAGE, { text: "late-message" }],
+    [
+      EVENTS.ASSISTANT_RENDERED,
+      { part_id: "late-part", ansi_lines: ["late-render"] },
+    ],
+    [EVENTS.TOOL_REQUESTED, { id: "late-tool", tool: "test_run" }],
+    [EVENTS.TOOL_CALLED, { id: "late-tool", tool: "test_run" }],
+    [EVENTS.TOOL_RUNNING, { id: "late-tool", tool: "test_run" }],
+    [EVENTS.TOOL_SUCCEEDED, { id: "late-tool", summary: "late" }],
+    [EVENTS.TOOL_FAILED, { id: "late-tool", code: "late" }],
+    [EVENTS.TOOL_BLOCKED, { id: "late-tool", code: "late" }],
+    [EVENTS.TOOL_CANCELLED, { id: "late-tool", code: "late" }],
+  ];
+
+  for (const terminalType of generationTerminals) {
+    const taskRunId = `task-${terminalType}`;
+    const turnId = `turn-${terminalType}`;
+    const generationId = `generation-${terminalType}`;
+    const closed = reduceAll([
+      makeEvent(EVENTS.TASK_STARTED, { id: taskRunId, mode: "Chat" }),
+      makeEvent(EVENTS.GENERATION_STARTED, {
+        id: generationId,
+        taskRunId,
+        turn_id: turnId,
+        seq: 1,
+      }),
+      makeEvent(terminalType, {
+        id: generationId,
+        taskRunId,
+        turn_id: turnId,
+        seq: 2,
+        reason: terminalType === EVENTS.GENERATION_COMPLETED ? undefined : "closed",
+      }),
+    ]);
+    const stable = {
+      answer: closed.answer,
+      thinking: closed.thinking,
+      renderedAnswer: closed.renderedAnswer,
+      renderedParts: closed.renderedParts,
+      tools: closed.tools,
+      timeline: closed.timeline,
+      approval: closed.approval,
+      status: closed.status,
+      lastEventSeq: closed.lastEventSeq,
+    };
+
+    for (const [eventType, data] of lateEvents) {
+      const state = reduce(
+        closed,
+        makeEvent(eventType, {
+          ...data,
+          taskRunId,
+          turn_id: turnId,
+          seq: 3,
+        })
+      );
+      assert.deepEqual(
+        {
+          answer: state.answer,
+          thinking: state.thinking,
+          renderedAnswer: state.renderedAnswer,
+          renderedParts: state.renderedParts,
+          tools: state.tools,
+          timeline: state.timeline,
+          approval: state.approval,
+          status: state.status,
+          lastEventSeq: state.lastEventSeq,
+        },
+        stable,
+        `${eventType} cannot revive ${terminalType}`
+      );
+      assert.ok(
+        state.debug.at(-1).includes(`after generation ${closed.generation.status}`),
+        `${eventType} records the closed generation boundary`
+      );
+    }
+  }
+}
+
+// Every accepted task terminal closes the stream. task.completed remains a stream terminal even
+// when the recoverable product state is needs_artifact, without forging a business terminalType.
+{
+  const taskTerminals = [
+    [EVENTS.TASK_COMPLETED, {}, "needs_artifact"],
+    [EVENTS.TASK_REJECTED, { reason: "rejected" }, "rejected"],
+    [EVENTS.TASK_BLOCKED, { reason: "blocked" }, "blocked"],
+    [EVENTS.TASK_FAILED, { reason: "failed" }, "failed"],
+    [EVENTS.TASK_REVISION_NEEDED, { reason: "revise" }, "needs_revision"],
+  ];
+
+  for (const [terminalType, terminalData, expectedStatus] of taskTerminals) {
+    const taskRunId = `task-terminal-${terminalType}`;
+    const closed = reduceAll([
+      makeEvent(EVENTS.TASK_STARTED, { id: taskRunId, mode: "Task" }),
+      makeEvent(EVENTS.GENERATION_STARTED, {
+        id: `generation-${terminalType}`,
+        taskRunId,
+        turn_id: `turn-${terminalType}`,
+      }),
+      makeEvent(terminalType, { id: taskRunId, ...terminalData }),
+    ]);
+
+    assert.equal(closed.task.status, expectedStatus);
+    assert.equal(closed.taskStreamTerminal, true);
+    assert.equal(
+      closed.task.terminalType,
+      terminalType === EVENTS.TASK_COMPLETED ? null : terminalType
+    );
+    const late = reduce(
+      closed,
+      makeEvent(EVENTS.TOKEN_DELTA, {
+        taskRunId,
+        turn_id: `turn-${terminalType}`,
+        text: "must-not-render",
+      })
+    );
+    assert.equal(late.answer, "", `${terminalType} closes token streaming`);
+    assert.ok(late.debug.at(-1).includes(`after terminal ${expectedStatus}`));
+
+    if (terminalType === EVENTS.TASK_COMPLETED) {
+      let recovered = reduce(
+        closed,
+        makeEvent(EVENTS.ARTIFACT_CREATED, {
+          id: "recovery-artifact",
+          taskRunId,
+          path: "/x/recovered.md",
+        })
+      );
+      recovered = reduce(
+        recovered,
+        makeEvent(EVENTS.OUTCOME_CHECKED, {
+          taskRunId,
+          valid: true,
+          deliverable: "/x/recovered.md",
+        })
+      );
+      recovered = reduce(
+        recovered,
+        makeEvent(EVENTS.TASK_COMPLETED, { id: taskRunId })
+      );
+      assert.equal(recovered.task.status, "done");
+      assert.equal(recovered.task.terminalType, EVENTS.TASK_COMPLETED);
+
+      const next = reduce(
+        closed,
+        makeEvent(EVENTS.TASK_STARTED, {
+          id: "task-after-needs-artifact",
+          mode: "Task",
+        })
+      );
+      assert.equal(next.task.id, "task-after-needs-artifact");
+      assert.equal(next.status, "running");
+    }
+  }
 }
 
 // completion verdict (§5.8 No-Chat-only-Done): outcome.checked → proof + a 验收 timeline line
@@ -309,8 +628,9 @@ assert.ok(
     }),
     makeEvent(EVENTS.TASK_COMPLETED, { id: "old" }),
   ]);
-  assert.equal(stale.task.id, "new");
-  assert.equal(stale.status, "running");
+  assert.equal(stale.task.id, "old");
+  assert.equal(stale.status, "outcome_unknown");
+  assert.ok(stale.debug.some(line => line.includes("overlapping task.started")));
 }
 
 // Chat turns remain artifact-free and settle to idle instead of formal Done.

@@ -1,5 +1,10 @@
 import { computeCompatibility } from "./compatibility.mjs";
+import {
+  configuredProvidersFromEnv,
+  resolveEmployeeTools,
+} from "./employee-tools.mjs";
 import { validateEmployeePackage } from "./employee-package.mjs";
+import { getRuntimeToolCatalog } from "./tool-truth.mjs";
 import { getToolStatus } from "./tui/tool-status.mjs";
 
 const LEVEL_RANK = Object.freeze({ L0: 0, L1: 1, L2: 2, L3: 3, L4: 4 });
@@ -52,36 +57,15 @@ function toolFix(tool, code) {
   return `为 Runtime 配置必需工具 ${tool}`;
 }
 
-function capabilityRuntimeTool(capability) {
-  if (capability === "web.search") return "web.search";
-  if (capability === "browser.render") return "browser.render";
-  if (capability === "web.extract" || capability === "web.fetch_extract")
-    return "web.fetch";
-  if (capability === "source.verify" || capability.startsWith("evidence."))
-    return "evidence";
-  return capability;
-}
-
 function capabilityAvailable(capability, statusByTool) {
   const direct = statusByTool.get(capability);
   if (direct) return direct;
-  const mapped = statusByTool.get(capabilityRuntimeTool(capability));
-  if (mapped) return mapped;
-  if (capability.startsWith("artifact.")) {
-    return {
-      tool: capability,
-      ok: true,
-      label: "assumed",
-      reason: "",
-      code: "",
-    };
-  }
   return {
     tool: capability,
     ok: false,
-    label: "not declared",
-    reason: `${capability} 未由当前 Runtime tool status 声明`,
-    code: "missing_tool",
+    label: "not resolved",
+    reason: `${capability} 未由 ToolCatalog + employee resolver 声明`,
+    code: "unknown_capability",
   };
 }
 
@@ -260,8 +244,26 @@ export function compatibilityDoctor(pkg, runtimeCapabilities = {}) {
   });
 }
 
-export function onboardingDoctor(pkg, env = process.env) {
-  const toolStatus = getToolStatus(env);
+export function onboardingDoctor(pkg, env = process.env, opts = {}) {
+  const catalog = getRuntimeToolCatalog(opts);
+  const toolResolution =
+    opts.toolResolution ||
+    resolveEmployeeTools({
+      toolNeeds: pkg?.tool_needs || {},
+      catalog,
+      toolSchemas: opts.toolSchemas || [],
+      grants: opts.grants || [],
+      configuredProviders:
+        opts.configuredProviders || configuredProvidersFromEnv(env),
+      engineCapabilities: opts.engineCapabilities,
+      env,
+      surface: opts.surface || "task",
+    });
+  const toolStatus = getToolStatus(env, {
+    ...opts,
+    catalog,
+    toolResolution,
+  });
   const statusByTool = new Map(toolStatus.map(status => [status.tool, status]));
   const checks = [];
   const missing = [];

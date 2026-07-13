@@ -83,6 +83,32 @@ const rebound = await resolvePublicHttpTarget("https://rebind.example/", {
 });
 assert.equal(rebound.ok, false, "mixed public/private DNS answers fail closed");
 
+let lateLookupSettled = false;
+const lookupAbort = new AbortController();
+const lookupStartedAt = Date.now();
+const slowLookup = resolvePublicHttpTarget("https://slow.example/", {
+  signal: lookupAbort.signal,
+  lookupFn: () =>
+    new Promise((_resolve, reject) => {
+      setTimeout(() => {
+        lateLookupSettled = true;
+        reject(new Error("late lookup rejection"));
+      }, 300);
+    }),
+});
+setTimeout(() => lookupAbort.abort("test_abort"), 30);
+await assert.rejects(slowLookup, error => error?.name === "AbortError");
+assert.ok(
+  Date.now() - lookupStartedAt < 180,
+  "browser/fetch DNS preflight must not wait for a slow lookup after abort"
+);
+await new Promise(resolve => setTimeout(resolve, 330));
+assert.equal(
+  lateLookupSettled,
+  true,
+  "the late DNS rejection is consumed after the abort race settles"
+);
+
 // ── v0.18 P0-c：workspace 权限是边界不是标签 ────────────────────────────────────────────────
 // 只读 bash 白名单：重定向/链式/命令替换即失去只读资格。
 assert.equal(
@@ -327,8 +353,8 @@ assert.equal(
 const runSource = readFileSync(new URL("../run.mjs", import.meta.url), "utf8");
 assert.match(
   runSource,
-  /result\s*=\s*await\s+runTool\(\s*toolName,\s*args,\s*\{[\s\S]{0,240}?permission:\s*decision,[\s\S]{0,120}?root,[\s\S]{0,40}?\}\s*\)/,
-  "the exact gateway decision and workspace root must reach the executor"
+  /runToolWithDeadline\(\s*toolSignal\s*=>\s*runToolFn\(\s*toolName,\s*args,\s*\{[\s\S]{0,280}?permission:\s*decision,[\s\S]{0,140}?root,[\s\S]{0,80}?signal:\s*toolSignal,[\s\S]{0,40}?\}\s*\),\s*\{[\s\S]{0,140}?signal,[\s\S]{0,100}?timeoutMs[\s\S]{0,40}?\}\s*\)/,
+  "the exact gateway decision, workspace root, and parent-to-child cancellation signals must reach the executor"
 );
 assert.doesNotMatch(runSource, /function isReadOnly\(/);
 assert.equal(

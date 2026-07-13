@@ -21,6 +21,7 @@ import {
 } from "../dream";
 import { EmployeeSpecSchema } from "../employee-spec";
 import { EmployeeManifestSchema } from "../manifest";
+import { ToolCatalogSchema } from "../tool-catalog";
 
 // M0（条件式 Dream）：每个 Dream/Reflect 核心制品都有版本化 Schema。文件名与契约字符串一一对应。
 const DREAM_ARTIFACT_SCHEMAS: Array<[string, string, string, z.ZodType]> = [
@@ -94,6 +95,13 @@ export function buildSchemas(): Record<string, unknown> {
       description:
         "Runtime layer of the two-file employee standard: how the employee works, is evaluated (eval_suite + outcome_rubric), and grows.",
       ...z.toJSONSchema(EmployeeSpecSchema),
+    },
+    "tool-catalog.schema.json": {
+      $id: "https://crewclaw.dev/schema/tool-catalog.schema.json",
+      title: "CrewClaw Executable Tool Catalog",
+      description:
+        "Canonical capability registry used by employee contracts, runtime tool resolution, and validator policy checks.",
+      ...z.toJSONSchema(ToolCatalogSchema),
     },
   };
 }

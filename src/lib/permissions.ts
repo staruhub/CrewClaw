@@ -2,6 +2,7 @@
 // file only exports components (react-refresh/only-export-components — mixed exports break HMR).
 
 export type PermissionRiskLevel =
+  | "Disabled"
   | "Read-only"
   | "Write with confirmation"
   | "Autonomous write"
@@ -17,6 +18,10 @@ export function permissionLabel(permission: string) {
 
 export function getPermissionLevel(permission: string): PermissionRiskLevel {
   const value = permission.toLowerCase();
+
+  // A policy-forbidden capability must never be reclassified as an autonomous write merely
+  // because its descriptive id also contains `:write`.
+  if (value.includes("disabled")) return "Disabled";
 
   if (
     value.includes("delete") ||

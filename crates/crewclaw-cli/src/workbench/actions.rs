@@ -1,4 +1,4 @@
-use std::{io::Write, process::ChildStdin};
+use std::io::Write;
 
 use super::{
     protocol::UserAction,
@@ -49,8 +49,9 @@ pub(crate) fn artifact_action_for_selected(
         .map(|id| UserAction::artifact(action_type, id))
 }
 
-pub(crate) fn write_user_action(
-    child_stdin: &mut ChildStdin,
+// 泛型化到 `impl Write`：线上仍传 ChildStdin，但让 await_engine_boot 之类逻辑可用 mock writer 做单测。
+pub(crate) fn write_user_action<W: Write + ?Sized>(
+    child_stdin: &mut W,
     action: &UserAction,
 ) -> Result<(), String> {
     let line = serde_json::to_string(action)

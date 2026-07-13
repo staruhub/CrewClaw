@@ -1,7 +1,7 @@
 // Classification helpers live in @/lib/permissions — this file only exports components so react
 // fast refresh works (react-refresh/only-export-components).
 import type { ComponentType } from "react";
-import { AlertTriangle, Eye, FileCheck2, PencilLine } from "lucide-react";
+import { AlertTriangle, Ban, Eye, FileCheck2, PencilLine } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   getPermissionLevel,
@@ -17,6 +17,12 @@ type PermissionLevelConfig = {
 };
 
 const LEVEL_CONFIG: Record<PermissionRiskLevel, PermissionLevelConfig> = {
+  Disabled: {
+    className: "border-white/10 bg-white/[0.025] text-crew-muted",
+    description:
+      "Forbidden by this employee's role policy; it cannot be enabled at hire time.",
+    icon: Ban,
+  },
   "Read-only": {
     className: "border-sky-300/35 bg-sky-400/10 text-sky-100",
     description: "Reads context or public information only.",

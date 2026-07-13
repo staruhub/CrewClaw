@@ -11,16 +11,23 @@ export const EVENTS = {
   PROTOCOL_READY: "protocol.ready",
   SESSION_READY: "session.ready",
   TASK_STARTED: "task.started",
+  GENERATION_STARTED: "generation.started",
+  GENERATION_COMPLETED: "generation.completed",
+  GENERATION_FAILED: "generation.failed",
+  GENERATION_CANCELLED: "generation.cancelled",
+  INPUT_QUEUED: "input.queued",
   TASK_MODE_CHANGED: "task.mode_changed",
   PLAN_CREATED: "plan.created",
   PLAN_APPROVED: "plan.approved",
   STEP_STARTED: "step.started",
   STEP_COMPLETED: "step.completed",
   TOOL_REQUESTED: "tool.requested",
+  TOOL_RUNNING: "tool.running",
   TOOL_CALLED: "tool.called",
   TOOL_SUCCEEDED: "tool.succeeded",
   TOOL_FAILED: "tool.failed",
   TOOL_BLOCKED: "tool.blocked",
+  TOOL_CANCELLED: "tool.cancelled",
   ARTIFACT_CREATED: "artifact.created",
   ARTIFACT_UPDATED: "artifact.updated",
   ARTIFACT_SELECTED: "artifact.selected",
@@ -160,6 +167,35 @@ export function validateTaskEventPayload(type, data) {
       break;
     case EVENTS.TASK_STARTED:
       requireString(data, "id", errors);
+      break;
+    case EVENTS.GENERATION_STARTED:
+    case EVENTS.GENERATION_COMPLETED:
+    case EVENTS.GENERATION_FAILED:
+    case EVENTS.GENERATION_CANCELLED:
+      requireString(data, "id", errors);
+      requireString(data, "turn_id", errors);
+      requireString(data, "taskRunId", errors);
+      if (!Number.isSafeInteger(data.seq) || data.seq < 0)
+        errors.push("data.seq must be a non-negative safe integer");
+      if (
+        [EVENTS.GENERATION_FAILED, EVENTS.GENERATION_CANCELLED].includes(type)
+      )
+        requireString(data, "reason", errors);
+      break;
+    case EVENTS.INPUT_QUEUED:
+      requireString(data, "id", errors);
+      requireString(data, "taskRunId", errors);
+      if (!Number.isSafeInteger(data.position) || data.position < 1)
+        errors.push("data.position must be a positive safe integer");
+      break;
+    case EVENTS.TOOL_RUNNING:
+    case EVENTS.TOOL_CANCELLED:
+      requireString(data, "id", errors);
+      requireString(data, "turn_id", errors);
+      requireString(data, "taskRunId", errors);
+      requireString(data, "tool", errors);
+      if (!Number.isSafeInteger(data.seq) || data.seq < 0)
+        errors.push("data.seq must be a non-negative safe integer");
       break;
     case EVENTS.TASK_MODE_CHANGED:
       requireString(data, "taskRunId", errors);

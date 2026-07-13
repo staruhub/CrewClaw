@@ -56,6 +56,22 @@ fn require_non_empty(value: Option<&str>, field: &str) -> Result<(), String> {
     }
 }
 
+const JS_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+fn require_non_negative_safe_integer(data: &Value, field: &str) -> Result<(), String> {
+    match data.get(field).and_then(Value::as_u64) {
+        Some(value) if value <= JS_MAX_SAFE_INTEGER => Ok(()),
+        _ => Err(format!("data.{field} must be a non-negative safe integer")),
+    }
+}
+
+fn require_positive_safe_integer(data: &Value, field: &str) -> Result<(), String> {
+    match data.get(field).and_then(Value::as_u64) {
+        Some(value) if (1..=JS_MAX_SAFE_INTEGER).contains(&value) => Ok(()),
+        _ => Err(format!("data.{field} must be a positive safe integer")),
+    }
+}
+
 fn require_task_reference(payload: &CanonicalTaskPayload, data: &Value) -> Result<(), String> {
     if data.get("id").is_some() {
         require_non_empty(data.get("id").and_then(Value::as_str), "data.id")?;
@@ -161,8 +177,43 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "generation.started")]
+    GenerationStarted {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "generation.completed")]
+    GenerationCompleted {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "generation.failed")]
+    GenerationFailed {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "generation.cancelled")]
+    GenerationCancelled {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "tool.requested")]
     ToolRequested {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "tool.running")]
+    ToolRunning {
         #[serde(default)]
         ts: u64,
         #[serde(default)]
@@ -191,6 +242,13 @@ pub enum TaskEvent {
     },
     #[serde(rename = "tool.blocked")]
     ToolBlocked {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "tool.cancelled")]
+    ToolCancelled {
         #[serde(default)]
         ts: u64,
         #[serde(default)]
@@ -388,6 +446,13 @@ pub enum TaskEvent {
     },
     #[serde(rename = "pending.actions")]
     PendingActions {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "input.queued")]
+    InputQueued {
         #[serde(default)]
         ts: u64,
         #[serde(default)]
@@ -612,11 +677,17 @@ impl TaskEvent {
             "plan.approved" => Self::PlanApproved { ts, data },
             "step.started" => Self::StepStarted { ts, data },
             "step.completed" => Self::StepCompleted { ts, data },
+            "generation.started" => Self::GenerationStarted { ts, data },
+            "generation.completed" => Self::GenerationCompleted { ts, data },
+            "generation.failed" => Self::GenerationFailed { ts, data },
+            "generation.cancelled" => Self::GenerationCancelled { ts, data },
             "tool.requested" => Self::ToolRequested { ts, data },
             "tool.called" => Self::ToolCalled { ts, data },
+            "tool.running" => Self::ToolRunning { ts, data },
             "tool.succeeded" => Self::ToolSucceeded { ts, data },
             "tool.failed" => Self::ToolFailed { ts, data },
             "tool.blocked" => Self::ToolBlocked { ts, data },
+            "tool.cancelled" => Self::ToolCancelled { ts, data },
             "artifact.created" => Self::ArtifactCreated { ts, data },
             "artifact.updated" => Self::ArtifactUpdated { ts, data },
             "artifact.selected" => Self::ArtifactSelected { ts, data },
@@ -645,6 +716,7 @@ impl TaskEvent {
             "tool.preflight_checked" => Self::ToolPreflightChecked { ts, data },
             "source.checked" => Self::SourceChecked { ts, data },
             "pending.actions" => Self::PendingActions { ts, data },
+            "input.queued" => Self::InputQueued { ts, data },
             "quick.utility" => Self::QuickUtility { ts, data },
             "budget.warning" => Self::BudgetWarning { ts, data },
             "memory.state" => Self::MemoryState { ts, data },
@@ -694,6 +766,45 @@ impl TaskEvent {
             Self::TaskStarted { .. } => {
                 let payload = decode_payload::<CanonicalTaskPayload>(event_type, data)?;
                 require_non_empty(payload.id.as_deref(), "data.id")
+            }
+            Self::GenerationStarted { .. }
+            | Self::GenerationCompleted { .. }
+            | Self::GenerationFailed { .. }
+            | Self::GenerationCancelled { .. } => {
+                require_non_empty(data.get("id").and_then(Value::as_str), "data.id")?;
+                require_non_empty(data.get("turn_id").and_then(Value::as_str), "data.turn_id")?;
+                require_non_empty(
+                    data.get("taskRunId").and_then(Value::as_str),
+                    "data.taskRunId",
+                )?;
+                require_non_negative_safe_integer(data, "seq")?;
+                if matches!(
+                    self,
+                    Self::GenerationFailed { .. } | Self::GenerationCancelled { .. }
+                ) {
+                    require_non_empty(data.get("reason").and_then(Value::as_str), "data.reason")?;
+                }
+                Ok(())
+            }
+            Self::InputQueued { .. } => {
+                require_non_empty(data.get("id").and_then(Value::as_str), "data.id")?;
+                require_non_empty(data.get("turn_id").and_then(Value::as_str), "data.turn_id")?;
+                require_non_empty(
+                    data.get("taskRunId").and_then(Value::as_str),
+                    "data.taskRunId",
+                )?;
+                require_non_negative_safe_integer(data, "seq")?;
+                require_positive_safe_integer(data, "position")
+            }
+            Self::ToolRunning { .. } | Self::ToolCancelled { .. } => {
+                require_non_empty(data.get("id").and_then(Value::as_str), "data.id")?;
+                require_non_empty(data.get("turn_id").and_then(Value::as_str), "data.turn_id")?;
+                require_non_empty(
+                    data.get("taskRunId").and_then(Value::as_str),
+                    "data.taskRunId",
+                )?;
+                require_non_empty(data.get("tool").and_then(Value::as_str), "data.tool")?;
+                require_non_negative_safe_integer(data, "seq")
             }
             Self::TaskModeChanged { .. } => {
                 require_non_empty(
@@ -837,11 +948,17 @@ impl TaskEvent {
             Self::PlanApproved { .. } => "plan.approved",
             Self::StepStarted { .. } => "step.started",
             Self::StepCompleted { .. } => "step.completed",
+            Self::GenerationStarted { .. } => "generation.started",
+            Self::GenerationCompleted { .. } => "generation.completed",
+            Self::GenerationFailed { .. } => "generation.failed",
+            Self::GenerationCancelled { .. } => "generation.cancelled",
             Self::ToolRequested { .. } => "tool.requested",
             Self::ToolCalled { .. } => "tool.called",
+            Self::ToolRunning { .. } => "tool.running",
             Self::ToolSucceeded { .. } => "tool.succeeded",
             Self::ToolFailed { .. } => "tool.failed",
             Self::ToolBlocked { .. } => "tool.blocked",
+            Self::ToolCancelled { .. } => "tool.cancelled",
             Self::ArtifactCreated { .. } => "artifact.created",
             Self::ArtifactUpdated { .. } => "artifact.updated",
             Self::ArtifactSelected { .. } => "artifact.selected",
@@ -870,6 +987,7 @@ impl TaskEvent {
             Self::ToolPreflightChecked { .. } => "tool.preflight_checked",
             Self::SourceChecked { .. } => "source.checked",
             Self::PendingActions { .. } => "pending.actions",
+            Self::InputQueued { .. } => "input.queued",
             Self::QuickUtility { .. } => "quick.utility",
             Self::BudgetWarning { .. } => "budget.warning",
             Self::MemoryState { .. } => "memory.state",
@@ -901,11 +1019,17 @@ impl TaskEvent {
             | Self::PlanApproved { data, .. }
             | Self::StepStarted { data, .. }
             | Self::StepCompleted { data, .. }
+            | Self::GenerationStarted { data, .. }
+            | Self::GenerationCompleted { data, .. }
+            | Self::GenerationFailed { data, .. }
+            | Self::GenerationCancelled { data, .. }
             | Self::ToolRequested { data, .. }
             | Self::ToolCalled { data, .. }
+            | Self::ToolRunning { data, .. }
             | Self::ToolSucceeded { data, .. }
             | Self::ToolFailed { data, .. }
             | Self::ToolBlocked { data, .. }
+            | Self::ToolCancelled { data, .. }
             | Self::ArtifactCreated { data, .. }
             | Self::ArtifactUpdated { data, .. }
             | Self::ArtifactSelected { data, .. }
@@ -934,6 +1058,7 @@ impl TaskEvent {
             | Self::ToolPreflightChecked { data, .. }
             | Self::SourceChecked { data, .. }
             | Self::PendingActions { data, .. }
+            | Self::InputQueued { data, .. }
             | Self::QuickUtility { data, .. }
             | Self::BudgetWarning { data, .. }
             | Self::MemoryState { data, .. }
@@ -967,11 +1092,17 @@ impl TaskEvent {
             | Self::PlanApproved { ts, .. }
             | Self::StepStarted { ts, .. }
             | Self::StepCompleted { ts, .. }
+            | Self::GenerationStarted { ts, .. }
+            | Self::GenerationCompleted { ts, .. }
+            | Self::GenerationFailed { ts, .. }
+            | Self::GenerationCancelled { ts, .. }
             | Self::ToolRequested { ts, .. }
             | Self::ToolCalled { ts, .. }
+            | Self::ToolRunning { ts, .. }
             | Self::ToolSucceeded { ts, .. }
             | Self::ToolFailed { ts, .. }
             | Self::ToolBlocked { ts, .. }
+            | Self::ToolCancelled { ts, .. }
             | Self::ArtifactCreated { ts, .. }
             | Self::ArtifactUpdated { ts, .. }
             | Self::ArtifactSelected { ts, .. }
@@ -1000,6 +1131,7 @@ impl TaskEvent {
             | Self::ToolPreflightChecked { ts, .. }
             | Self::SourceChecked { ts, .. }
             | Self::PendingActions { ts, .. }
+            | Self::InputQueued { ts, .. }
             | Self::QuickUtility { ts, .. }
             | Self::BudgetWarning { ts, .. }
             | Self::MemoryState { ts, .. }
@@ -1126,6 +1258,89 @@ mod tests {
         assert_eq!(
             TaskEvent::from_parts("task.revision_needed", 1, json!({})).event_type(),
             "task.revision_needed"
+        );
+    }
+
+    #[test]
+    fn streaming_lifecycle_payloads_validate_correlation_and_safe_integers() {
+        let correlated = json!({
+            "id":"generation-1",
+            "turn_id":"turn-1",
+            "taskRunId":"task-1",
+            "seq":1
+        });
+        for kind in ["generation.started", "generation.completed"] {
+            TaskEvent::from_parts(kind, 1, correlated.clone())
+                .validate_payload()
+                .unwrap_or_else(|error| panic!("{kind}: {error}"));
+        }
+        for kind in ["generation.failed", "generation.cancelled"] {
+            let mut data = correlated.clone();
+            data["reason"] = Value::String("stopped".to_string());
+            TaskEvent::from_parts(kind, 1, data)
+                .validate_payload()
+                .unwrap_or_else(|error| panic!("{kind}: {error}"));
+        }
+        for kind in ["tool.running", "tool.cancelled"] {
+            TaskEvent::from_parts(
+                kind,
+                1,
+                json!({"id":"tool-1","tool":"web_search","turn_id":"turn-1","taskRunId":"task-1","seq":2}),
+            )
+            .validate_payload()
+            .unwrap_or_else(|error| panic!("{kind}: {error}"));
+        }
+        TaskEvent::from_parts(
+            "input.queued",
+            1,
+            json!({"id":"input-1","turn_id":"turn-1","taskRunId":"task-1","seq":3,"position":1}),
+        )
+        .validate_payload()
+        .expect("valid queued input");
+
+        let invalid = [
+            TaskEvent::from_parts(
+                "generation.started",
+                1,
+                json!({"id":"g","taskRunId":"task-1","seq":1}),
+            ),
+            TaskEvent::from_parts(
+                "generation.failed",
+                1,
+                json!({"id":"g","turn_id":"turn-1","taskRunId":"task-1","seq":1}),
+            ),
+            TaskEvent::from_parts(
+                "tool.running",
+                1,
+                json!({"id":"tool-1","tool":"web_search","turn_id":"turn-1","taskRunId":"task-1","seq":-1}),
+            ),
+            TaskEvent::from_parts(
+                "tool.cancelled",
+                1,
+                json!({"id":"tool-1","turn_id":"turn-1","taskRunId":"task-1","seq":2}),
+            ),
+            TaskEvent::from_parts(
+                "input.queued",
+                1,
+                json!({"id":"input-1","turn_id":"turn-1","taskRunId":"task-1","seq":3,"position":0}),
+            ),
+        ];
+        for event in invalid {
+            assert!(
+                event.validate_payload().is_err(),
+                "{} must fail closed",
+                event.event_type()
+            );
+        }
+        assert!(
+            TaskEvent::from_parts(
+                "generation.completed",
+                1,
+                json!({"id":"g","turn_id":"turn-1","taskRunId":"task-1","seq":9_007_199_254_740_992_u64}),
+            )
+            .validate_payload()
+            .unwrap_err()
+            .contains("safe integer")
         );
     }
 

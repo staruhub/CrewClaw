@@ -1,7 +1,7 @@
-// Generates the website's employee dataset from the real sources of truth: registry/experts.json
-// plus each expert package's two standard files (hire.yaml + crewclaw.employee.yaml). This retires
-// the hand-copied src/data/employees.ts literals — the website is a projection of the registry,
-// never a second place where employee facts are typed by hand.
+// Generates the website's employee dataset from the real sources of truth: registry/experts.json,
+// each expert package's two standard files, and the canonical ToolCatalog. This retires the
+// hand-copied src/data/employees.ts literals — the website is a projection, never a second place
+// where employee facts or tool policy are typed by hand.
 //
 //   pnpm run web:employees
 //
@@ -17,8 +17,40 @@ import {
 import yaml from "../../packages/runtime/yaml.mjs";
 import { EmployeeSpecSchema } from "../employee-spec";
 import { EmployeeManifestSchema } from "../manifest";
+import { getToolCapability } from "../tool-catalog";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
+
+export type GeneratedToolCapability = {
+  capability: string;
+  necessity: "required" | "conditional" | "non_default" | "disabled";
+  permission: "readonly" | "write" | "requires_authorization" | "disabled";
+  description: string;
+  scopes: string[];
+  approval: "never" | "when_needed" | "always" | null;
+  purpose: string | null;
+  limits: {
+    max_calls_per_task?: number;
+    timeout_ms?: number;
+  } | null;
+  on_unavailable: "fail" | "degrade" | "ask_user" | "skip" | null;
+  capability_version: string;
+  invocation: "model" | "engine" | "adapter";
+  operation: "read" | "write" | "send" | "execute";
+  risk_tier: "P0" | "P1" | "P2" | "P3" | "P4";
+  runtime_tool: string | null;
+  provider_bindings: { provider: string; tools: string[] }[];
+  side_effects: string[];
+  supports_preview: boolean;
+  idempotent: boolean;
+  timeout_ms: number;
+  error_codes: string[];
+  availability:
+    | "runtime_implementation"
+    | "engine_service"
+    | "adapter_required"
+    | "policy_disabled";
+};
 
 export type GeneratedEmployee = {
   employee_id: string;
@@ -48,6 +80,7 @@ export type GeneratedEmployee = {
   };
   skills: string[];
   tools: string[];
+  tool_capabilities: GeneratedToolCapability[];
   permissions: string[];
   examples: { inputs: string[]; outputs: string[] };
   limitations: string[];
@@ -78,15 +111,54 @@ export function buildWebEmployees(root = repoRoot): GeneratedDataset {
           )
         )
       );
-      // The runtime spec is not projected onto the website yet, but parsing it here enforces
-      // that every published employee ships a valid two-file standard, not just a hire contract.
-      EmployeeSpecSchema.parse(
+      const spec = EmployeeSpecSchema.parse(
         yaml.load(
           readFileSync(
             resolveExpertSourceFile(root, entry, "crewclaw.employee.yaml"),
             "utf8"
           )
         )
+      );
+      const toolCapabilities = Object.entries(spec.tool_needs).map(
+        ([capability, need]) => {
+          const catalog = getToolCapability(capability);
+          if (!catalog) {
+            throw new Error(
+              `${entry.name}: tool_needs references unknown capability ${capability}`
+            );
+          }
+          const availability =
+            need.necessity === "disabled"
+              ? "policy_disabled"
+              : catalog.invocation === "adapter"
+                ? "adapter_required"
+                : catalog.runtime_tool
+                  ? "runtime_implementation"
+                  : "engine_service";
+          return {
+            capability,
+            necessity: need.necessity,
+            permission: need.permission,
+            description: need.description,
+            scopes: need.scopes ?? [],
+            approval: need.approval ?? null,
+            purpose: need.purpose ?? null,
+            limits: need.limits ?? null,
+            on_unavailable: need.on_unavailable ?? null,
+            capability_version: catalog.version,
+            invocation: catalog.invocation,
+            operation: catalog.operation,
+            risk_tier: catalog.risk_tier,
+            runtime_tool: catalog.runtime_tool,
+            provider_bindings: catalog.provider_bindings,
+            side_effects: catalog.side_effects,
+            supports_preview: catalog.supports_preview,
+            idempotent: catalog.idempotent,
+            timeout_ms: catalog.timeout_ms,
+            error_codes: catalog.error_codes,
+            availability,
+          } satisfies GeneratedToolCapability;
+        }
       );
 
       if (hire.metadata.id !== entry.name) {
@@ -126,6 +198,7 @@ export function buildWebEmployees(root = repoRoot): GeneratedDataset {
         identity: hire.identity,
         skills: hire.skills,
         tools: hire.tools,
+        tool_capabilities: toolCapabilities,
         permissions: hire.permissions,
         examples: hire.examples,
         limitations: hire.limitations,
@@ -138,12 +211,13 @@ export function buildWebEmployees(root = repoRoot): GeneratedDataset {
 
   return {
     $comment:
-      "GENERATED — do not edit. Run `pnpm run web:employees` after changing the registry or any hire.yaml.",
+      "GENERATED — do not edit. Run `pnpm run web:employees` after changing the registry, an employee package, or ToolCatalog.",
     generated_by: "contracts/scripts/generate-web-employees.ts",
     sources: [
       "registry/experts.json",
       "experts/*/hire.yaml",
       "experts/*/crewclaw.employee.yaml",
+      "contracts/tool-catalog.json",
     ],
     employees,
   };

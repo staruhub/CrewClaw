@@ -27,10 +27,15 @@ const TaskEventSchema = z.object({
 
 const ToolInvocationSchema = z.object({
   tool_name: z.string().min(1).max(256),
+  capability: z.string().min(1).max(256).optional(),
   input_summary: z.string().max(64 * 1024),
   permission_level: z.string().max(256).nullable(),
+  decision_source: z.string().min(1).max(256).optional(),
   decision: z.enum(["allow", "confirm", "deny"]),
-  status: z.enum(["success", "blocked"]),
+  status: z.enum(["success", "blocked", "error", "cancelled"]),
+  started_at: z.string().min(1).max(256).optional(),
+  ended_at: z.string().min(1).max(256).optional(),
+  elapsed_ms: z.number().finite().nonnegative().optional(),
   action: z
     .string()
     .max(64 * 1024)

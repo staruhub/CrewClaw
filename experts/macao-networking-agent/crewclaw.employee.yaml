@@ -57,31 +57,66 @@ tool_needs:
     necessity: required
     permission: readonly
     description: 搜索澳门活动、机构和公开人物信息。
-  web.extract:
+    scopes:
+      - public_web
+    on_unavailable: degrade
+  web.fetch:
     necessity: required
     permission: readonly
     description: 读取活动页面和机构介绍。
+    on_unavailable: fail
+  source.verify:
+    necessity: required
+    permission: readonly
+    description: 核实活动状态、主办方和人物公开身份。
+    on_unavailable: fail
+  evidence.create:
+    necessity: required
+    permission: write
+    description: 保存可追溯的活动和机构证据卡。
+    on_unavailable: fail
   artifact.report:
     necessity: required
     permission: write
     description: 生成活动清单、线索图和草稿交付物。
+    on_unavailable: fail
   browser.render:
     necessity: conditional
     permission: requires_authorization
     description: JS 活动页面 fallback。
+    approval: when_needed
+    on_unavailable: degrade
+  places.search:
+    necessity: conditional
+    permission: requires_authorization
+    description: 经授权搜索适合会面的澳门公开场所。
+    approval: always
+    on_unavailable: degrade
   contacts.read:
     necessity: non_default
     permission: requires_authorization
     description: 默认关闭；仅在用户显式授权后读取其提供的联系人上下文。
+    approval: always
+    scopes:
+      - user_selected_contacts
+    on_unavailable: ask_user
+  calendar.availability.read:
+    necessity: non_default
+    permission: requires_authorization
+    description: 默认关闭；仅查询用户授权日历的忙闲，不读取事件正文。
+    approval: always
+    scopes:
+      - availability_only
+    on_unavailable: ask_user
   crm.write:
     necessity: disabled
     permission: disabled
     description: 不写 CRM，只草拟和推荐。
-  notify:
+  message.send:
     necessity: disabled
     permission: disabled
     description: 外发消息必须由人工确认后手动发送。
-  email:
+  email.send:
     necessity: disabled
     permission: disabled
     description: 外发邮件必须由人工确认后手动发送。
@@ -96,18 +131,23 @@ permission_policy:
     P4: 禁止外发消息、邮件、付款和 CRM 写入。
   grants:
     web.search: P0
-    web.extract: P0
+    web.fetch: P0
+    source.verify: P0
+    evidence.create: P1
     artifact.report: P1
     browser.render: P2
+    places.search: P2
     contacts.read: P3
+    calendar.availability.read: P3
   denied:
-    notify: P4
-    email: P4
-    payments: P4
     crm.write: P4
+    message.send: P4
+    email.send: P4
   human_authorization_required:
     - browser.render
+    - places.search
     - contacts.read
+    - calendar.availability.read
 
 playbooks:
   - id: event_discovery
@@ -210,15 +250,19 @@ workbench_profile:
 runtime_requirements:
   capabilities:
     - web.search
-    - web.extract
+    - web.fetch
+    - source.verify
+    - evidence.create
     - artifact.report
   optional_capabilities:
     - browser.render
+    - places.search
     - contacts.read
+    - calendar.availability.read
   disabled_capabilities:
-    - notify
-    - email
     - crm.write
+    - message.send
+    - email.send
 
 compatibility_targets:
   OpenWork:

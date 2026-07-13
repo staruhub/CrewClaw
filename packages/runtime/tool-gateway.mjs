@@ -12,6 +12,47 @@ export const PERMISSION_LEVELS = {
   L4: "dangerous",
 };
 
+function dnsAbortError(reason) {
+  const error = new Error(
+    typeof reason === "string" && reason.trim()
+      ? reason.trim()
+      : "public URL resolution aborted"
+  );
+  error.name = "AbortError";
+  error.code = "ABORT_ERR";
+  return error;
+}
+
+function lookupWithAbort(promise, signal) {
+  if (!signal) return Promise.resolve(promise);
+  if (signal.aborted) return Promise.reject(dnsAbortError(signal.reason));
+  return new Promise((resolvePromise, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(dnsAbortError(signal.reason));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(promise).then(
+      value => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolvePromise(value);
+      },
+      error => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      }
+    );
+  });
+}
+
 function isPrivateIp(raw) {
   const ip = String(raw || "")
     .toLowerCase()
@@ -110,7 +151,7 @@ export function isPublicHttpUrl(rawUrl) {
 
 export async function resolvePublicHttpTarget(
   rawUrl,
-  { lookupFn = lookup } = {}
+  { lookupFn = lookup, signal } = {}
 ) {
   if (!isPublicHttpUrl(rawUrl))
     return { ok: false, reason: "invalid_or_private_url" };
@@ -131,7 +172,12 @@ export async function resolvePublicHttpTarget(
     };
   }
   try {
-    const resolved = await lookupFn(host, { all: true, verbatim: true });
+    const resolved = await lookupWithAbort(
+      Promise.resolve().then(() =>
+        lookupFn(host, { all: true, verbatim: true })
+      ),
+      signal
+    );
     const addresses = (Array.isArray(resolved) ? resolved : [resolved])
       .map(entry => ({
         address: String(entry?.address || ""),
@@ -162,7 +208,8 @@ export async function resolvePublicHttpTarget(
       family: selected.family,
       addresses,
     };
-  } catch {
+  } catch (error) {
+    if (signal?.aborted || error?.name === "AbortError") throw error;
     return { ok: false, reason: "dns_resolution_failed", hostname: host };
   }
 }
@@ -186,6 +233,9 @@ const STATIC_CLASSIFICATIONS = {
   list_files: { level: "L1", scope: "workspace", action: "read" },
   grep_repo: { level: "L1", scope: "workspace", action: "read" },
   search: { level: "L1", scope: "workspace", action: "read" },
+  git_diff: { level: "L1", scope: "workspace", action: "read" },
+  git_status: { level: "L1", scope: "workspace", action: "read" },
+  test_run: { level: "L2", scope: "workspace", action: "execute" },
   write_file: { level: "L2", scope: "workspace", action: "write" },
   edit_file: { level: "L2", scope: "workspace", action: "write" },
   write_patch: { level: "L2", scope: "workspace", action: "write" },
@@ -543,14 +593,204 @@ function reasonFor(decision, classification) {
   return "策略未知，默认拒绝";
 }
 
+function employeePolicyEntry(employeePolicy, toolName) {
+  if (!employeePolicy || typeof employeePolicy !== "object") return null;
+  const tools = employeePolicy.tools;
+  if (!tools || typeof tools !== "object") return undefined;
+  return Object.prototype.hasOwnProperty.call(tools, toolName)
+    ? tools[toolName]
+    : undefined;
+}
+
+// `web_fetch` has two capability aliases on one model function.  Keep the
+// classification and execution normalization in one exported helper: a blank
+// string is a normal fetch, a non-empty string is extraction, and any other
+// type is invalid rather than silently falling back to the lower capability.
+export function resolveWebFetchCapability(args) {
+  const value = args && typeof args === "object" ? args : {};
+  if (!Object.prototype.hasOwnProperty.call(value, "extract")) {
+    return { capability: "web.fetch", args: value };
+  }
+  if (typeof value.extract !== "string") {
+    return {
+      capability: null,
+      args: value,
+      error: "web_fetch.extract 必须是字符串",
+    };
+  }
+  const extract = value.extract.trim();
+  return {
+    capability: extract ? "web.fetch_extract" : "web.fetch",
+    args: { ...value, extract },
+  };
+}
+
+function applyEmployeePolicy({
+  employeePolicy,
+  toolName,
+  args,
+  classification,
+  platformDecision,
+  platformReason,
+}) {
+  if (!employeePolicy || typeof employeePolicy !== "object") {
+    return {
+      decision: platformDecision,
+      reason: platformReason,
+      decisionSource: "platform_policy",
+    };
+  }
+
+  const entry = employeePolicyEntry(employeePolicy, toolName);
+  if (entry === undefined) {
+    return {
+      decision: "deny",
+      reason: "该员工未声明此工具能力，已按最小权限拒绝",
+      decisionSource: "employee_policy",
+    };
+  }
+  if (!entry || typeof entry !== "object") {
+    return {
+      decision: "deny",
+      reason: "员工工具策略无效，已安全拒绝",
+      decisionSource: "employee_policy",
+    };
+  }
+
+  const capabilities = Array.isArray(entry.capabilities)
+    ? entry.capabilities.filter(value => typeof value === "string" && value)
+    : typeof entry.capability === "string"
+      ? [entry.capability]
+      : [];
+  const webFetchResolution =
+    toolName === "web_fetch" ? resolveWebFetchCapability(args) : null;
+  if (webFetchResolution?.error) {
+    return {
+      decision: "deny",
+      reason: webFetchResolution.error,
+      decisionSource: "tool_arguments",
+      capabilities,
+      employeePermission: entry.permission,
+    };
+  }
+  const argumentSelectedCapability = webFetchResolution?.capability;
+  if (
+    argumentSelectedCapability &&
+    !capabilities.includes(argumentSelectedCapability)
+  ) {
+    return {
+      decision: "deny",
+      reason: `调用参数选择了 ${argumentSelectedCapability}，但员工只声明了 ${capabilities.join(", ") || "无对应能力"}`,
+      decisionSource: "employee_policy",
+      capabilities,
+      employeePermission: entry.permission,
+    };
+  }
+  const capability = argumentSelectedCapability
+    ? argumentSelectedCapability
+    : typeof entry.capability === "string"
+      ? entry.capability
+      : capabilities.length === 1
+        ? capabilities[0]
+        : undefined;
+  const employeeContext = {
+    ...(capability ? { capability } : {}),
+    ...(capabilities.length ? { capabilities } : {}),
+  };
+  const necessity = entry.necessity;
+  const permission = entry.permission;
+  if (necessity === "disabled" || permission === "disabled") {
+    return {
+      decision: "deny",
+      reason: `员工策略明确禁用${capability ? ` ${capability}` : "此能力"}`,
+      decisionSource: "employee_policy",
+      ...employeeContext,
+      employeePermission: permission,
+    };
+  }
+  if (
+    (necessity === "non_default" || necessity === "conditional") &&
+    entry.granted !== true
+  ) {
+    return {
+      decision: "deny",
+      reason: `${capability || toolName} 是按需能力，当前任务尚未授权`,
+      decisionSource: "workspace_grant",
+      ...employeeContext,
+      employeePermission: permission,
+    };
+  }
+  if (platformDecision === "deny") {
+    return {
+      decision: "deny",
+      reason: platformReason,
+      decisionSource: "platform_policy",
+      ...employeeContext,
+      employeePermission: permission,
+    };
+  }
+  if (necessity === "non_default") {
+    return {
+      decision: "confirm",
+      reason: `${capability || toolName} 是显式启用能力，仍需要本次人工授权`,
+      decisionSource: "employee_policy",
+      ...employeeContext,
+      employeePermission: permission,
+    };
+  }
+
+  const readLike =
+    classification.action === "read" || classification.action === "render";
+  if (permission === "readonly" && !readLike) {
+    return {
+      decision: "deny",
+      reason: `${capability || toolName} 仅获只读权限，不能执行${classification.action}`,
+      decisionSource: "employee_policy",
+      ...employeeContext,
+      employeePermission: permission,
+    };
+  }
+  if (permission === "requires_authorization") {
+    return {
+      decision: "confirm",
+      reason: `${capability || toolName} 需要本次人工授权`,
+      decisionSource: "employee_policy",
+      ...employeeContext,
+      employeePermission: permission,
+    };
+  }
+  if (entry.approval === "always") {
+    return {
+      decision: "confirm",
+      reason: `${capability || toolName} 的员工策略要求每次调用人工确认`,
+      decisionSource: "employee_policy",
+      ...employeeContext,
+      employeePermission: permission,
+    };
+  }
+
+  return {
+    decision: platformDecision,
+    reason: platformReason,
+    decisionSource: "platform_policy",
+    ...employeeContext,
+    employeePermission: permission,
+  };
+}
+
 export function makeGateway(opts = {}) {
   const policy = Object.assign({}, DEFAULT_POLICY, opts.policy || {});
   const root = opts.root || process.cwd();
+  const employeePolicy = opts.employeePolicy || null;
   return {
     check(toolName, args = {}) {
       let classification = classify(toolName, args);
       let decision = policy[classification.level] || "deny";
       let reason = reasonFor(decision, classification);
+      let decisionSource = "platform_policy";
+      let capability;
+      let capabilities;
+      let employeePermission;
       if (
         (toolName === "web_fetch" || toolName === "browser_render") &&
         !isPublicHttpUrl(args.url)
@@ -562,6 +802,7 @@ export function makeGateway(opts = {}) {
         };
         decision = "deny";
         reason = "URL 不属于可验证的公开网络，已阻止本地/内网/元数据访问";
+        decisionSource = "network_scope";
       }
       // All workspace-scoped tools, including writes that already require confirmation, remain
       // confined to root. Human confirmation authorizes the action, not a silent scope expansion.
@@ -575,6 +816,7 @@ export function makeGateway(opts = {}) {
           };
           decision = "deny";
           reason = "路径在工作区外，超出员工权限范围";
+          decisionSource = "workspace_scope";
         }
       }
       // Shell authorization never expands the employee's filesystem capability. This applies to
@@ -591,12 +833,45 @@ export function makeGateway(opts = {}) {
         };
         decision = "deny";
         reason = "命令读取工作区外路径，超出员工权限范围";
+        decisionSource = "workspace_scope";
       }
+      const employee = applyEmployeePolicy({
+        employeePolicy,
+        toolName,
+        args,
+        classification,
+        platformDecision: decision,
+        platformReason: reason,
+      });
+      decision = employee.decision;
+      reason = employee.reason;
+      decisionSource =
+        decisionSource === "platform_policy"
+          ? employee.decisionSource
+          : decisionSource;
+      capability = employee.capability;
+      capabilities = employee.capabilities;
+      employeePermission = employee.employeePermission;
+      const policyEntry = employeePolicyEntry(employeePolicy, toolName);
+      const limits =
+        policyEntry?.limits && typeof policyEntry.limits === "object"
+          ? policyEntry.limits
+          : null;
       return {
         decision,
         level: classification.level,
         scope: classification.scope,
         reason,
+        decision_source: decisionSource,
+        ...(capability ? { capability } : {}),
+        ...(capabilities?.length ? { capabilities } : {}),
+        ...(employeePermission
+          ? { employee_permission: employeePermission }
+          : {}),
+        ...(limits ? { limits: { ...limits } } : {}),
+        ...(policyEntry?.on_unavailable
+          ? { on_unavailable: policyEntry.on_unavailable }
+          : {}),
       };
     },
   };
@@ -617,8 +892,11 @@ function summarizeInput(args) {
 
 export function auditRecord({
   toolName,
+  capability,
+  capabilities,
   args,
   decision,
+  decisionSource,
   level,
   startedAt,
   endedAt,
@@ -628,9 +906,14 @@ export function auditRecord({
 }) {
   return {
     tool_name: toolName,
+    ...(capability ? { capability } : {}),
+    ...(Array.isArray(capabilities) && capabilities.length
+      ? { capabilities }
+      : {}),
     input_summary: summarizeInput(args),
     permission_level: level,
     decision,
+    ...(decisionSource ? { decision_source: decisionSource } : {}),
     started_at: startedAt,
     ended_at: endedAt,
     status,

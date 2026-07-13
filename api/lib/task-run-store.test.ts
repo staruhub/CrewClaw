@@ -30,7 +30,7 @@ function taskRun(id = "task-safe", artifact: string | null = "artifact-safe") {
         timestamp: "2026-07-11T00:00:00.000Z",
       },
     ],
-    tool_invocations: [],
+    tool_invocations: [] as Array<Record<string, unknown>>,
     artifact,
     started_at: "2026-07-11T00:00:00.000Z",
     updated_at: "2026-07-11T00:00:01.000Z",
@@ -87,6 +87,48 @@ describe("public task-run state boundary", () => {
     expect(loaded?.artifacts[0]?.preview).toContain("reviewed bytes");
     expect(loaded).not.toHaveProperty("private_state");
     expect(loaded?.artifacts[0]).not.toHaveProperty("private_metadata");
+  });
+
+  it("projects runtime audit timestamps and non-success terminal tool states", async () => {
+    const root = await temporaryRoot();
+    const run = {
+      ...taskRun("task-audit", null),
+      tool_invocations: [
+        {
+          tool_name: "web_fetch",
+          capability: "web.fetch",
+          input_summary: "https://example.test",
+          permission_level: "L0",
+          decision_source: "employee_policy",
+          decision: "allow",
+          status: "error",
+          started_at: "2026-07-11T00:00:00.100Z",
+          ended_at: "2026-07-11T00:00:00.942Z",
+        },
+        {
+          tool_name: "web_search",
+          input_summary: "query",
+          permission_level: "L0",
+          decision: "allow",
+          status: "cancelled",
+          elapsed_ms: 500,
+        },
+      ],
+    };
+    await seedRun(root, run);
+
+    const loaded = await loadTaskRun("task-audit", { root });
+
+    expect(loaded?.tool_invocations).toMatchObject([
+      {
+        capability: "web.fetch",
+        decision_source: "employee_policy",
+        status: "error",
+        started_at: "2026-07-11T00:00:00.100Z",
+        ended_at: "2026-07-11T00:00:00.942Z",
+      },
+      { status: "cancelled", elapsed_ms: 500 },
+    ]);
   });
 
   it.each(["../../leak", "C:\\Users\\Public\\leak"])(

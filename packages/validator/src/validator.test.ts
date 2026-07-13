@@ -2,7 +2,14 @@ import { link, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { validateAllExperts, validateExpert } from "./index";
+import { EmployeeSpecSchema } from "../../../contracts/employee-spec";
+import { TOOL_CAPABILITIES } from "../../../contracts/tool-catalog";
+import runtimeYaml from "../../runtime/yaml.mjs";
+import {
+  validateAllExperts,
+  validateEmployeeToolContract,
+  validateExpert,
+} from "./index";
 
 const createdRoots: string[] = [];
 
@@ -42,11 +49,7 @@ async function makeExpertRoot() {
   );
   await writeFile(
     join(root, "mcp.json"),
-    JSON.stringify(
-      { mcp_servers: { github: { tools: { include: ["search_code"] } } } },
-      null,
-      2
-    )
+    JSON.stringify({ mcp_servers: {} }, null, 2)
   );
   await writeFile(join(root, ".env.EXAMPLE"), "OPENAI_API_KEY=\n");
   await writeFile(join(root, "CERTIFICATION.md"), "# Certification\nC2\n");
@@ -138,10 +141,8 @@ function makeSpecYaml() {
     "    P1: Write artifacts.",
     "  grants:",
     "    files.read: P0",
-    "  denied:",
-    "    notify: P4",
-    "  human_authorization_required:",
-    "    - shell.run",
+    "  denied: {}",
+    "  human_authorization_required: []",
     "eval_suite:",
     "  smoke_tests:",
     "    - id: smoke-1",
@@ -240,6 +241,71 @@ describe("validateExpert", () => {
 
     expect(result.ok).toBe(true);
     expect(result.errors).toEqual([]);
+  });
+
+  it("rejects an employee capability that is not in the catalog", async () => {
+    const root = await makeExpertRoot();
+    const unknownCapability = makeSpecYaml()
+      .replace("  files.read:\n", "  shadow.root:\n")
+      .replace("    files.read: P0", "    shadow.root: P0");
+    await writeFile(join(root, "crewclaw.employee.yaml"), unknownCapability);
+
+    const result = await validateExpert(root);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("unknown tool capability");
+  });
+
+  it("rejects granting a capability declared disabled", async () => {
+    const root = await makeExpertRoot();
+    const disabledButGranted = makeSpecYaml()
+      .replace("    necessity: required", "    necessity: disabled")
+      .replace("    permission: readonly", "    permission: disabled");
+    await writeFile(join(root, "crewclaw.employee.yaml"), disabledButGranted);
+
+    const result = await validateExpert(root);
+
+    expect(result.errors).toContain(
+      "Disabled capability cannot be granted: files.read"
+    );
+  });
+
+  it("rejects a required capability without any executable binding", () => {
+    const spec = EmployeeSpecSchema.parse(runtimeYaml.load(makeSpecYaml()));
+    const filesRead = TOOL_CAPABILITIES.get("files.read");
+    expect(filesRead).toBeDefined();
+    const unboundCatalog = new Map(TOOL_CAPABILITIES);
+    unboundCatalog.set("files.read", {
+      ...filesRead!,
+      runtime_tool: null,
+      provider_bindings: [],
+    });
+
+    expect(validateEmployeeToolContract(spec, unboundCatalog)).toContain(
+      "Required capability has no executable binding: files.read"
+    );
+  });
+
+  it("rejects an MCP allowlist that exceeds the employee capability contract", async () => {
+    const root = await makeExpertRoot();
+    await writeFile(
+      join(root, "mcp.json"),
+      JSON.stringify(
+        {
+          mcp_servers: {
+            github: { tools: { include: ["search_code"] } },
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const result = await validateExpert(root);
+
+    expect(result.errors).toContain(
+      "MCP tool exceeds employee capability contract: github.search_code"
+    );
   });
 
   it("validates hire.yaml manifests with the shared EmployeeManifestSchema", async () => {

@@ -53,7 +53,9 @@ export function buildRunTurn({
       onDelta: sink.onDelta,
       onThinking: sink.onThinking,
       onInvocation: sink.onInvocation,
+      onToolEvent: sink.onToolEvent,
       onUsage: sink.onUsage,
+      signal: sink.signal,
       confirm: sink.confirm || agentLoopDeps.confirm,
     });
     if (saveSession) saveSession();
@@ -73,7 +75,9 @@ export function buildQuickUtilityTurn({ agentLoop, agentLoopDeps = {} }) {
       onDelta: sink.onDelta,
       onThinking: sink.onThinking,
       onInvocation: sink.onInvocation,
+      onToolEvent: sink.onToolEvent,
       onUsage: sink.onUsage,
+      signal: sink.signal,
       confirm: sink.confirm || agentLoopDeps.confirm,
     });
   };

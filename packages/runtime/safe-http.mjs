@@ -26,6 +26,50 @@ const CROSS_ORIGIN_SECRET_HEADERS = new Set([
 export const MAX_PUBLIC_BODY_BYTES = 2 * 1024 * 1024;
 export const MAX_PUBLIC_REQUEST_BYTES = 1024 * 1024;
 
+function abortError(reason) {
+  const error = new Error(
+    typeof reason === "string" && reason.trim()
+      ? reason.trim()
+      : "public HTTP request aborted"
+  );
+  error.name = "AbortError";
+  error.code = "ABORT_ERR";
+  return error;
+}
+
+// DNS/policy resolvers do not universally accept AbortSignal. Attach fulfillment and rejection
+// handlers before racing so a resolver that settles after abort is consumed, not leaked as an
+// unhandled rejection.
+function awaitWithAbort(promise, signal) {
+  if (!signal) return Promise.resolve(promise);
+  if (signal.aborted) return Promise.reject(abortError(signal.reason));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(abortError(signal.reason));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(promise).then(
+      value => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      },
+      error => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      }
+    );
+  });
+}
+
 function normalizeHeaders(headers = {}) {
   const normalized = {};
   for (const [name, value] of Object.entries(headers || {})) {
@@ -205,7 +249,10 @@ export async function requestPublicText(
   }
 
   for (let redirects = 0; redirects <= maxRedirects; redirects += 1) {
-    const target = await resolveTarget(currentUrl);
+    const target = await awaitWithAbort(
+      Promise.resolve().then(() => resolveTarget(currentUrl)),
+      signal
+    );
     if (!target?.ok) {
       return {
         ok: false,

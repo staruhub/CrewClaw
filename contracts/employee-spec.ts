@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { DreamPolicySchema } from "./dream";
+import { TOOL_CAPABILITY_IDS } from "./tool-catalog";
 
 // EmployeeSpecSchema — the runtime deep spec (`crewclaw.employee.yaml`), layered ABOVE the hiring
 // contract (`hire.yaml`, see ./manifest.ts). Two-file standard, locked in PRD v0.18:
@@ -28,13 +29,68 @@ const ToolPermissionSchema = z.enum([
   "disabled",
 ]);
 
-const ToolNeedSchema = z
+const ToolApprovalSchema = z.enum(["never", "when_needed", "always"]);
+const ToolUnavailablePolicySchema = z.enum([
+  "fail",
+  "degrade",
+  "ask_user",
+  "skip",
+]);
+const ToolLimitsSchema = z
+  .object({
+    max_calls_per_task: z.number().int().positive().optional(),
+    timeout_ms: z.number().int().positive().max(300_000).optional(),
+  })
+  .strict();
+
+export const ToolNeedSchema = z
   .object({
     necessity: ToolNecessitySchema,
     permission: ToolPermissionSchema,
     description: NonEmptyStringSchema,
+    scopes: StringArraySchema.optional(),
+    approval: ToolApprovalSchema.optional(),
+    purpose: NonEmptyStringSchema.optional(),
+    limits: ToolLimitsSchema.optional(),
+    on_unavailable: ToolUnavailablePolicySchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((need, ctx) => {
+    if ((need.necessity === "disabled") !== (need.permission === "disabled")) {
+      ctx.addIssue({
+        code: "custom",
+        message: "disabled necessity and permission must be declared together",
+      });
+    }
+    if (
+      need.permission === "requires_authorization" &&
+      need.approval === "never"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["approval"],
+        message: "requires_authorization cannot use approval=never",
+      });
+    }
+    if (need.necessity === "required" && need.on_unavailable === "skip") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["on_unavailable"],
+        message: "required capability cannot be silently skipped",
+      });
+    }
+    if (
+      need.necessity === "non_default" &&
+      need.permission !== "requires_authorization"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["permission"],
+        message:
+          "non_default capability must retain per-call requires_authorization",
+      });
+    }
+  });
 
 const SmokeTestSchema = z
   .object({
@@ -94,7 +150,19 @@ export const EmployeeSpecSchema = z
           .strict()
       )
       .min(1),
-    tool_needs: z.record(NonEmptyStringSchema, ToolNeedSchema),
+    tool_needs: z
+      .record(NonEmptyStringSchema, ToolNeedSchema)
+      .superRefine((needs, ctx) => {
+        for (const capability of Object.keys(needs)) {
+          if (!TOOL_CAPABILITY_IDS.has(capability)) {
+            ctx.addIssue({
+              code: "custom",
+              path: [capability],
+              message: `unknown tool capability: ${capability}`,
+            });
+          }
+        }
+      }),
     permission_policy: z
       .object({
         default_level: NonEmptyStringSchema,

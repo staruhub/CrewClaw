@@ -53,27 +53,55 @@ deliverables:
     name: 待确认的群发草稿
 
 tool_needs:
-  web.search:
-    necessity: conditional
-    permission: readonly
-    description: 找内容素材和行业热点。
-  files.read:
+  community.context.read:
     necessity: required
     permission: readonly
-    description: 读取用户提供的社群口径和历史内容。
+    description: 读取用户明确提供的社群口径、历史内容和聚合数据。
+    scopes:
+      - user_provided_context
+    on_unavailable: fail
   artifact.report:
     necessity: required
     permission: write
     description: 生成排期、玩法和 SOP 文档。
-  broadcast.send:
+    on_unavailable: fail
+  web.search:
+    necessity: conditional
+    permission: readonly
+    description: 找内容素材和行业热点。
+    on_unavailable: degrade
+  web.fetch:
+    necessity: conditional
+    permission: readonly
+    description: 读取公开素材原文，避免只凭搜索摘要判断。
+    on_unavailable: degrade
+  source.verify:
+    necessity: conditional
+    permission: readonly
+    description: 核实公开素材来源并区分事实与运营假设。
+    on_unavailable: degrade
+  analytics.aggregate:
     necessity: non_default
     permission: requires_authorization
-    description: 只草拟群发内容，必须人工确认后才发。
+    description: 经授权读取去标识化的聚合健康度指标，不读取成员级数据。
+    approval: always
+    scopes:
+      - aggregate_only
+    on_unavailable: ask_user
+  broadcast.draft:
+    necessity: conditional
+    permission: write
+    description: 生成待人工确认的群发草稿 Artifact，不执行发送。
+    on_unavailable: degrade
+  broadcast.send:
+    necessity: disabled
+    permission: disabled
+    description: 禁止自动群发；只能使用 broadcast.draft。
   member_data.write:
     necessity: disabled
     permission: disabled
     description: 不写入成员数据。
-  notify:
+  message.send:
     necessity: disabled
     permission: disabled
     description: 不自动外发通知。
@@ -87,18 +115,19 @@ permission_policy:
     P3: 经授权草拟群发内容，仍需人工确认发送。
     P4: 禁止自动群发、写入成员隐私数据和读取未授权数据。
   grants:
-    files.read: P0
+    community.context.read: P0
     web.search: P0
+    web.fetch: P0
+    source.verify: P0
     artifact.report: P1
-    broadcast.send: P3
+    analytics.aggregate: P2
+    broadcast.draft: P1
   denied:
+    broadcast.send: P4
     member_data.write: P4
-    notify: P4
-    payments: P4
+    message.send: P4
   human_authorization_required:
-    - broadcast.send
-    - community_data.read
-    - member_data.read
+    - analytics.aggregate
 
 playbooks:
   - id: weekly_content_calendar

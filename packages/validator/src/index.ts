@@ -11,6 +11,10 @@ import {
   type EmployeeSpec,
 } from "../../../contracts/employee-spec";
 import {
+  TOOL_CAPABILITIES,
+  type ToolCapability,
+} from "../../../contracts/tool-catalog";
+import {
   containsForbiddenSecret,
   EMPLOYEE_PACKAGE_LIMITS,
   isForbiddenPath,
@@ -509,6 +513,139 @@ function validateRegistryConsistency(
   }
 }
 
+type EmployeeToolContract = Pick<
+  EmployeeSpec,
+  "tool_needs" | "permission_policy"
+>;
+
+export function validateEmployeeToolContract(
+  spec: EmployeeToolContract,
+  catalog: ReadonlyMap<string, ToolCapability> = TOOL_CAPABILITIES
+): string[] {
+  const errors: string[] = [];
+  const {
+    grants,
+    denied,
+    human_authorization_required: authorization,
+  } = spec.permission_policy;
+  const authorizationSet = new Set(authorization);
+
+  for (const [id, need] of Object.entries(spec.tool_needs)) {
+    const capability = catalog.get(id);
+    if (!capability) {
+      errors.push(`Unknown tool capability: ${id}`);
+      continue;
+    }
+
+    if (
+      need.necessity === "required" &&
+      capability.runtime_tool === null &&
+      capability.provider_bindings.length === 0
+    ) {
+      errors.push(`Required capability has no executable binding: ${id}`);
+    }
+    if (need.permission === "readonly" && capability.operation !== "read") {
+      errors.push(
+        `Readonly permission cannot grant ${capability.operation} capability: ${id}`
+      );
+    }
+    if (need.permission === "write" && capability.operation !== "write") {
+      errors.push(
+        `Write permission does not match ${capability.operation} capability: ${id}`
+      );
+    }
+
+    const isGranted = Object.hasOwn(grants, id);
+    const isDenied = Object.hasOwn(denied, id);
+    if (need.necessity === "disabled" && isGranted) {
+      errors.push(`Disabled capability cannot be granted: ${id}`);
+    }
+    if (need.necessity !== "disabled" && isDenied) {
+      errors.push(`Enabled capability cannot be denied: ${id}`);
+    }
+    if (
+      need.permission === "requires_authorization" &&
+      !authorizationSet.has(id)
+    ) {
+      errors.push(`Authorization-required capability is not gated: ${id}`);
+    }
+    if (
+      need.permission !== "requires_authorization" &&
+      authorizationSet.has(id)
+    ) {
+      errors.push(`Authorization gate references an ungated capability: ${id}`);
+    }
+  }
+
+  for (const id of Object.keys(grants)) {
+    if (!catalog.has(id)) errors.push(`Unknown granted capability: ${id}`);
+    else if (!Object.hasOwn(spec.tool_needs, id))
+      errors.push(`Grant references undeclared capability: ${id}`);
+  }
+  for (const id of Object.keys(denied)) {
+    if (!catalog.has(id)) errors.push(`Unknown denied capability: ${id}`);
+    else if (!Object.hasOwn(spec.tool_needs, id))
+      errors.push(`Deny references undeclared capability: ${id}`);
+  }
+  for (const id of authorizationSet) {
+    if (!catalog.has(id))
+      errors.push(`Unknown authorization-gated capability: ${id}`);
+    else if (!Object.hasOwn(spec.tool_needs, id))
+      errors.push(`Authorization gate references undeclared capability: ${id}`);
+  }
+
+  return [...new Set(errors)];
+}
+
+function validateMcpToolAllowlist(
+  spec: EmployeeToolContract,
+  servers: Record<string, unknown>,
+  errors: string[]
+) {
+  for (const [serverName, serverConfig] of Object.entries(servers)) {
+    const tools = (
+      serverConfig as { tools?: { include?: unknown; exclude?: unknown } }
+    ).tools;
+    if (!tools) continue;
+    if (!Array.isArray(tools.include)) {
+      errors.push(
+        `MCP server must use an explicit tool include allowlist: ${serverName}`
+      );
+      continue;
+    }
+
+    const provider = `mcp.${serverName}`;
+    for (const rawTool of tools.include) {
+      if (typeof rawTool !== "string") {
+        errors.push(`MCP tool allowlist contains a non-string: ${serverName}`);
+        continue;
+      }
+      const matchingCapabilities = [...TOOL_CAPABILITIES.values()].filter(
+        capability =>
+          capability.provider_bindings.some(
+            binding =>
+              binding.provider === provider && binding.tools.includes(rawTool)
+          )
+      );
+      if (matchingCapabilities.length === 0) {
+        errors.push(
+          `MCP tool has no catalog capability mapping: ${serverName}.${rawTool}`
+        );
+        continue;
+      }
+      const isAllowed = matchingCapabilities.some(capability => {
+        const need = spec.tool_needs[capability.id];
+        return need && need.necessity !== "disabled";
+      });
+      if (!isAllowed) {
+        errors.push(
+          `MCP tool exceeds employee capability contract: ${serverName}.${rawTool}`
+        );
+      }
+    }
+  }
+}
+
 export async function validateExpert(
   inputRoot: string,
   registryExpert?: RegistryExpertForValidation,
@@ -521,6 +658,7 @@ export async function validateExpert(
   const warnings: string[] = [];
   const allPaths = walked.allPaths;
   const files = walked.files;
+  let employeeSpec: EmployeeSpec | null = null;
 
   for (const file of requiredFiles) {
     if (!files.has(file)) errors.push(`Missing required file: ${file}`);
@@ -604,6 +742,8 @@ export async function validateExpert(
         );
       } else {
         const spec: EmployeeSpec = parsed.data;
+        employeeSpec = spec;
+        errors.push(...validateEmployeeToolContract(spec));
         if (registryExpert && spec.identity.id !== registryExpert.name) {
           errors.push(
             `Spec identity.id mismatch: registry=${registryExpert.name} spec=${spec.identity.id}`
@@ -641,6 +781,13 @@ export async function validateExpert(
           errors.push(
             `MCP server must declare tool allowlist or denylist: ${serverName}`
           );
+      }
+      if (employeeSpec) {
+        validateMcpToolAllowlist(
+          employeeSpec,
+          parsed.mcp_servers ?? {},
+          errors
+        );
       }
     } catch {
       errors.push("Invalid mcp.json");

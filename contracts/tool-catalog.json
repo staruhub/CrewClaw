@@ -1,0 +1,599 @@
+{
+  "$schema": "https://crewclaw.dev/schema/tool-catalog.schema.json",
+  "schema_version": "crewclaw.tool-catalog/v1",
+  "catalog_version": "1.0.0",
+  "capabilities": [
+    {
+      "id": "web.search",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "read",
+      "risk_tier": "P0",
+      "runtime_tool": "web_search",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["web_search"] }
+      ],
+      "side_effects": [],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "web.fetch",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "read",
+      "risk_tier": "P0",
+      "runtime_tool": "web_fetch",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["web_fetch"] }
+      ],
+      "side_effects": [],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "web.fetch_extract",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "read",
+      "risk_tier": "P0",
+      "runtime_tool": "web_fetch",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["web_fetch"] }
+      ],
+      "side_effects": [],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "browser.render",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "read",
+      "risk_tier": "P2",
+      "runtime_tool": "browser_render",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["browser_render"] }
+      ],
+      "side_effects": ["Loads active page resources in a sandboxed browser."],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 45000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "source.verify",
+      "version": "1.0.0",
+      "invocation": "engine",
+      "operation": "read",
+      "risk_tier": "P0",
+      "runtime_tool": null,
+      "provider_bindings": [
+        { "provider": "crewclaw.evidence", "tools": ["source_verify"] }
+      ],
+      "side_effects": [],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 5000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "evidence.create",
+      "version": "1.0.0",
+      "invocation": "engine",
+      "operation": "write",
+      "risk_tier": "P1",
+      "runtime_tool": null,
+      "provider_bindings": [
+        { "provider": "crewclaw.evidence", "tools": ["evidence_create"] }
+      ],
+      "side_effects": ["Writes a task-scoped evidence record."],
+      "supports_preview": true,
+      "idempotent": true,
+      "timeout_ms": 5000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "artifact.report",
+      "version": "1.0.0",
+      "invocation": "engine",
+      "operation": "write",
+      "risk_tier": "P1",
+      "runtime_tool": null,
+      "provider_bindings": [
+        { "provider": "crewclaw.artifacts", "tools": ["report_write"] }
+      ],
+      "side_effects": ["Writes a task-scoped deliverable artifact."],
+      "supports_preview": true,
+      "idempotent": true,
+      "timeout_ms": 10000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "files.read",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "read",
+      "risk_tier": "P0",
+      "runtime_tool": "read_file",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["read_file"] }
+      ],
+      "side_effects": [],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 10000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "document.read",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "read",
+      "risk_tier": "P0",
+      "runtime_tool": "read_file",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["read_file"] }
+      ],
+      "side_effects": [],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 10000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "repo.diff.read",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "read",
+      "risk_tier": "P0",
+      "runtime_tool": "git_diff",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["git_diff"] }
+      ],
+      "side_effects": [],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 15000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "repo.search",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "read",
+      "risk_tier": "P0",
+      "runtime_tool": "search",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["search"] },
+        {
+          "provider": "mcp.github",
+          "tools": [
+            "search_code",
+            "list_issues",
+            "get_issue",
+            "list_pull_requests",
+            "get_pull_request"
+          ]
+        }
+      ],
+      "side_effects": [],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 15000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "repo.status.read",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "read",
+      "risk_tier": "P0",
+      "runtime_tool": "git_status",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["git_status"] }
+      ],
+      "side_effects": [],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 10000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "test.run",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "execute",
+      "risk_tier": "P2",
+      "runtime_tool": "test_run",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["test_run"] }
+      ],
+      "side_effects": [
+        "Executes a repository-defined test command in the workspace."
+      ],
+      "supports_preview": true,
+      "idempotent": false,
+      "timeout_ms": 120000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "places.search",
+      "version": "1.0.0",
+      "invocation": "adapter",
+      "operation": "read",
+      "risk_tier": "P2",
+      "runtime_tool": null,
+      "provider_bindings": [{ "provider": "places", "tools": ["search"] }],
+      "side_effects": [
+        "May send a location query to a configured places provider."
+      ],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "contacts.read",
+      "version": "1.0.0",
+      "invocation": "adapter",
+      "operation": "read",
+      "risk_tier": "P3",
+      "runtime_tool": null,
+      "provider_bindings": [{ "provider": "contacts", "tools": ["read"] }],
+      "side_effects": [
+        "Reads user-authorized contact data from a configured provider."
+      ],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "calendar.availability.read",
+      "version": "1.0.0",
+      "invocation": "adapter",
+      "operation": "read",
+      "risk_tier": "P3",
+      "runtime_tool": null,
+      "provider_bindings": [
+        { "provider": "calendar", "tools": ["availability_read"] }
+      ],
+      "side_effects": [
+        "Reads user-authorized calendar availability from a configured provider."
+      ],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "community.context.read",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "read",
+      "risk_tier": "P0",
+      "runtime_tool": "read_file",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["read_file"] }
+      ],
+      "side_effects": [],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 10000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "analytics.aggregate",
+      "version": "1.0.0",
+      "invocation": "engine",
+      "operation": "read",
+      "risk_tier": "P2",
+      "runtime_tool": null,
+      "provider_bindings": [
+        { "provider": "crewclaw.analytics", "tools": ["aggregate"] }
+      ],
+      "side_effects": ["Reads only pre-aggregated, non-member-level metrics."],
+      "supports_preview": false,
+      "idempotent": true,
+      "timeout_ms": 10000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "broadcast.draft",
+      "version": "1.0.0",
+      "invocation": "engine",
+      "operation": "write",
+      "risk_tier": "P1",
+      "runtime_tool": null,
+      "provider_bindings": [
+        { "provider": "crewclaw.artifacts", "tools": ["broadcast_draft"] }
+      ],
+      "side_effects": ["Writes a draft artifact; never sends it."],
+      "supports_preview": true,
+      "idempotent": true,
+      "timeout_ms": 10000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "shell.run",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "execute",
+      "risk_tier": "P3",
+      "runtime_tool": "bash",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["bash"] }
+      ],
+      "side_effects": ["Executes an arbitrary workspace command."],
+      "supports_preview": true,
+      "idempotent": false,
+      "timeout_ms": 120000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "files.write",
+      "version": "1.0.0",
+      "invocation": "model",
+      "operation": "write",
+      "risk_tier": "P3",
+      "runtime_tool": "write_file",
+      "provider_bindings": [
+        { "provider": "crewclaw.runtime", "tools": ["write_file", "edit_file"] }
+      ],
+      "side_effects": ["Creates or modifies workspace files."],
+      "supports_preview": true,
+      "idempotent": false,
+      "timeout_ms": 10000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_DENIED",
+        "TOOL_INVALID_INPUT",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "repo.push",
+      "version": "1.0.0",
+      "invocation": "adapter",
+      "operation": "send",
+      "risk_tier": "P4",
+      "runtime_tool": null,
+      "provider_bindings": [{ "provider": "git", "tools": ["push"] }],
+      "side_effects": ["Publishes commits to a remote repository."],
+      "supports_preview": true,
+      "idempotent": false,
+      "timeout_ms": 60000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "production.deploy",
+      "version": "1.0.0",
+      "invocation": "adapter",
+      "operation": "execute",
+      "risk_tier": "P4",
+      "runtime_tool": null,
+      "provider_bindings": [{ "provider": "deployment", "tools": ["deploy"] }],
+      "side_effects": ["Changes a deployed production environment."],
+      "supports_preview": true,
+      "idempotent": false,
+      "timeout_ms": 300000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "message.send",
+      "version": "1.0.0",
+      "invocation": "adapter",
+      "operation": "send",
+      "risk_tier": "P4",
+      "runtime_tool": null,
+      "provider_bindings": [{ "provider": "messaging", "tools": ["send"] }],
+      "side_effects": ["Sends a message to an external recipient."],
+      "supports_preview": true,
+      "idempotent": false,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "email.send",
+      "version": "1.0.0",
+      "invocation": "adapter",
+      "operation": "send",
+      "risk_tier": "P4",
+      "runtime_tool": null,
+      "provider_bindings": [{ "provider": "email", "tools": ["send"] }],
+      "side_effects": ["Sends email to an external recipient."],
+      "supports_preview": true,
+      "idempotent": false,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "crm.write",
+      "version": "1.0.0",
+      "invocation": "adapter",
+      "operation": "write",
+      "risk_tier": "P4",
+      "runtime_tool": null,
+      "provider_bindings": [{ "provider": "crm", "tools": ["write"] }],
+      "side_effects": ["Creates or modifies an external CRM record."],
+      "supports_preview": true,
+      "idempotent": false,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "broadcast.send",
+      "version": "1.0.0",
+      "invocation": "adapter",
+      "operation": "send",
+      "risk_tier": "P4",
+      "runtime_tool": null,
+      "provider_bindings": [
+        { "provider": "community", "tools": ["broadcast_send"] }
+      ],
+      "side_effects": ["Sends content to multiple external recipients."],
+      "supports_preview": true,
+      "idempotent": false,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    },
+    {
+      "id": "member_data.write",
+      "version": "1.0.0",
+      "invocation": "adapter",
+      "operation": "write",
+      "risk_tier": "P4",
+      "runtime_tool": null,
+      "provider_bindings": [
+        { "provider": "community", "tools": ["member_data_write"] }
+      ],
+      "side_effects": ["Creates or modifies member-level personal data."],
+      "supports_preview": true,
+      "idempotent": false,
+      "timeout_ms": 30000,
+      "error_codes": [
+        "TOOL_UNAVAILABLE",
+        "TOOL_TIMEOUT",
+        "TOOL_DENIED",
+        "TOOL_EXECUTION_FAILED"
+      ]
+    }
+  ]
+}

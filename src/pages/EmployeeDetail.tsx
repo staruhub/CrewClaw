@@ -15,6 +15,7 @@ import {
   Tag,
 } from "lucide-react";
 import { PermissionLevelList } from "@/components/employee/PermissionLevel";
+import { ToolCapabilityList } from "@/components/employee/ToolCapabilityList";
 import { PricingBadge } from "@/components/PricingInfo";
 import { formatPricingLabel, pricingTone } from "@/lib/pricing";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { getEmployee, type Employee } from "@/data/employees";
+import { capabilityOnboardingRequirements } from "@/lib/capability-onboarding";
 import { isLocalDevelopment, localCrewClawCommand } from "@/data/experts";
 import { track } from "@/hooks/use-analytics";
 import { useEmployeeReviews } from "@/hooks/use-reviews";
@@ -120,6 +122,12 @@ function formatReviewDate(value: string) {
   }).format(new Date(value));
 }
 
+function formatEmployeeDate(value: string) {
+  return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(
+    new Date(value)
+  );
+}
+
 function ratingStars(value: number) {
   return Array.from({ length: 5 }, (_, index) => index + 1).map(star => (
     <Star
@@ -138,32 +146,8 @@ function demoCommand(employeeId: string, task: string) {
   return `crew run ${employeeId} "${task.replaceAll('"', '\\"')}"`;
 }
 
-function toolLabel(tool: string) {
-  const labels: Record<string, string> = {
-    browser: "Browser",
-    skills: "Skills",
-    terminal: "Terminal",
-    read_file: "File reader",
-  };
-
-  return labels[tool] ?? tool;
-}
-
 function onboardingRequirements(employee: Employee) {
-  const requirements = ["Confirm permissions before onboarding this employee."];
-
-  if (employee.tools.includes("browser")) {
-    requirements.push("Browser access for public web research.");
-  }
-
-  if (
-    employee.tools.includes("terminal") ||
-    employee.tools.includes("read_file")
-  ) {
-    requirements.push(
-      "Local read-only project context when task work needs repository files."
-    );
-  }
+  const requirements = capabilityOnboardingRequirements(employee);
 
   if (employee.install_command) {
     requirements.push(
@@ -446,7 +430,7 @@ export default function EmployeeDetail() {
           <Stat
             icon={Clock3}
             label="Updated"
-            value={new Date(employee.updated_at).toLocaleDateString()}
+            value={formatEmployeeDate(employee.updated_at)}
           />
         </section>
 
@@ -498,26 +482,32 @@ export default function EmployeeDetail() {
             </div>
           </ResumeSection>
 
-          <ResumeSection eyebrow="Access" title="Tools and permissions">
+          <ResumeSection
+            className="lg:col-span-2"
+            eyebrow="Access"
+            title="Tool capabilities"
+          >
             <div className="space-y-5">
               <div>
-                <h3 className="text-sm font-medium text-crew-heading">Tools</h3>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {employee.tools.map(tool => (
-                    <Badge
-                      className="border-white/10 bg-white/[0.04] text-crew-muted"
-                      key={tool}
-                      variant="outline"
-                    >
-                      {toolLabel(tool)}
-                    </Badge>
-                  ))}
+                <h3 className="text-sm font-medium text-crew-heading">
+                  Role capability contract
+                </h3>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-crew-body">
+                  Required and conditional capabilities are available to the
+                  role. Optional capabilities start off, while policy-disabled
+                  capabilities can never be enabled. Runtime preflight still
+                  verifies providers and credentials before each task.
+                </p>
+                <div className="mt-4">
+                  <ToolCapabilityList
+                    capabilities={employee.tool_capabilities}
+                  />
                 </div>
               </div>
               <Separator className="bg-white/10" />
               <div>
                 <h3 className="text-sm font-medium text-crew-heading">
-                  Permissions
+                  Data access scopes
                 </h3>
                 <div className="mt-3">
                   <PermissionLevelList

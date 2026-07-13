@@ -1,6 +1,8 @@
-import { createRequire } from "node:module";
-import { pickRenderProvider } from "./render-provider.mjs";
-import { pickBackend } from "./tools-web.mjs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadToolCatalog } from "./employee-tools.mjs";
+import { renderProviderHealth } from "./render-provider.mjs";
+import { searchProviderHealth } from "./tools-web.mjs";
 
 export const STATUS = Object.freeze({
   available: "available",
@@ -13,198 +15,194 @@ export const STATUS = Object.freeze({
   unavailable: "unavailable",
 });
 
-export const CAPABILITIES = Object.freeze([
-  "utility.weather",
-  "web.search",
-  "web.extract",
-  "browser.render",
-  "artifact.write",
-  "artifact.reveal",
-  "memory.write",
-  "shell.run",
-  "evidence.create",
-  "outcome.grade",
-]);
+const INSTALL_ROOT = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  ".."
+);
 
-const require = createRequire(import.meta.url);
+let defaultCatalog;
+let defaultCatalogError;
+try {
+  defaultCatalog = loadToolCatalog(INSTALL_ROOT);
+} catch (error) {
+  defaultCatalogError = error;
+  defaultCatalog = { capabilities: [], tools: [] };
+}
 
-function moduleInstalled(name) {
+export const CAPABILITIES = Object.freeze(
+  (defaultCatalog.capabilities || []).map(item => item.id)
+);
+
+export function getRuntimeToolCatalog(opts = {}) {
+  if (opts.catalog) return opts.catalog;
+  if (!opts.installRoot || opts.installRoot === INSTALL_ROOT)
+    return defaultCatalog;
   try {
-    require.resolve(name);
-    return true;
+    return loadToolCatalog(opts.installRoot);
   } catch {
-    return false;
+    return { capabilities: [], tools: [] };
   }
 }
 
-function entry(capability, status, fields = {}) {
-  const out = { capability, status };
+function catalogEntries(catalog) {
+  if (Array.isArray(catalog?.capabilities)) return catalog.capabilities;
+  if (Array.isArray(catalog?.tools)) return catalog.tools;
+  return [];
+}
+
+function entry(definition, status, fields = {}) {
+  const out = {
+    capability: definition.id,
+    status,
+    invocation: definition.invocation || "model",
+    operation: definition.operation || "",
+    runtime_tool: definition.runtime_tool || null,
+  };
   if (fields.detail) out.detail = fields.detail;
   if (fields.provider) out.provider = fields.provider;
+  if (fields.authorization) out.authorization = fields.authorization;
+  if (fields.code) out.code = fields.code;
   return out;
 }
 
-function webProviderEntry(capability, env) {
-  let backend;
-  try {
-    backend = pickBackend(env);
-  } catch (error) {
-    return entry(capability, STATUS.degraded, {
-      detail: `pickBackend failed: ${error?.message ?? String(error)}`,
-    });
+function resolutionEntries(opts) {
+  if (Array.isArray(opts.sessionCatalog)) return opts.sessionCatalog;
+  if (Array.isArray(opts.toolResolution?.sessionCatalog)) {
+    return opts.toolResolution.sessionCatalog;
   }
-
-  const provider = backend?.name || "unknown";
-  if (provider === "ddg") {
-    return entry(capability, STATUS.missing_key, {
-      provider,
-      detail: "DDG fallback has no real API key",
-    });
-  }
-
-  return entry(capability, STATUS.available, { provider });
+  return null;
 }
 
-function renderProviderInput(env, opts) {
-  if (opts?.renderProvider) {
-    return { ...env, CREW_RENDER_PROVIDER: opts.renderProvider };
+function statusFromResolution(item) {
+  if (!item) return STATUS.unavailable;
+  if (item.availability === "ready") {
+    return item.authorization === "per_call"
+      ? STATUS.permission_required
+      : STATUS.available;
   }
-  if (opts?.renderEnv) return opts.renderEnv;
-  return env;
+  if (item.availability === "forbidden") return STATUS.disabled;
+  if (item.availability === "not_granted") return STATUS.permission_required;
+  if (item.code === "missing_key") return STATUS.missing_key;
+  if (item.availability === "degraded") return STATUS.degraded;
+  return STATUS.unavailable;
 }
 
-function browserRenderEntry(env, opts) {
-  let provider;
-  try {
-    provider = pickRenderProvider(renderProviderInput(env, opts));
-  } catch (error) {
-    return entry("browser.render", STATUS.unavailable, {
-      detail: `pickRenderProvider failed: ${error?.message ?? String(error)}`,
-    });
-  }
-
-  const name = String(provider || "")
-    .toLowerCase()
-    .trim();
-  if (!name || name === "none") {
-    return entry("browser.render", STATUS.unavailable, {
-      detail: "未配置 render provider",
-    });
-  }
-
-  if (name === "playwright") {
-    if (moduleInstalled("playwright")) {
-      return entry("browser.render", STATUS.available, { provider: name });
-    }
-    return entry("browser.render", STATUS.unavailable, {
-      provider: name,
-      detail: "playwright 未安装",
-    });
-  }
-
-  if (name === "firecrawl" || name === "browserbase") {
-    const keyName =
-      name === "firecrawl" ? "FIRECRAWL_API_KEY" : "BROWSERBASE_API_KEY";
-    if (env[keyName]) {
-      return entry("browser.render", STATUS.degraded, {
-        provider: name,
-        detail: `${name} render provider 未实现`,
-      });
-    }
-    return entry("browser.render", STATUS.unavailable, {
-      provider: name,
-      detail: `缺少 ${keyName}`,
-    });
-  }
-
-  return entry("browser.render", STATUS.unavailable, {
-    provider: name,
-    detail: "未知 render provider",
-  });
+function resolutionDetail(item) {
+  if (!item) return "员工工具解析结果未声明此能力";
+  return item.reason || `employee resolver: ${item.availability || "unknown"}`;
 }
 
-const PERSISTENT_MEMORY_ENV = Object.freeze([
-  "MEMORY_STORE_URL",
-  "CREW_MEMORY_STORE_URL",
-  "PERSISTENT_MEMORY_STORE_URL",
-]);
+function searchHealth(env) {
+  const health = searchProviderHealth(env);
+  return {
+    status: health.ready ? STATUS.available : STATUS.missing_key,
+    provider: health.provider,
+    detail: health.reason,
+  };
+}
 
-function memoryEntries(env) {
-  const configuredBy = PERSISTENT_MEMORY_ENV.find(name => env[name]);
-  return [
-    entry("memory.write", STATUS.available, {
-      provider: "session",
-      detail: "session memory",
-    }),
-    entry(
-      "memory.write",
-      configuredBy ? STATUS.available : STATUS.unavailable,
-      {
-        provider: "persistent",
-        detail: configuredBy
-          ? `persistent memory via ${configuredBy}`
-          : `persistent memory requires ${PERSISTENT_MEMORY_ENV.join(" or ")}`,
-      }
-    ),
-  ];
+function renderHealth(env, opts) {
+  const input = opts?.renderProvider
+    ? { ...env, CREW_RENDER_PROVIDER: opts.renderProvider }
+    : opts?.renderEnv || env;
+  const health = renderProviderHealth(input);
+  return {
+    status: STATUS.unavailable,
+    provider: health.provider,
+    detail: health.reason,
+  };
+}
+
+function applyHealth(base, health) {
+  if (
+    ![
+      STATUS.available,
+      STATUS.configured_unverified,
+      STATUS.permission_required,
+    ].includes(base.status)
+  ) {
+    return base;
+  }
+  if (health.status !== STATUS.available) {
+    return { ...base, ...health };
+  }
+  if (base.status === STATUS.permission_required) {
+    return { ...base, provider: health.provider };
+  }
+  return {
+    ...base,
+    provider: health.provider,
+    status:
+      base.status === STATUS.available
+        ? STATUS.available
+        : STATUS.configured_unverified,
+    detail:
+      base.status === STATUS.configured_unverified
+        ? "provider 已配置；员工工具解析结果未提供，未验证可调用性"
+        : base.detail,
+  };
 }
 
 export function getToolTruth(env = process.env, opts = {}) {
-  const states = [];
+  const catalog = getRuntimeToolCatalog(opts);
+  const definitions = catalogEntries(catalog);
+  const byId = new Map(definitions.map(item => [item.id, item]));
+  const resolved = resolutionEntries(opts);
+  const resolutionById = new Map(
+    (resolved || [])
+      .filter(item => byId.has(item?.capability))
+      .map(item => [item.capability, item])
+  );
+  const selected = resolved
+    ? [...resolutionById.keys()].map(id => byId.get(id))
+    : definitions;
 
-  for (const capability of CAPABILITIES) {
-    if (capability === "utility.weather") {
-      states.push(
-        entry(capability, STATUS.unavailable, {
-          detail: "未配 weather provider",
-        })
-      );
-    } else if (capability === "web.search" || capability === "web.extract") {
-      states.push(webProviderEntry(capability, env));
-    } else if (capability === "browser.render") {
-      states.push(browserRenderEntry(env, opts));
-    } else if (capability === "artifact.write") {
-      states.push(entry(capability, STATUS.available, { provider: "local" }));
-    } else if (capability === "artifact.reveal") {
-      states.push(
-        entry(capability, STATUS.degraded, { detail: "需 OpenWork/OS Adapter" })
-      );
-    } else if (capability === "memory.write") {
-      states.push(...memoryEntries(env));
-    } else if (capability === "shell.run") {
-      states.push(
-        entry(
-          capability,
-          env.SHELL_ALLOW === "1"
-            ? STATUS.available
-            : STATUS.permission_required,
-          {
-            detail: env.SHELL_ALLOW === "1" ? "" : "sandbox/needs approval",
-          }
-        )
-      );
-    } else if (
-      capability === "evidence.create" ||
-      capability === "outcome.grade"
-    ) {
-      states.push(entry(capability, STATUS.available, { provider: "local" }));
+  if (!selected.length && defaultCatalogError && !opts.catalog) return [];
+
+  return selected.map(definition => {
+    const resolvedItem = resolved
+      ? resolutionById.get(definition.id)
+      : undefined;
+    let state = entry(
+      definition,
+      resolved
+        ? statusFromResolution(resolvedItem)
+        : STATUS.configured_unverified,
+      {
+        detail: resolved
+          ? resolutionDetail(resolvedItem)
+          : "ToolCatalog 已声明；员工工具解析结果未提供",
+        authorization: resolvedItem?.authorization,
+        provider: resolvedItem?.provider,
+        code: resolvedItem?.code,
+      }
+    );
+
+    // A resolved sessionCatalog is the frozen availability snapshot. Never re-run provider
+    // heuristics here and create a second truth that can disagree with preflight/session.ready.
+    if (!resolved && definition.id === "web.search") {
+      state = applyHealth(state, searchHealth(env));
+    } else if (!resolved && definition.id === "browser.render") {
+      state = applyHealth(state, renderHealth(env, opts));
     }
-  }
-
-  return states;
+    return state;
+  });
 }
 
 const SHORT_NAMES = Object.freeze({
-  "utility.weather": "weather",
   "web.search": "search",
-  "web.extract": "fetch",
+  "web.fetch": "fetch",
+  "web.fetch_extract": "fetch+extract",
   "browser.render": "render",
-  "artifact.write": "artifact",
-  "artifact.reveal": "reveal",
-  "memory.write": "memory",
-  "shell.run": "shell",
+  "source.verify": "verify",
   "evidence.create": "evidence",
-  "outcome.grade": "grade",
+  "artifact.report": "artifact",
+  "files.read": "files",
+  "repo.diff.read": "diff",
+  "repo.search": "repo-search",
+  "repo.status.read": "status",
+  "shell.run": "shell",
 });
 
 const SYMBOLS = Object.freeze({
@@ -213,27 +211,16 @@ const SYMBOLS = Object.freeze({
   [STATUS.unavailable]: "✗",
   [STATUS.degraded]: "!",
   [STATUS.rate_limited]: "!",
-  [STATUS.permission_required]: "!",
-  [STATUS.configured_unverified]: "!",
+  [STATUS.permission_required]: "?",
+  [STATUS.configured_unverified]: "?",
   [STATUS.disabled]: "–",
 });
 
-function lineLabel(state) {
-  const base = SHORT_NAMES[state.capability] || state.capability;
-  if (state.capability === "memory.write" && state.provider)
-    return `${base}:${state.provider}`;
-  return base;
-}
-
-function lineStatus(state) {
-  const symbol = SYMBOLS[state.status] || "!";
-  return state.status === STATUS.missing_key
-    ? `${symbol}${STATUS.missing_key}`
-    : symbol;
-}
-
 export function toolTruthLine(states = getToolTruth()) {
   return states
-    .map(state => `${lineLabel(state)} ${lineStatus(state)}`)
+    .map(state => {
+      const label = SHORT_NAMES[state.capability] || state.capability;
+      return `${label} ${SYMBOLS[state.status] || "!"}`;
+    })
     .join(" · ");
 }

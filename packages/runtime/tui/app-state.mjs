@@ -13,6 +13,7 @@ export function initialAppState(meta = {}) {
     employee: meta.employee || null, // { name, role, model }
     mode: meta.mode || "Chat", // Chat | Run | Trial | Doctor | ...
     task: null, // { id, title, status }
+    taskStreamTerminal: false, // true after any accepted task.* terminal event
     taskArtifactStart: 0, // artifact index captured at task.started (old artifacts never satisfy Done)
     plan: null, // { steps:[], status }
     timeline: [], // [{ id, status: SYM.*, label, detail }]
@@ -24,7 +25,11 @@ export function initialAppState(meta = {}) {
     acceptedCount: 0, // deliverable acceptance KPI, de-duplicated by approval id
     answer: "", // current assistant deliverable text (later → semantic blocks)
     renderedAnswer: null, // { turnId, ansiLines } — finalized renderer-ready answer
+    renderedParts: [], // stable assistant parts; tool rows never cause an earlier part to move
     thinking: "", // reasoning stream, deliberately separate from deliverable answer
+    generation: null, // { id, turnId, taskRunId, status, reason }
+    queuedInputs: [], // busy-turn input acknowledgements, FIFO
+    lastEventSeq: null, // monotonic correlated stream sequence for the active turn
     commandOutput: null, // latest structured slash-command output
     usage: { promptTok: 0, completionTok: 0 },
     status: "idle", // idle | running | awaiting_approval | done | needs_artifact | rejected
@@ -78,6 +83,25 @@ const isChatMode = mode => String(mode || "").toLowerCase() === "chat";
 const isNonEmptyString = value =>
   typeof value === "string" && value.trim().length > 0;
 const TERMINAL_STATUSES = new Set(["done", "rejected", "blocked", "failed"]);
+const TOOL_TERMINAL_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "blocked",
+  "cancelled",
+]);
+const GENERATION_TERMINAL_STATUSES = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+]);
+const TOOL_STATUS_RANK = {
+  requested: 0,
+  running: 1,
+  succeeded: 2,
+  failed: 2,
+  blocked: 2,
+  cancelled: 2,
+};
 
 function ignored(state, message) {
   return { ...state, debug: [...state.debug, message] };
@@ -148,6 +172,80 @@ function terminalGuard(state, data, nextStatus, eventType) {
 function taskIsTerminal(task) {
   return Boolean(task?.terminalType) || TERMINAL_STATUSES.has(task?.status);
 }
+
+function liveEventGuard(state, data, eventType) {
+  if (state.taskStreamTerminal === true || taskIsTerminal(state.task)) {
+    return ignored(
+      state,
+      `ignored ${eventType} after terminal ${state.task.status}`
+    );
+  }
+  if (
+    isNonEmptyString(data?.taskRunId) &&
+    !taskCorrelationMatches(state, data, "taskRunId")
+  ) {
+    return ignored(
+      state,
+      `ignored stale or uncorrelated ${eventType} for ${data.taskRunId}`
+    );
+  }
+  if (
+    isNonEmptyString(state.generation?.turnId) &&
+    isNonEmptyString(data?.turn_id) &&
+    data.turn_id !== state.generation.turnId
+  ) {
+    return ignored(
+      state,
+      `ignored stale ${eventType} for turn ${data.turn_id}; active turn is ${state.generation.turnId}`
+    );
+  }
+  if (
+    Number.isSafeInteger(data?.seq) &&
+    Number.isSafeInteger(state.lastEventSeq) &&
+    data.seq <= state.lastEventSeq
+  ) {
+    return ignored(
+      state,
+      `ignored out-of-order ${eventType} seq=${data.seq} after ${state.lastEventSeq}`
+    );
+  }
+  return null;
+}
+
+function streamEventGuard(state, data, eventType) {
+  const guarded = liveEventGuard(state, data, eventType);
+  if (guarded !== null) return guarded;
+  if (GENERATION_TERMINAL_STATUSES.has(state.generation?.status)) {
+    return ignored(
+      state,
+      `ignored ${eventType} after generation ${state.generation.status}`
+    );
+  }
+  return null;
+}
+
+function toolTransitionGuard(state, data, nextStatus, eventType) {
+  const current = state.tools[data?.id]?.status;
+  if (!current) return null;
+  if (current === nextStatus) return withEventSeq(state, data);
+  const currentRank = TOOL_STATUS_RANK[current] ?? -1;
+  const nextRank = TOOL_STATUS_RANK[nextStatus] ?? -1;
+  if (
+    TOOL_TERMINAL_STATUSES.has(current) ||
+    (currentRank >= 0 && nextRank >= 0 && nextRank < currentRank)
+  ) {
+    return ignored(
+      withEventSeq(state, data),
+      `ignored non-monotonic ${eventType}; tool ${data?.id || "<missing>"} is already ${current}`
+    );
+  }
+  return null;
+}
+
+const withEventSeq = (state, data) =>
+  Number.isSafeInteger(data?.seq)
+    ? { ...state, lastEventSeq: data.seq }
+    : state;
 
 function artifactId(data) {
   return data?.artifact_id || data?.artifactId || data?.id;
@@ -259,6 +357,12 @@ export function reduce(state, ev) {
         return ignored(state, "ignored task.started without canonical id");
       }
       if (state.task?.id === d.id) return state;
+      if (state.task && state.taskStreamTerminal !== true) {
+        return ignored(
+          state,
+          `ignored overlapping task.started ${d.id}; task ${state.task.id} has no explicit terminal event`
+        );
+      }
       return {
         ...state,
         task: {
@@ -268,11 +372,17 @@ export function reduce(state, ev) {
           terminalType: null,
         },
         taskArtifactStart: state.artifacts.length,
+        taskStreamTerminal: false,
         mode: d.mode || "Task",
         status: "running",
         answer: "",
         renderedAnswer: null,
+        renderedParts: [],
         thinking: "",
+        generation: null,
+        queuedInputs:
+          d.queued === true ? state.queuedInputs.slice(1) : state.queuedInputs,
+        lastEventSeq: Number.isSafeInteger(d.seq) ? d.seq : null,
         proof: null,
         approval: null,
         pendingActions: [],
@@ -283,6 +393,75 @@ export function reduce(state, ev) {
           `任务：${d.title || ""}`
         ),
       };
+    }
+    case EVENTS.GENERATION_STARTED: {
+      const guarded = liveEventGuard(state, d, EVENTS.GENERATION_STARTED);
+      if (guarded !== null) return guarded;
+      return withEventSeq(
+        {
+          ...state,
+          generation: {
+            id: d.id,
+            turnId: d.turn_id || null,
+            taskRunId: d.taskRunId || state.task?.id || null,
+            status: "running",
+            reason: null,
+          },
+          status: "running",
+        },
+        d
+      );
+    }
+    case EVENTS.GENERATION_COMPLETED:
+    case EVENTS.GENERATION_FAILED:
+    case EVENTS.GENERATION_CANCELLED: {
+      const guarded = liveEventGuard(state, d, ev.type);
+      if (guarded !== null) return guarded;
+      if (state.generation?.id && d.id && state.generation.id !== d.id) {
+        return ignored(
+          state,
+          `ignored mismatched ${ev.type} ${d.id}; active generation is ${state.generation.id}`
+        );
+      }
+      const status =
+        ev.type === EVENTS.GENERATION_COMPLETED
+          ? "completed"
+          : ev.type === EVENTS.GENERATION_FAILED
+            ? "failed"
+            : "cancelled";
+      return withEventSeq(
+        {
+          ...state,
+          generation: {
+            ...(state.generation || {}),
+            id: d.id || state.generation?.id || null,
+            turnId: d.turn_id || state.generation?.turnId || null,
+            taskRunId: d.taskRunId || state.task?.id || null,
+            status,
+            reason: d.reason || null,
+          },
+        },
+        d
+      );
+    }
+    case EVENTS.INPUT_QUEUED: {
+      const guarded = liveEventGuard(state, d, EVENTS.INPUT_QUEUED);
+      if (guarded !== null) return guarded;
+      if (state.queuedInputs.some(input => input.id === d.id)) return state;
+      return withEventSeq(
+        {
+          ...state,
+          queuedInputs: [
+            ...state.queuedInputs,
+            {
+              id: d.id,
+              position: d.position,
+              text: d.text || "",
+            },
+          ],
+        },
+        d
+      );
     }
     case EVENTS.TASK_MODE_CHANGED:
       if (!state.task || !taskCorrelationMatches(state, d, "taskRunId")) {
@@ -335,48 +514,144 @@ export function reduce(state, ev) {
         timeline: mark(state.timeline, d.id, SYM.ok, d.summary),
       };
     case EVENTS.TOOL_REQUESTED:
-    case EVENTS.TOOL_CALLED:
-      return {
-        ...state,
-        tools: setTool(state.tools, d.id, {
-          tool: d.tool,
-          status: "running",
-          args: d.args,
-        }),
-        approval: d.needsApproval
-          ? {
-              id: d.id,
-              kind: "tool_authorization",
-              taskRunId: state.task?.id || null,
-              tool: d.tool,
-              reason: d.reason,
-              scope: d.scope,
-            }
-          : state.approval,
-        status: d.needsApproval ? "awaiting_approval" : state.status,
-        timeline: push(
-          state.timeline,
-          idFor(state, d),
-          d.needsApproval ? SYM.wait : SYM.running,
-          d.label || d.tool,
-          d.reason
-        ),
-      };
-    case EVENTS.TOOL_SUCCEEDED:
-      return {
-        ...state,
-        tools: setTool(state.tools, d.id, { status: "ok", summary: d.summary }),
-        timeline: mark(state.timeline, d.id, SYM.ok, d.summary),
-      };
+    case EVENTS.TOOL_CALLED: {
+      const guarded = streamEventGuard(state, d, ev.type);
+      if (guarded !== null) return guarded;
+      const requested = ev.type === EVENTS.TOOL_REQUESTED;
+      const nextStatus = requested ? "requested" : "running";
+      const transition = toolTransitionGuard(state, d, nextStatus, ev.type);
+      if (transition !== null) return transition;
+      const exists = state.timeline.some(line => line.id === d.id);
+      return withEventSeq(
+        {
+          ...state,
+          tools: setTool(state.tools, d.id, {
+            tool: d.tool,
+            status: nextStatus,
+            args: d.args,
+          }),
+          approval: d.needsApproval
+            ? {
+                id: d.id,
+                kind: "tool_authorization",
+                taskRunId: state.task?.id || null,
+                tool: d.tool,
+                reason: d.reason,
+                scope: d.scope,
+              }
+            : state.approval,
+          status: d.needsApproval ? "awaiting_approval" : state.status,
+          timeline: exists
+            ? state.timeline
+            : push(
+                state.timeline,
+                idFor(state, d),
+                d.needsApproval ? SYM.wait : SYM.running,
+                d.label || d.tool,
+                d.reason
+              ),
+        },
+        d
+      );
+    }
+    case EVENTS.TOOL_RUNNING: {
+      const guarded = streamEventGuard(state, d, EVENTS.TOOL_RUNNING);
+      if (guarded !== null) return guarded;
+      const transition = toolTransitionGuard(
+        state,
+        d,
+        "running",
+        EVENTS.TOOL_RUNNING
+      );
+      if (transition !== null) return transition;
+      const exists = state.timeline.some(line => line.id === d.id);
+      return withEventSeq(
+        {
+          ...state,
+          tools: setTool(state.tools, d.id, {
+            tool: d.tool || state.tools[d.id]?.tool,
+            status: "running",
+            args: d.args || state.tools[d.id]?.args,
+          }),
+          timeline: exists
+            ? mark(state.timeline, d.id, SYM.running, d.detail)
+            : push(
+                state.timeline,
+                d.id,
+                SYM.running,
+                d.label || d.tool,
+                d.detail
+              ),
+        },
+        d
+      );
+    }
+    case EVENTS.TOOL_SUCCEEDED: {
+      const guarded = streamEventGuard(state, d, EVENTS.TOOL_SUCCEEDED);
+      if (guarded !== null) return guarded;
+      const transition = toolTransitionGuard(
+        state,
+        d,
+        "succeeded",
+        EVENTS.TOOL_SUCCEEDED
+      );
+      if (transition !== null) return transition;
+      return withEventSeq(
+        {
+          ...state,
+          tools: setTool(state.tools, d.id, {
+            status: "succeeded",
+            summary: d.summary,
+          }),
+          timeline: mark(state.timeline, d.id, SYM.ok, d.summary),
+        },
+        d
+      );
+    }
     case EVENTS.TOOL_FAILED:
     case EVENTS.TOOL_BLOCKED: {
+      const guarded = streamEventGuard(state, d, ev.type);
+      if (guarded !== null) return guarded;
       const status = ev.type === EVENTS.TOOL_BLOCKED ? "blocked" : "failed";
+      const transition = toolTransitionGuard(state, d, status, ev.type);
+      if (transition !== null) return transition;
       const summary = d.code || d.error || d.reason;
-      return {
-        ...state,
-        tools: setTool(state.tools, d.id, { status, summary }),
-        timeline: mark(state.timeline, d.id, SYM.fail, summary),
-      };
+      return withEventSeq(
+        {
+          ...state,
+          tools: setTool(state.tools, d.id, { status, summary }),
+          timeline: mark(
+            state.timeline,
+            d.id,
+            ev.type === EVENTS.TOOL_BLOCKED ? SYM.warn : SYM.fail,
+            summary
+          ),
+        },
+        d
+      );
+    }
+    case EVENTS.TOOL_CANCELLED: {
+      const guarded = streamEventGuard(state, d, EVENTS.TOOL_CANCELLED);
+      if (guarded !== null) return guarded;
+      const transition = toolTransitionGuard(
+        state,
+        d,
+        "cancelled",
+        EVENTS.TOOL_CANCELLED
+      );
+      if (transition !== null) return transition;
+      const summary = d.code || d.reason || "cancelled";
+      return withEventSeq(
+        {
+          ...state,
+          tools: setTool(state.tools, d.id, {
+            status: "cancelled",
+            summary,
+          }),
+          timeline: mark(state.timeline, d.id, SYM.warn, summary),
+        },
+        d
+      );
     }
     case EVENTS.ARTIFACT_CREATED: {
       if (!state.task || !taskCorrelationMatches(state, d, "taskRunId")) {
@@ -667,25 +942,51 @@ export function reduce(state, ev) {
         ),
       };
     }
-    case EVENTS.ASSISTANT_MESSAGE:
-      return {
-        ...state,
-        answer: state.answer + (typeof d.text === "string" ? d.text : ""),
-      };
-    case EVENTS.ASSISTANT_RENDERED:
-      return {
-        ...state,
-        renderedAnswer: {
-          turnId: d.turn_id || null,
-          ansiLines: Array.isArray(d.ansi_lines) ? d.ansi_lines : [],
+    case EVENTS.ASSISTANT_MESSAGE: {
+      const guarded = streamEventGuard(state, d, EVENTS.ASSISTANT_MESSAGE);
+      if (guarded !== null) return guarded;
+      return withEventSeq(
+        {
+          ...state,
+          answer: state.answer + (typeof d.text === "string" ? d.text : ""),
         },
+        d
+      );
+    }
+    case EVENTS.ASSISTANT_RENDERED: {
+      const guarded = streamEventGuard(state, d, EVENTS.ASSISTANT_RENDERED);
+      if (guarded !== null) return guarded;
+      const rendered = {
+        partId: d.part_id || null,
+        turnId: d.turn_id || null,
+        ansiLines: Array.isArray(d.ansi_lines) ? d.ansi_lines : [],
       };
+      const renderedParts = d.part_id
+        ? state.renderedParts.some(part => part.partId === d.part_id)
+          ? state.renderedParts.map(part =>
+              part.partId === d.part_id ? rendered : part
+            )
+          : [...state.renderedParts, rendered]
+        : state.renderedParts;
+      return withEventSeq(
+        {
+          ...state,
+          renderedAnswer: {
+            turnId: d.turn_id || null,
+            ansiLines: Array.isArray(d.ansi_lines) ? d.ansi_lines : [],
+          },
+          renderedParts,
+        },
+        d
+      );
+    }
     case EVENTS.COMMAND_OUTPUT: {
       const base =
         d.clear === true
           ? {
               ...state,
               task: null,
+              taskStreamTerminal: false,
               plan: null,
               timeline: [],
               answer: "",
@@ -705,18 +1006,30 @@ export function reduce(state, ev) {
         },
       };
     }
-    case EVENTS.TOKEN_DELTA:
-      return {
-        ...state,
-        answer: state.answer + (d.text || ""),
-        status: state.status === "idle" ? "running" : state.status,
-      };
-    case EVENTS.THINKING_DELTA:
-      return {
-        ...state,
-        thinking: state.thinking + (typeof d.text === "string" ? d.text : ""),
-        status: state.status === "idle" ? "running" : state.status,
-      };
+    case EVENTS.TOKEN_DELTA: {
+      const guarded = streamEventGuard(state, d, EVENTS.TOKEN_DELTA);
+      if (guarded !== null) return guarded;
+      return withEventSeq(
+        {
+          ...state,
+          answer: state.answer + (d.text || ""),
+          status: state.status === "idle" ? "running" : state.status,
+        },
+        d
+      );
+    }
+    case EVENTS.THINKING_DELTA: {
+      const guarded = streamEventGuard(state, d, EVENTS.THINKING_DELTA);
+      if (guarded !== null) return guarded;
+      return withEventSeq(
+        {
+          ...state,
+          thinking: state.thinking + (typeof d.text === "string" ? d.text : ""),
+          status: state.status === "idle" ? "running" : state.status,
+        },
+        d
+      );
+    }
     case EVENTS.TOKEN_USAGE:
       return {
         ...state,
@@ -738,6 +1051,7 @@ export function reduce(state, ev) {
             status: "done",
             terminalType: EVENTS.TASK_COMPLETED,
           },
+          taskStreamTerminal: true,
           approval: null,
           status: "idle",
         };
@@ -746,7 +1060,12 @@ export function reduce(state, ev) {
         if (state.task.status === "needs_artifact") return state;
         return {
           ...state,
-          task: { ...state.task, status: "needs_artifact" },
+          task: {
+            ...state.task,
+            status: "needs_artifact",
+          },
+          taskStreamTerminal: true,
+          approval: null,
           status: "needs_artifact",
           timeline: push(
             state.timeline,
@@ -763,7 +1082,12 @@ export function reduce(state, ev) {
         if (state.task.status === nextStatus) return state;
         return {
           ...state,
-          task: { ...state.task, status: nextStatus },
+          task: {
+            ...state.task,
+            status: nextStatus,
+          },
+          taskStreamTerminal: true,
+          approval: null,
           status: nextStatus,
           timeline: push(
             state.timeline,
@@ -781,6 +1105,7 @@ export function reduce(state, ev) {
           status: "done",
           terminalType: EVENTS.TASK_COMPLETED,
         },
+        taskStreamTerminal: true,
         approval: null,
         status: "done",
         timeline: push(state.timeline, idFor(state, d), SYM.ok, "完成"),
@@ -799,6 +1124,7 @@ export function reduce(state, ev) {
           status: "rejected",
           terminalType: EVENTS.TASK_REJECTED,
         },
+        taskStreamTerminal: true,
         approval: null,
         status: "rejected",
         timeline: push(
@@ -822,6 +1148,7 @@ export function reduce(state, ev) {
           status: "blocked",
           terminalType: EVENTS.TASK_BLOCKED,
         },
+        taskStreamTerminal: true,
         approval: null,
         status: "blocked",
         timeline: push(
@@ -846,6 +1173,7 @@ export function reduce(state, ev) {
           status: "failed",
           terminalType: EVENTS.TASK_FAILED,
         },
+        taskStreamTerminal: true,
         approval: null,
         status: "failed",
         timeline: push(
@@ -878,6 +1206,7 @@ export function reduce(state, ev) {
           status: "needs_revision",
           terminalType: EVENTS.TASK_REVISION_NEEDED,
         },
+        taskStreamTerminal: true,
         approval: null,
         status: "needs_revision",
         timeline: push(

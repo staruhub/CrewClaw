@@ -62,6 +62,10 @@ test("a visitor can hire an employee end to end and see it join the crew", async
   await expect(
     page.getByRole("heading", { name: displayName }).first()
   ).toBeVisible();
+  await expect(page.getByText("contacts.read", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Optional · Off by default", { exact: true }).first()
+  ).toBeVisible();
 
   // Enter the hire confirmation flow.
   await page
@@ -71,9 +75,45 @@ test("a visitor can hire an employee end to end and see it join the crew", async
   await expect(page).toHaveURL(new RegExp(`/hire/${employeeId}$`));
   await expect(
     page.getByRole("heading", {
-      name: new RegExp(`Confirm permissions before hiring ${displayName}`, "i"),
+      name: new RegExp(`Review capabilities before hiring ${displayName}`, "i"),
     })
   ).toBeVisible();
+
+  const requiredSearch = page.getByRole("checkbox", {
+    name: "web.search required capability",
+  });
+  await expect(requiredSearch).toBeChecked();
+  await expect(requiredSearch).toBeDisabled();
+  const optionalContacts = page.getByRole("checkbox", {
+    name: "contacts.read capability",
+  });
+  await expect(optionalContacts).not.toBeChecked();
+  await expect(optionalContacts).toBeEnabled();
+  const conditionalPlaces = page.getByRole("checkbox", {
+    name: "places.search capability",
+  });
+  await expect(conditionalPlaces).toBeChecked();
+  await expect(conditionalPlaces).toBeEnabled();
+
+  // Prove the actual hire controls work without a pointer: `contacts.read`
+  // follows `places.search` in the declared capability order.
+  await conditionalPlaces.focus();
+  await page.keyboard.press("Tab");
+  await expect(optionalContacts).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(optionalContacts).toBeChecked();
+
+  await conditionalPlaces.focus();
+  await page.keyboard.press("Space");
+  await expect(conditionalPlaces).not.toBeChecked();
+  await expect(
+    page.getByRole("heading", { name: "Main risk" }).locator("..")
+  ).toContainText("Highest enabled risk tier: P3");
+  const disabledCrm = page.getByRole("checkbox", {
+    name: "crm.write policy-disabled capability",
+  });
+  await expect(disabledCrm).not.toBeChecked();
+  await expect(disabledCrm).toBeDisabled();
 
   // Simulated checkout, then the real hire. Exact names — the disabled hire button reads
   // "Confirm simulated checkout first" until checkout is confirmed, so a loose regex is ambiguous.
@@ -96,10 +136,26 @@ test("a visitor can hire an employee end to end and see it join the crew", async
   const team = JSON.parse(stored ?? "[]") as Array<{
     employee_id: string;
     status: string;
+    permissions_granted: string[];
   }>;
   expect(
     team.some(e => e.employee_id === employeeId && e.status === "active")
   ).toBe(true);
+  expect(
+    team.find(e => e.employee_id === employeeId)?.permissions_granted
+  ).toContain("capability:contacts.read");
+  expect(
+    team.find(e => e.employee_id === employeeId)?.permissions_granted
+  ).toContain("capability:web.search");
+  expect(
+    team.find(e => e.employee_id === employeeId)?.permissions_granted
+  ).not.toContain("capability:places.search");
+  expect(
+    team.find(e => e.employee_id === employeeId)?.permissions_granted
+  ).not.toContain("capability:calendar.availability.read");
+  expect(
+    team.find(e => e.employee_id === employeeId)?.permissions_granted
+  ).not.toContain("capability:crm.write");
 
   // And it shows up on the team dashboard.
   await page.goto("/team");

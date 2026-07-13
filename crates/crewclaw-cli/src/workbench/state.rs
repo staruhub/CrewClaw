@@ -51,6 +51,11 @@ pub struct AppState {
     /// 下标存储。渲染层有则用之（定妆富文本），无则回退裸文本。存原始 ANSI 字符串以让 state
     /// 保持与 ratatui 解耦；ANSI→Text 转换在 ui 层做。
     pub rendered_assistant: BTreeMap<usize, Vec<String>>,
+    /// 当前 generation 内稳定 part_id → conversation Assistant 下标。工具事件会切分文本，
+    /// 但不会改变既有 part 的位置；assistant.rendered 只允许按这个映射精确定妆。
+    assistant_parts: BTreeMap<String, usize>,
+    /// 最近仍在产生 token 的助手 part。caret 绑定它，而不是 conversation 的最后一项。
+    active_assistant_part: Option<usize>,
     /// v0.8 M3：session.ready caps.commands 下发的 slash 命令目录（补全数据源）。
     pub commands: Vec<CommandInfo>,
     /// slash `/` 补全或 Ctrl+P 面板打开时的过滤态。
@@ -70,13 +75,16 @@ pub struct AppState {
     approval_task_id: Option<String>,
     /// Settled approval ids make replay and duplicate delivery events KPI-idempotent.
     settled_approval_ids: BTreeSet<String>,
-    /// 本轮起始时 conversation 的长度（TaskStarted 时记录）。assistant.rendered 下发整轮
-    /// 排版文本时，用它界定"本轮的助手分片"，把被工具事件切开的前置分片标记为 superseded。
-    turn_conversation_start: usize,
-    /// 被整轮排版块取代的助手分片下标——渲染层跳过其裸文本，避免与富文本块重复显示。
-    /// 场景：一轮里 "文字→工具事件→文字" 把助手拆成多段，整轮 rendered 只挂在最后一段，
-    /// 前置段若照旧渲染会把同一句话显示两次。
-    superseded_assistant: BTreeSet<usize>,
+    /// 当前 generation/turn 的协议相关性。字段缺失时保留 v1 宽容行为；字段存在时必须匹配
+    /// 且 seq 严格递增，避免重放、旧轮快照或取消后的晚到增量重新污染界面。
+    current_turn_id: Option<String>,
+    last_turn_seq: Option<u64>,
+    generation_phase: Option<&'static str>,
+    /// 任何显式 task terminal 都关闭该任务的流通道；与 current_task_terminal（业务门禁）
+    /// 分开，确保 needs_artifact 等可恢复业务态也不会接收模型晚到 token。
+    task_stream_terminal: bool,
+    /// legacy v1 的预算拒绝没有 generation.completed。下一条说明 token 到达后必须回落 idle。
+    budget_refusal_pending: bool,
     /// v0.11 M3：本任务起始时刻（TaskStarted 记录），用于算耗时。
     task_started_at: Option<Instant>,
     /// v0.11 M3：本任务的活动计数（TaskStarted 重置，工具事件累加）。
@@ -953,6 +961,8 @@ impl Default for AppState {
             quick_utility: None,
             busy_since: None,
             rendered_assistant: BTreeMap::new(),
+            assistant_parts: BTreeMap::new(),
+            active_assistant_part: None,
             commands: Vec::new(),
             command_picker: None,
             caps_parts: false,
@@ -962,8 +972,11 @@ impl Default for AppState {
             approval_kind: None,
             approval_task_id: None,
             settled_approval_ids: BTreeSet::new(),
-            turn_conversation_start: 0,
-            superseded_assistant: BTreeSet::new(),
+            current_turn_id: None,
+            last_turn_seq: None,
+            generation_phase: None,
+            task_stream_terminal: false,
+            budget_refusal_pending: false,
             task_started_at: None,
             task_activity: ActivityCounts::default(),
             task_header_line: None,
@@ -1002,6 +1015,11 @@ impl AppState {
         self.cur_ev_ts = ev.ts();
         self.cur_ev_type = ev.event_type();
         self.cur_ev_kv = flatten_event_kv(data);
+
+        if !self.accept_correlated_event(ev, data) {
+            self.refresh_inspect();
+            return;
+        }
 
         match ev {
             TaskEvent::ProtocolReady { .. } => {
@@ -1076,6 +1094,13 @@ impl AppState {
                 self.task_artifact_start = self.artifacts.len();
                 self.current_task_outcome = None;
                 self.current_task_terminal = None;
+                self.task_stream_terminal = false;
+                self.current_turn_id = string_field(data, "turn_id");
+                self.last_turn_seq = data.get("seq").and_then(Value::as_u64);
+                self.generation_phase = None;
+                self.assistant_parts.clear();
+                self.active_assistant_part = None;
+                self.budget_refusal_pending = false;
                 self.approval = None;
                 self.approval_kind = None;
                 self.approval_task_id = None;
@@ -1094,8 +1119,6 @@ impl AppState {
                 // v0.13 M1：快照会话累计 usage，终态求差得本任务 tokens。
                 self.usage_at_task_start = self.usage.clone();
                 self.thinking_line = None; // 每轮独立一个「思考」块
-                // 本轮助手分片从这里之后开始（push 已插入任务时间线事件）。
-                self.turn_conversation_start = self.conversation.len();
             }
             TaskEvent::PlanCreated { .. } => {
                 let steps = string_array_field(data, "steps");
@@ -1124,41 +1147,56 @@ impl AppState {
                     string_field(data, "summary"),
                 );
             }
-            TaskEvent::ToolRequested { .. } | TaskEvent::ToolCalled { .. } => {
+            TaskEvent::GenerationStarted { .. } => {
+                self.generation_phase = Some("started");
                 self.mark_busy();
-                self.reduce_tool_requested(data);
+                if self.status == "idle" {
+                    self.status = "running".to_string();
+                }
+            }
+            TaskEvent::GenerationCompleted { .. } => {
+                self.generation_phase = Some("completed");
+                self.active_assistant_part = None;
+                self.clear_busy();
+            }
+            TaskEvent::GenerationFailed { .. } | TaskEvent::GenerationCancelled { .. } => {
+                let cancelled = matches!(ev, TaskEvent::GenerationCancelled { .. });
+                self.generation_phase = Some(if cancelled { "cancelled" } else { "failed" });
+                self.active_assistant_part = None;
+                self.clear_busy();
+                self.status = if cancelled { "cancelled" } else { "failed" }.to_string();
+                let reason = string_field(data, "reason")
+                    .or_else(|| string_field(data, "error"))
+                    .unwrap_or_default();
+                let id = self.id_for(data);
+                self.push(
+                    id,
+                    if cancelled { SYM_WARN } else { SYM_FAIL },
+                    if cancelled {
+                        "生成已取消"
+                    } else {
+                        "生成失败"
+                    }
+                    .to_string(),
+                    reason,
+                );
+            }
+            TaskEvent::ToolRequested { .. } => self.reduce_tool_requested(data, false),
+            // tool.called 是 legacy v1 的“开始执行”；新生产者使用 tool.running。
+            TaskEvent::ToolCalled { .. } | TaskEvent::ToolRunning { .. } => {
+                self.reduce_tool_requested(data, true)
             }
             TaskEvent::ToolSucceeded { .. } => {
-                let id = string_field(data, "id").unwrap_or_else(|| self.id_for(data));
-                let summary = string_field(data, "summary");
-                self.set_tool(
-                    &id,
-                    ToolPatch {
-                        status: Some("ok".to_string()),
-                        summary: summary.clone(),
-                        ..ToolPatch::default()
-                    },
-                );
-                self.mark(Some(&id), SYM_OK, summary.clone());
-                // v0.8 M4: fold the tool line; full output (engine `detail`) opens on Ctrl+R.
-                let detail = string_field(data, "detail").or(summary);
-                self.mark_tool(&id, detail, false);
+                self.reduce_tool_terminal(data, "succeeded", SYM_OK, false);
             }
-            TaskEvent::ToolFailed { .. } | TaskEvent::ToolBlocked { .. } => {
-                let id = string_field(data, "id").unwrap_or_else(|| self.id_for(data));
-                let code = string_field(data, "code").or_else(|| string_field(data, "error"));
-                self.set_tool(
-                    &id,
-                    ToolPatch {
-                        status: Some("failed".to_string()),
-                        summary: code.clone(),
-                        ..ToolPatch::default()
-                    },
-                );
-                self.mark(Some(&id), SYM_FAIL, code.clone());
-                // Failures default to expanded so the error/output is visible without a keystroke.
-                let detail = string_field(data, "detail").or(code);
-                self.mark_tool(&id, detail, true);
+            TaskEvent::ToolFailed { .. } => {
+                self.reduce_tool_terminal(data, "failed", SYM_FAIL, true);
+            }
+            TaskEvent::ToolBlocked { .. } => {
+                self.reduce_tool_terminal(data, "blocked", SYM_WARN, true);
+            }
+            TaskEvent::ToolCancelled { .. } => {
+                self.reduce_tool_terminal(data, "cancelled", SYM_WARN, true);
             }
             TaskEvent::ArtifactCreated { .. } => {
                 if !self.task_correlation_matches(data, "taskRunId") {
@@ -1358,6 +1396,10 @@ impl AppState {
                 let spent = data.get("spent").and_then(Value::as_f64).unwrap_or(0.0);
                 let cap = data.get("cap").and_then(Value::as_f64).unwrap_or(0.0);
                 let (title, body) = if level == "block" {
+                    // v1 budget refusal returned after a final token.delta without any task or
+                    // generation terminal. Remember that single final explanation so it cannot
+                    // leave the cockpit permanently WORKING.
+                    self.budget_refusal_pending = true;
                     (
                         "预算已达上限".to_string(),
                         format!("本月 ${spent:.2}/${cap:.0}，新任务已暂停 · 去 SETTINGS 调上限"),
@@ -1543,10 +1585,18 @@ impl AppState {
             TaskEvent::TokenDelta { .. } => {
                 let text = string_field(data, "text").unwrap_or_default();
                 self.answer.push_str(&text);
-                self.append_assistant(&text);
+                self.append_assistant(data, &text);
+                self.generation_phase = Some("streaming");
                 self.mark_busy();
                 if self.status == "idle" {
                     self.status = "running".to_string();
+                }
+                if self.budget_refusal_pending {
+                    self.budget_refusal_pending = false;
+                    self.generation_phase = Some("completed");
+                    self.active_assistant_part = None;
+                    self.clear_busy();
+                    self.status = "idle".to_string();
                 }
             }
             TaskEvent::ThinkingDelta { .. } => {
@@ -1556,6 +1606,7 @@ impl AppState {
                 if text.is_empty() {
                     return;
                 }
+                self.generation_phase = Some("thinking");
                 self.mark_busy();
                 match self.thinking_line {
                     Some(idx) => {
@@ -1583,6 +1634,9 @@ impl AppState {
                 if !self.terminal_transition_allowed(data, "task.completed") {
                     return;
                 }
+                self.task_stream_terminal = true;
+                self.generation_phase = Some("completed");
+                self.active_assistant_part = None;
                 self.clear_busy();
                 self.finalize_task_meta(data);
                 let line_id = self.id_for(data);
@@ -1659,6 +1713,7 @@ impl AppState {
                         .push("ignored task.rejected without canonical reason".to_string());
                     return;
                 }
+                self.task_stream_terminal = true;
                 self.current_task_terminal = Some("task.rejected");
                 self.clear_current_approval();
                 self.clear_busy();
@@ -1692,6 +1747,7 @@ impl AppState {
                         .push("ignored task.blocked without canonical reason".to_string());
                     return;
                 }
+                self.task_stream_terminal = true;
                 self.current_task_terminal = Some("task.blocked");
                 self.clear_current_approval();
                 self.clear_busy();
@@ -1719,6 +1775,7 @@ impl AppState {
                         .push("ignored task.failed without canonical reason".to_string());
                     return;
                 }
+                self.task_stream_terminal = true;
                 self.current_task_terminal = Some("task.failed");
                 self.clear_current_approval();
                 self.clear_busy();
@@ -1743,6 +1800,7 @@ impl AppState {
                         .push("ignored task.revision_needed without canonical reason".to_string());
                     return;
                 }
+                self.task_stream_terminal = true;
                 self.current_task_terminal = Some("task.revision_needed");
                 self.clear_current_approval();
                 self.clear_busy();
@@ -1816,6 +1874,13 @@ impl AppState {
             }
             TaskEvent::PendingActions { .. } => {
                 self.pending_actions = pending_actions_from_data(data);
+            }
+            TaskEvent::InputQueued { .. } => {
+                let detail = string_field(data, "text")
+                    .or_else(|| string_field(data, "title"))
+                    .unwrap_or_default();
+                let id = self.id_for(data);
+                self.push(id, SYM_WAIT, "输入已排队".to_string(), detail);
             }
             TaskEvent::QuickUtility { .. } => {
                 self.quick_utility = Some(QuickUtility {
@@ -1971,13 +2036,196 @@ impl AppState {
         self.busy_since.is_some()
     }
 
-    fn append_assistant(&mut self, text: &str) {
-        if let Some(ConversationItem::Assistant(buf)) = self.conversation.last_mut() {
-            buf.push_str(text);
+    /// The exact Assistant conversation item which currently owns the streaming caret.
+    pub fn active_streaming_assistant_index(&self) -> Option<usize> {
+        // A tool row may be the newest conversation item while the same generation is still live.
+        // Keep the caret anchored to its stable assistant part instead of making it disappear and
+        // reappear around every tool call. Approval clears `busy_since`, so a paused generation
+        // still has no caret.
+        if !self.is_busy() {
+            return None;
+        }
+        self.active_assistant_part
+    }
+
+    fn append_assistant(&mut self, data: &Value, text: &str) {
+        let part_id = string_field(data, "part_id");
+        let index = if let Some(part_id) = part_id {
+            if let Some(index) = self.assistant_parts.get(&part_id).copied() {
+                if let Some(ConversationItem::Assistant(buf)) = self.conversation.get_mut(index) {
+                    buf.push_str(text);
+                }
+                index
+            } else {
+                let index = self.conversation.len();
+                self.conversation
+                    .push(ConversationItem::Assistant(text.to_string()));
+                self.assistant_parts.insert(part_id, index);
+                index
+            }
+        } else if let Some(index) = self.conversation.len().checked_sub(1).filter(|index| {
+            matches!(
+                self.conversation.get(*index),
+                Some(ConversationItem::Assistant(_))
+            )
+        }) {
+            if let Some(ConversationItem::Assistant(buf)) = self.conversation.get_mut(index) {
+                buf.push_str(text);
+            }
+            index
         } else {
+            let index = self.conversation.len();
             self.conversation
                 .push(ConversationItem::Assistant(text.to_string()));
+            index
+        };
+        self.active_assistant_part = Some(index);
+    }
+
+    fn accept_correlated_event(&mut self, ev: &TaskEvent, data: &Value) -> bool {
+        let stream = matches!(
+            ev,
+            TaskEvent::GenerationStarted { .. }
+                | TaskEvent::GenerationCompleted { .. }
+                | TaskEvent::GenerationFailed { .. }
+                | TaskEvent::GenerationCancelled { .. }
+                | TaskEvent::TokenDelta { .. }
+                | TaskEvent::ThinkingDelta { .. }
+                | TaskEvent::AssistantMessage { .. }
+                | TaskEvent::AssistantRendered { .. }
+                | TaskEvent::ToolRequested { .. }
+                | TaskEvent::ToolCalled { .. }
+                | TaskEvent::ToolRunning { .. }
+                | TaskEvent::ToolSucceeded { .. }
+                | TaskEvent::ToolFailed { .. }
+                | TaskEvent::ToolBlocked { .. }
+                | TaskEvent::ToolCancelled { .. }
+                | TaskEvent::InputQueued { .. }
+        );
+        let approval = matches!(
+            ev,
+            TaskEvent::ApprovalRequired { .. }
+                | TaskEvent::ApprovalRequested { .. }
+                | TaskEvent::ApprovalResolved { .. }
+                | TaskEvent::ApprovalAccepted { .. }
+                | TaskEvent::ApprovalRejected { .. }
+        );
+        let correlated = stream || approval || matches!(ev, TaskEvent::TokenUsage { .. });
+        let terminal = matches!(
+            ev,
+            TaskEvent::TaskCompleted { .. }
+                | TaskEvent::TaskRejected { .. }
+                | TaskEvent::TaskBlocked { .. }
+                | TaskEvent::TaskFailed { .. }
+                | TaskEvent::TaskRevisionNeeded { .. }
+        );
+        // task.started establishes a new correlation root, so it cannot use the normal
+        // taskRunId comparison below. Reject a different start until an explicit task terminal
+        // closes the current stream. Generation phase names are presentation state (and include
+        // tool_requested/tool_running/awaiting approval); they are not a safe liveness oracle.
+        if matches!(ev, TaskEvent::TaskStarted { .. }) {
+            let incoming = string_field(data, "id");
+            let current = self.task.as_ref().and_then(|task| task.id.as_deref());
+            if !self.task_stream_terminal
+                && let (Some(current), Some(incoming)) = (current, incoming.as_deref())
+                && current != incoming
+            {
+                self.debug.push(format!(
+                    "ignored stale task.started for {incoming}; current active task is {current}"
+                ));
+                return false;
+            }
         }
+        if !correlated && !terminal {
+            return true;
+        }
+        if correlated && self.task_stream_terminal {
+            self.debug.push(format!(
+                "ignored {} after task terminal (explicit task stream terminal)",
+                ev.event_type()
+            ));
+            return false;
+        }
+        if stream
+            && !matches!(ev, TaskEvent::GenerationStarted { .. })
+            && matches!(
+                self.generation_phase,
+                Some("completed" | "failed" | "cancelled")
+            )
+        {
+            self.debug.push(format!(
+                "ignored {} after generation terminal",
+                ev.event_type()
+            ));
+            return false;
+        }
+
+        if let Some(event_task_id) = string_field(data, "taskRunId") {
+            let current = self.task.as_ref().and_then(|task| task.id.as_deref());
+            if current != Some(event_task_id.as_str()) {
+                if terminal {
+                    self.debug.push(format!(
+                        "ignored stale or uncorrelated {} for {event_task_id}",
+                        ev.event_type()
+                    ));
+                } else {
+                    self.debug.push(format!(
+                        "ignored stale {} for taskRunId {event_task_id}",
+                        ev.event_type()
+                    ));
+                }
+                return false;
+            }
+        }
+
+        let incoming_turn = string_field(data, "turn_id");
+        if matches!(ev, TaskEvent::GenerationStarted { .. }) {
+            if let Some(incoming) = incoming_turn.as_deref() {
+                if let Some(current) = self.current_turn_id.as_deref()
+                    && current != incoming
+                {
+                    self.debug.push(format!(
+                        "ignored generation.started for unexpected turn_id {incoming}; current turn is {current}"
+                    ));
+                    return false;
+                }
+                if self.current_turn_id.is_none() {
+                    self.current_turn_id = Some(incoming.to_string());
+                }
+            }
+        } else if let (Some(current), Some(incoming)) =
+            (self.current_turn_id.as_deref(), incoming_turn.as_deref())
+            && current != incoming
+        {
+            self.debug.push(format!(
+                "ignored stale {} for turn_id {incoming}",
+                ev.event_type()
+            ));
+            return false;
+        } else if self.current_turn_id.is_none() && incoming_turn.is_some() {
+            // A transitional producer may add correlation fields before generation.started.
+            self.current_turn_id = incoming_turn;
+        }
+
+        if let Some(raw_seq) = data.get("seq") {
+            let Some(seq) = raw_seq.as_u64() else {
+                self.debug.push(format!(
+                    "ignored {} with invalid non-integer seq",
+                    ev.event_type()
+                ));
+                return false;
+            };
+            if self.last_turn_seq.is_some_and(|last| seq <= last) {
+                self.debug.push(format!(
+                    "ignored out-of-order {} seq={seq} last={}",
+                    ev.event_type(),
+                    self.last_turn_seq.unwrap_or_default()
+                ));
+                return false;
+            }
+            self.last_turn_seq = Some(seq);
+        }
+        true
     }
 
     fn current_task_has_artifact(&self) -> bool {
@@ -2293,35 +2541,32 @@ impl AppState {
     fn reduce_assistant_message(&mut self, data: &Value) {
         let text = string_field(data, "text").unwrap_or_default();
         self.answer.push_str(&text);
-        self.append_assistant(&text);
+        self.append_assistant(data, &text);
     }
 
-    /// v0.8 M2: 存下这一轮完结后的预排版 ANSI 行，挂到 conversation 中最后一条助手条目的
-    /// 下标上。渲染层遇到该助手条目时优先用这份富文本（定妆），否则回退裸文本。
+    /// A rendered snapshot belongs to exactly one stable assistant part. This preserves the
+    /// original text → tool → text chronology and prevents a whole-turn snapshot from moving
+    /// pre-tool prose below the tool row. Legacy v1 (without part_id) falls back to the latest
+    /// assistant part, but never supersedes earlier parts.
     fn reduce_assistant_rendered(&mut self, data: &Value) {
         let ansi_lines = string_array_field(data, "ansi_lines");
         if ansi_lines.is_empty() {
             return;
         }
-        if let Some(index) = self.last_assistant_index() {
-            // 这条 rendered 是整轮排版文本。若工具事件把本轮助手拆成了多段，前置各段的
-            // 裸文本会与这块富文本重复——把 [本轮起点, index) 内的助手分片标记 superseded，
-            // 渲染层只显示这一块整轮排版。单段轮（无中途工具事件）此循环为空，行为不变。
-            for i in self.turn_conversation_start..index {
-                if matches!(
-                    self.conversation.get(i),
-                    Some(ConversationItem::Assistant(_))
-                ) {
-                    self.superseded_assistant.insert(i);
-                }
-            }
+        let index = if let Some(part_id) = string_field(data, "part_id") {
+            let Some(index) = self.assistant_parts.get(&part_id).copied() else {
+                self.debug.push(format!(
+                    "ignored assistant.rendered for unknown part_id {part_id}"
+                ));
+                return;
+            };
+            Some(index)
+        } else {
+            self.last_assistant_index()
+        };
+        if let Some(index) = index {
             self.rendered_assistant.insert(index, ansi_lines);
         }
-    }
-
-    /// 该助手分片是否已被整轮排版块取代（渲染层据此跳过其裸文本，避免重复显示）。
-    pub fn is_superseded_assistant(&self, idx: usize) -> bool {
-        self.superseded_assistant.contains(&idx)
     }
 
     /// conversation 中最后一条 Assistant 条目的下标（供预排版行定位）。
@@ -2341,7 +2586,7 @@ impl AppState {
         if text.is_empty() {
             return;
         }
-        self.append_assistant(&text);
+        self.append_assistant(data, &text);
         let ansi_lines = string_array_field(data, "ansi_lines");
         if !ansi_lines.is_empty()
             && let Some(index) = self.last_assistant_index()
@@ -2356,8 +2601,13 @@ impl AppState {
         self.timeline.clear();
         self.answer.clear();
         self.rendered_assistant.clear();
-        self.superseded_assistant.clear();
-        self.turn_conversation_start = 0;
+        self.assistant_parts.clear();
+        self.active_assistant_part = None;
+        self.current_turn_id = None;
+        self.last_turn_seq = None;
+        self.generation_phase = None;
+        self.task_stream_terminal = false;
+        self.budget_refusal_pending = false;
         self.thinking_line = None;
         self.pending_actions.clear();
         self.task = None;
@@ -2405,23 +2655,39 @@ impl AppState {
         }
     }
 
-    fn reduce_tool_requested(&mut self, data: &Value) {
+    fn reduce_tool_requested(&mut self, data: &Value, running: bool) {
         let id = string_field(data, "id").unwrap_or_else(|| self.id_for(data));
         let tool = string_field(data, "tool");
-        // v0.11 M3：按引擎真实工具名累加本任务活动计数（供任务头下的 TRAE 式计数条）。
-        if let Some(name) = tool.as_deref() {
+        let existed = self.tools.contains_key(&id);
+        let needs_approval = bool_field(data, "needsApproval").unwrap_or(false);
+        let next = if running {
+            "running"
+        } else if needs_approval {
+            "awaiting_approval"
+        } else {
+            "requested"
+        };
+        if let Some(current) = self.tools.get(&id).map(|tool| tool.status.as_str())
+            && !tool_transition_allowed(current, next)
+        {
+            self.debug.push(format!(
+                "ignored non-monotonic tool {id} transition {current}->{next}"
+            ));
+            return;
+        }
+        // Count one logical invocation, not every lifecycle event.
+        if !existed && let Some(name) = tool.as_deref() {
             self.task_activity.record(name);
         }
         self.set_tool(
             &id,
             ToolPatch {
                 tool: tool.clone(),
-                status: Some("running".to_string()),
+                status: Some(next.to_string()),
                 args: data.get("args").cloned(),
                 ..ToolPatch::default()
             },
         );
-        let needs_approval = bool_field(data, "needsApproval").unwrap_or(false);
         if needs_approval {
             self.approval = Some(Approval {
                 id: Some(id.clone()),
@@ -2432,18 +2698,80 @@ impl AppState {
             self.approval_kind = Some("tool_authorization".to_string());
             self.approval_task_id = self.task.as_ref().and_then(|task| task.id.clone());
             self.status = "awaiting_approval".to_string();
+            self.generation_phase = Some("awaiting_approval");
+            self.clear_busy();
+        } else {
+            self.mark_busy();
+            self.generation_phase = Some(if running {
+                "tool_running"
+            } else {
+                "tool_requested"
+            });
         }
         let label = string_field(data, "label").or(tool).unwrap_or_default();
-        self.push(
-            id,
-            if needs_approval {
-                SYM_WAIT
-            } else {
-                SYM_RUNNING
+        let symbol = if needs_approval {
+            SYM_WAIT
+        } else {
+            SYM_RUNNING
+        };
+        if existed {
+            self.mark(Some(&id), symbol, string_field(data, "reason"));
+        } else {
+            self.push(
+                id,
+                symbol,
+                label,
+                string_field(data, "reason").unwrap_or_default(),
+            );
+        }
+    }
+
+    fn reduce_tool_terminal(
+        &mut self,
+        data: &Value,
+        status: &'static str,
+        symbol: &'static str,
+        expanded: bool,
+    ) {
+        let id = string_field(data, "id").unwrap_or_else(|| self.id_for(data));
+        let existed = self.tools.contains_key(&id);
+        if let Some(current) = self.tools.get(&id).map(|tool| tool.status.as_str())
+            && !tool_transition_allowed(current, status)
+        {
+            self.debug.push(format!(
+                "ignored non-monotonic tool {id} transition {current}->{status}"
+            ));
+            return;
+        }
+        let summary = string_field(data, "summary")
+            .or_else(|| string_field(data, "code"))
+            .or_else(|| string_field(data, "error"))
+            .or_else(|| string_field(data, "reason"));
+        let tool = string_field(data, "tool");
+        self.set_tool(
+            &id,
+            ToolPatch {
+                tool: tool.clone(),
+                status: Some(status.to_string()),
+                summary: summary.clone(),
+                args: data.get("args").cloned(),
             },
-            label,
-            string_field(data, "reason").unwrap_or_default(),
         );
+        if existed {
+            self.mark(Some(&id), symbol, summary.clone());
+        } else {
+            self.push(
+                id.clone(),
+                symbol,
+                string_field(data, "label")
+                    .or(tool)
+                    .unwrap_or_else(|| "tool".to_string()),
+                summary.clone().unwrap_or_default(),
+            );
+        }
+        let detail = string_field(data, "detail").or(summary);
+        self.mark_tool(&id, detail, expanded);
+        self.generation_phase = Some("tool_done");
     }
 
     fn id_for(&self, data: &Value) -> String {
@@ -2612,6 +2940,20 @@ struct ToolPatch {
     status: Option<String>,
     summary: Option<String>,
     args: Option<Value>,
+}
+
+fn tool_transition_allowed(current: &str, next: &str) -> bool {
+    if current == next || matches!(current, "succeeded" | "failed" | "blocked" | "cancelled") {
+        return false;
+    }
+    match (current, next) {
+        // Lifecycle must never move backwards. Direct requested→terminal remains valid for v1,
+        // whose bridge reported the invocation only after execution finished.
+        ("running", "requested" | "awaiting_approval") | ("awaiting_approval", "requested") => {
+            false
+        }
+        _ => true,
+    }
 }
 
 fn string_field(data: &Value, key: &str) -> Option<String> {
@@ -2831,6 +3173,10 @@ mod tests {
 
         let mut state = state;
         state.reduce(&ev(
+            "task.completed",
+            serde_json::json!({"id":"t1","taskRunId":"t1"}),
+        ));
+        state.reduce(&ev(
             "task.started",
             serde_json::json!({"id":"t2","title":"新任务"}),
         ));
@@ -2876,6 +3222,77 @@ mod tests {
             state.pending_actions.is_empty(),
             "a new task voids the previous deliverable's digit bindings"
         );
+    }
+
+    #[test]
+    fn late_task_started_cannot_reset_an_active_different_task() {
+        let mut state = AppState::default();
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"current","title":"当前任务","mode":"Chat"}),
+        ));
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"taskRunId":"current","text":"仍在生成"}),
+        ));
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"stale","title":"旧任务","mode":"Task"}),
+        ));
+        assert_eq!(
+            state.task.as_ref().and_then(|task| task.id.as_deref()),
+            Some("current")
+        );
+        assert_eq!(state.answer, "仍在生成");
+        assert!(
+            state
+                .debug
+                .iter()
+                .any(|line| line.contains("ignored stale task.started"))
+        );
+    }
+
+    #[test]
+    fn late_task_started_cannot_reset_tool_or_approval_state() {
+        for active_event in [
+            ev(
+                "tool.running",
+                serde_json::json!({"id":"tool-1","taskRunId":"current","tool":"web.search"}),
+            ),
+            ev(
+                "approval.required",
+                serde_json::json!({
+                    "id":"approval-1",
+                    "taskRunId":"current",
+                    "kind":"tool_authorization",
+                    "tool":"browser.render"
+                }),
+            ),
+        ] {
+            let mut state = AppState::default();
+            state.reduce(&ev(
+                "task.started",
+                serde_json::json!({"id":"current","title":"当前任务","mode":"Chat"}),
+            ));
+            state.reduce(&active_event);
+            state.answer = "保留当前答案".to_string();
+            state.reduce(&ev(
+                "task.started",
+                serde_json::json!({"id":"stale","title":"旧任务","mode":"Task"}),
+            ));
+
+            assert_eq!(
+                state.task.as_ref().and_then(|task| task.id.as_deref()),
+                Some("current")
+            );
+            assert_eq!(state.answer, "保留当前答案");
+            assert!(
+                state
+                    .debug
+                    .iter()
+                    .any(|line| line.contains("ignored stale task.started"))
+            );
+        }
     }
 
     /// v0.15 P1-2：通知中心条目由**真事件**派生——审批请求/交付/验收/打回各产生一条,
@@ -3153,47 +3570,214 @@ mod tests {
     }
 
     #[test]
-    fn mid_stream_tool_event_supersedes_earlier_assistant_fragment() {
-        // 一轮里 "文字→工具事件→文字" 把助手拆成两段。整轮 rendered 只挂最后一段；
-        // 前置段必须被标记 superseded，否则渲染层会把 "我先搜索一下" 显示两次（回归 bug）。
+    fn rendered_parts_preserve_text_tool_text_chronology() {
         let mut state = AppState::default();
         state.reduce(&ev(
             "task.started",
-            serde_json::json!({"id":"turn1","title":"报告"}),
+            serde_json::json!({"id":"task1","taskRunId":"task1","title":"报告"}),
+        ));
+        state.reduce(&ev(
+            "generation.started",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":1}),
         ));
         state.reduce(&ev(
             "token.delta",
-            serde_json::json!({"text":"我先搜索一下"}),
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":2,"part_id":"part-a","text":"我先搜索一下"}),
         ));
         state.reduce(&ev(
             "tool.requested",
-            serde_json::json!({"id":"tool1","tool":"web.search","label":"搜索"}),
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":3,"id":"tool1","tool":"web.search","label":"搜索"}),
         ));
-        state.reduce(&ev("token.delta", serde_json::json!({"text":"结果如下"})));
+        state.reduce(&ev(
+            "tool.running",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":4,"id":"tool1","tool":"web.search"}),
+        ));
+        state.reduce(&ev(
+            "tool.succeeded",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":5,"id":"tool1","summary":"找到结果"}),
+        ));
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":6,"part_id":"part-b","text":"结果如下"}),
+        ));
         state.reduce(&ev(
             "assistant.rendered",
-            serde_json::json!({"turn_id":"turn1","ansi_lines":["我先搜索一下结果如下"]}),
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":7,"part_id":"part-a","ansi_lines":["先搜索"]}),
+        ));
+        state.reduce(&ev(
+            "assistant.rendered",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":8,"part_id":"part-b","ansi_lines":["结果"]}),
         ));
 
-        let last = state.last_assistant_index().expect("assistant present");
-        let first_assistant = state
+        let first = state.assistant_parts["part-a"];
+        let second = state.assistant_parts["part-b"];
+        let tool_event = state
             .conversation
             .iter()
-            .position(|it| matches!(it, ConversationItem::Assistant(_)))
-            .expect("first assistant fragment");
-        assert_ne!(first_assistant, last, "turn split into two fragments");
+            .position(|item| matches!(item, ConversationItem::Event(index) if state.timeline[*index].id == "tool1"))
+            .expect("one tool row");
         assert!(
-            state.rendered_assistant.contains_key(&last),
-            "rendered stored on last fragment"
+            first < tool_event && tool_event < second,
+            "text/tool/text order"
         );
+        assert_eq!(state.rendered_assistant[&first], vec!["先搜索"]);
+        assert_eq!(state.rendered_assistant[&second], vec!["结果"]);
+        assert_eq!(
+            state
+                .timeline
+                .iter()
+                .filter(|entry| entry.id == "tool1")
+                .count(),
+            1,
+            "one timeline row per stable tool id"
+        );
+    }
+
+    #[test]
+    fn correlation_seq_and_terminals_reject_late_stream_events() {
+        let mut state = AppState::default();
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"task1","taskRunId":"task1","title":"x"}),
+        ));
+        state.reduce(&ev(
+            "generation.started",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":1}),
+        ));
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":2,"part_id":"p","text":"A"}),
+        ));
+        state.reduce(&ev(
+            "generation.started",
+            serde_json::json!({"turn_id":"stale-turn","taskRunId":"task1","seq":1}),
+        ));
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":"invalid","part_id":"p","text":"INVALID_SEQ"}),
+        ));
+        state.reduce(&ev(
+            "token.usage",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":2,"prompt":99,"completion":99}),
+        ));
+        assert_eq!(state.usage, Usage::default(), "stale usage is ignored");
+        // Duplicate/out-of-order, stale turn, and stale task are all ignored.
+        for data in [
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":2,"part_id":"p","text":"B"}),
+            serde_json::json!({"turn_id":"old","taskRunId":"task1","seq":3,"part_id":"p","text":"C"}),
+            serde_json::json!({"turn_id":"turn1","taskRunId":"old","seq":3,"part_id":"p","text":"D"}),
+        ] {
+            state.reduce(&ev("token.delta", data));
+        }
+        assert_eq!(state.answer, "A");
+        state.reduce(&ev(
+            "generation.cancelled",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":3,"reason":"user"}),
+        ));
+        assert!(!state.is_busy());
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":4,"part_id":"p","text":"LATE"}),
+        ));
+        assert_eq!(state.answer, "A", "post-cancel delta rejected");
+
+        // A new task resets the stream gate; its explicit task terminal closes even legacy v1.
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"task2","title":"y"}),
+        ));
+        state.reduce(&ev("token.delta", serde_json::json!({"text":"ok"})));
+        state.reduce(&ev(
+            "task.blocked",
+            serde_json::json!({"id":"task2","reason":"stop"}),
+        ));
+        state.reduce(&ev("token.delta", serde_json::json!({"text":"late"})));
+        assert!(!state.answer.contains("late"));
+        assert!(!state.is_busy());
+    }
+
+    #[test]
+    fn explicit_task_terminal_rejects_late_approval_even_when_business_gate_is_recoverable() {
+        let mut state = AppState::default();
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"task1","mode":"Task","title":"x"}),
+        ));
+        // The business projection remains recoverable as needs_artifact, but the producer has
+        // explicitly closed its stream and must not resurrect an approval modal afterward.
+        state.reduce(&ev("task.completed", serde_json::json!({"id":"task1"})));
+        assert_eq!(state.status, "needs_artifact");
+        assert_eq!(state.current_task_terminal, None);
+        state.reduce(&ev(
+            "approval.requested",
+            serde_json::json!({"id":"approval-late","taskRunId":"task1","kind":"deliverable_acceptance"}),
+        ));
+        assert!(state.approval.is_none());
+        assert_eq!(state.status, "needs_artifact");
         assert!(
-            state.is_superseded_assistant(first_assistant),
-            "earlier fragment superseded (no double render)"
+            state
+                .debug
+                .iter()
+                .any(|line| line.contains("approval.requested after task terminal"))
         );
-        assert!(
-            !state.is_superseded_assistant(last),
-            "rendered fragment not superseded"
+    }
+
+    #[test]
+    fn tool_lifecycle_is_monotonic_and_blocked_is_not_failed() {
+        let mut state = AppState::default();
+        state.reduce(&ev("task.started", serde_json::json!({"id":"task1"})));
+        state.reduce(&ev(
+            "tool.requested",
+            serde_json::json!({"id":"tool1","tool":"web_search","label":"搜索"}),
+        ));
+        assert_eq!(state.tools["tool1"].status, "requested");
+        state.reduce(&ev(
+            "tool.running",
+            serde_json::json!({"id":"tool1","tool":"web_search"}),
+        ));
+        assert_eq!(state.tools["tool1"].status, "running");
+        state.reduce(&ev(
+            "tool.blocked",
+            serde_json::json!({"id":"tool1","reason":"policy"}),
+        ));
+        assert_eq!(state.tools["tool1"].status, "blocked");
+        state.reduce(&ev(
+            "tool.succeeded",
+            serde_json::json!({"id":"tool1","summary":"impossible"}),
+        ));
+        assert_eq!(state.tools["tool1"].status, "blocked");
+        assert_eq!(
+            state
+                .timeline
+                .iter()
+                .filter(|entry| entry.id == "tool1")
+                .count(),
+            1
         );
+        assert_eq!(
+            state
+                .timeline
+                .iter()
+                .find(|entry| entry.id == "tool1")
+                .unwrap()
+                .status,
+            SYM_WARN
+        );
+    }
+
+    #[test]
+    fn legacy_budget_refusal_returns_to_idle_after_explanation() {
+        let mut state = AppState::default();
+        state.reduce(&ev(
+            "budget.warning",
+            serde_json::json!({"level":"block","spent":20.0,"cap":20.0}),
+        ));
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"text":"预算已达上限"}),
+        ));
+        assert_eq!(state.status, "idle");
+        assert!(!state.is_busy());
     }
 
     #[test]
@@ -3308,7 +3892,7 @@ mod tests {
         assert_eq!(state.task.as_ref().unwrap().status, "done");
         assert_eq!(state.mode, "Trial");
         assert_eq!(state.plan.as_ref().unwrap().steps.len(), 3);
-        assert_eq!(state.tools.get("tool1").unwrap().status, "ok");
+        assert_eq!(state.tools.get("tool1").unwrap().status, "succeeded");
         assert_eq!(state.evidence[0].source.as_deref(), Some("official"));
         assert_eq!(
             state.artifacts[0].name.as_deref(),

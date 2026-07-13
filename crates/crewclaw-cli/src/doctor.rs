@@ -2,6 +2,7 @@ use serde::Serialize;
 
 use crate::Expert;
 use crate::manifest::EmployeeManifest;
+use crate::permissions::{self, DefaultPermissionClass};
 use crate::team::{self, WorkspaceEmployee, WorkspaceEmployeeStatus};
 
 #[derive(Clone, Debug, Serialize)]
@@ -105,7 +106,10 @@ pub(crate) fn build_report(
                 let missing_permissions = manifest
                     .permissions
                     .iter()
-                    .filter(|permission| !employee.permissions_granted.contains(permission))
+                    .filter(|permission| {
+                        permissions::is_safe_default_permission(permission)
+                            && !employee.permissions_granted.contains(permission)
+                    })
                     .cloned()
                     .collect::<Vec<_>>();
                 if !missing_permissions.is_empty() {
@@ -117,6 +121,38 @@ pub(crate) fn build_report(
                     suggestions.push("Re-hire or update the team record after reviewing the required permissions.".to_string());
                 }
 
+                let pending_permissions = manifest
+                    .permissions
+                    .iter()
+                    .filter(|permission| {
+                        permissions::classify_default_permission(permission)
+                            == DefaultPermissionClass::Pending
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !pending_permissions.is_empty() {
+                    suggestions.push(format!(
+                        "Permission controls pending explicit approval (not auto-granted): {}.",
+                        pending_permissions.join(", ")
+                    ));
+                }
+
+                let disabled_permissions = manifest
+                    .permissions
+                    .iter()
+                    .filter(|permission| {
+                        permissions::classify_default_permission(permission)
+                            == DefaultPermissionClass::Disabled
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !disabled_permissions.is_empty() {
+                    suggestions.push(format!(
+                        "Manifest-disabled permissions remain ungranted: {}.",
+                        disabled_permissions.join(", ")
+                    ));
+                }
+
                 if let Some(version) = expert.version.as_ref()
                     && employee.version != *version
                 {
@@ -125,7 +161,10 @@ pub(crate) fn build_report(
                         "Hired version is out of date: team={} registry={}",
                         employee.version, version
                     ));
-                    suggestions.push(format!("Run crew hire {} again after firing the old record, or add crew update when available.", expert.name));
+                    suggestions.push(format!(
+                        "Run crew update {} --apply after reviewing the updated permissions.",
+                        expert.name
+                    ));
                 }
 
                 if employee.status != WorkspaceEmployeeStatus::Active {
@@ -286,5 +325,68 @@ mod tests {
 
         assert_eq!(report.health_status, HealthStatus::Broken);
         assert!(report.issues.iter().any(|issue| issue == "missing"));
+    }
+
+    #[test]
+    fn gated_disabled_and_unknown_reads_are_compliance_info_not_missing_grants() {
+        let expert = expert();
+        let mut manifest = manifest();
+        manifest.permissions.extend([
+            "internal_docs:read:with_consent".to_string(),
+            "contacts:read:disabled".to_string(),
+            "secrets:read".to_string(),
+        ]);
+        let team = vec![WorkspaceEmployee {
+            workspace_employee_id: "macao-1".to_string(),
+            employee_id: expert.name.clone(),
+            version: "0.1.0".to_string(),
+            status: WorkspaceEmployeeStatus::Active,
+            hired_at: "2026-06-22T00:00:00Z".to_string(),
+            fired_at: None,
+            permissions_granted: vec!["public_web:read".to_string()],
+        }];
+
+        let report = build_report(&expert, Ok(manifest), &team);
+
+        assert_eq!(report.health_status, HealthStatus::Healthy);
+        assert!(report.issues.is_empty());
+        assert!(report.suggestions.iter().any(|suggestion| {
+            suggestion.contains("internal_docs:read:with_consent")
+                && suggestion.contains("secrets:read")
+        }));
+        assert!(
+            report
+                .suggestions
+                .iter()
+                .any(|suggestion| suggestion.contains("contacts:read:disabled"))
+        );
+    }
+
+    #[test]
+    fn outdated_hire_points_to_the_available_update_command() {
+        let expert = expert();
+        let team = vec![WorkspaceEmployee {
+            workspace_employee_id: "macao-1".to_string(),
+            employee_id: expert.name.clone(),
+            version: "0.0.9".to_string(),
+            status: WorkspaceEmployeeStatus::Active,
+            hired_at: "2026-06-22T00:00:00Z".to_string(),
+            fired_at: None,
+            permissions_granted: vec!["public_web:read".to_string()],
+        }];
+
+        let report = build_report(&expert, Ok(manifest()), &team);
+
+        assert_eq!(report.health_status, HealthStatus::Warning);
+        assert!(report.suggestions.iter().any(|suggestion| {
+            suggestion ==
+                "Run crew update macao-networking-agent --apply after reviewing the updated permissions."
+        }));
+        assert!(
+            report
+                .suggestions
+                .iter()
+                .all(|suggestion| !suggestion.contains("when available"))
+        );
     }
 }

@@ -1,8 +1,8 @@
 use std::{
-    io::{self, BufRead, BufReader},
+    io::{self, BufRead, BufReader, Write},
     panic,
     path::{Path, PathBuf},
-    process::{ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
     sync::mpsc::{self, Receiver},
     thread,
     time::{Duration, Instant},
@@ -68,9 +68,151 @@ enum LiveLoopExit {
     ChildEof,
 }
 
-/// 生成态提频到 ~10fps 驱动 spinner/秒数动画；空闲降频省 CPU。
-const POLL_BUSY_MS: u64 = 100;
-const POLL_IDLE_MS: u64 = 250;
+struct EngineBootState {
+    seed_events: Vec<TaskEvent>,
+    client_ready_sent: bool,
+}
+
+/// 生成态提频到 ~30fps，降低首 token 与工具状态的可见延迟；空闲仍降频省 CPU。
+const POLL_BUSY_MS: u64 = 33;
+const POLL_IDLE_MS: u64 = 50;
+const RUNTIME_GRACEFUL_EXIT_MS: u64 = 1_500;
+
+struct RuntimeProcessTree {
+    pid: u32,
+    #[cfg(windows)]
+    job: windows_sys::Win32::Foundation::HANDLE,
+}
+
+impl RuntimeProcessTree {
+    fn attach(child: &Child) -> Self {
+        #[cfg(windows)]
+        {
+            use std::{ffi::c_void, mem::size_of, os::windows::io::AsRawHandle, ptr};
+            use windows_sys::Win32::{
+                Foundation::CloseHandle,
+                System::JobObjects::{
+                    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+                    SetInformationJobObject,
+                },
+            };
+
+            let mut job = ptr::null_mut();
+            // SAFETY: all pointers either reference a correctly sized local structure or are null;
+            // the child handle remains valid for the duration of this call.
+            unsafe {
+                let candidate = CreateJobObjectW(ptr::null(), ptr::null());
+                if !candidate.is_null() {
+                    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+                    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                    let configured = SetInformationJobObject(
+                        candidate,
+                        JobObjectExtendedLimitInformation,
+                        (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast::<c_void>(),
+                        size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                    ) != 0;
+                    let assigned = configured
+                        && AssignProcessToJobObject(
+                            candidate,
+                            child.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE,
+                        ) != 0;
+                    if assigned {
+                        job = candidate;
+                    } else {
+                        let _ = CloseHandle(candidate);
+                    }
+                }
+            }
+            Self {
+                pid: child.id(),
+                job,
+            }
+        }
+
+        #[cfg(not(windows))]
+        Self { pid: child.id() }
+    }
+
+    fn terminate(&self, child: &mut Child) {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+            let terminated_job = if self.job.is_null() {
+                false
+            } else {
+                // SAFETY: `job` is owned by this struct and remains open until Drop.
+                unsafe { TerminateJobObject(self.job, 1) != 0 }
+            };
+            if !terminated_job {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &self.pid.to_string(), "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+        }
+        #[cfg(unix)]
+        {
+            // The Node runtime is spawned as the leader of its own process group below, so this
+            // reaches npm/cmd-equivalent helpers and live tool grandchildren as one unit.
+            unsafe {
+                libc::kill(-(self.pid as i32), libc::SIGKILL);
+            }
+        }
+        let _ = child.kill();
+    }
+}
+
+#[cfg(windows)]
+impl Drop for RuntimeProcessTree {
+    fn drop(&mut self) {
+        if !self.job.is_null() {
+            // KILL_ON_JOB_CLOSE is a final safety net for descendants that outlive Node.
+            unsafe {
+                let _ = windows_sys::Win32::Foundation::CloseHandle(self.job);
+            }
+            self.job = std::ptr::null_mut();
+        }
+    }
+}
+
+fn configure_runtime_process_group(command: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    #[cfg(not(unix))]
+    let _ = command;
+}
+
+fn wait_for_runtime_exit(child: &mut Child, timeout: Duration) -> io::Result<Option<ExitStatus>> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if Instant::now() >= deadline {
+            return Ok(None);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn shutdown_runtime(
+    child: &mut Child,
+    tree: &RuntimeProcessTree,
+    grace: Duration,
+) -> io::Result<ExitStatus> {
+    match wait_for_runtime_exit(child, grace)? {
+        Some(status) => Ok(status),
+        None => {
+            tree.terminate(child);
+            child.wait()
+        }
+    }
+}
 
 fn poll_interval(state: &AppState) -> Duration {
     if state.is_busy() {
@@ -106,43 +248,67 @@ pub fn run_workbench_live(runtime_args: &[String], root: &Path) -> Result<i32, S
     theme.accent = config::employee_accent(&runtime_args[0]);
     config::set_theme(theme);
     let script = root.join("packages/runtime/run.mjs");
-    let mut child = Command::new("node")
+    let mut runtime = Command::new("node");
+    runtime
         .arg(&script)
         .args(runtime_args)
         .current_dir(root)
         .env("CREW_TUI", "ratatui")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| {
-            format!("failed to launch the Node runtime (is node on PATH?): {error}")
-        })?;
+        .stderr(Stdio::piped());
+    configure_runtime_process_group(&mut runtime);
+    let mut child = runtime.spawn().map_err(|error| {
+        format!("failed to launch the Node runtime (is node on PATH?): {error}")
+    })?;
+    let process_tree = RuntimeProcessTree::attach(&child);
 
     let Some(child_stdout) = child.stdout.take() else {
-        let _ = child.kill();
+        process_tree.terminate(&mut child);
         let _ = child.wait();
         return Err("failed to capture Node runtime stdout".to_string());
     };
     let Some(child_stderr) = child.stderr.take() else {
-        let _ = child.kill();
+        process_tree.terminate(&mut child);
         let _ = child.wait();
         return Err("failed to capture Node runtime stderr".to_string());
     };
     let Some(mut child_stdin) = child.stdin.take() else {
-        let _ = child.kill();
+        process_tree.terminate(&mut child);
         let _ = child.wait();
         return Err("failed to capture Node runtime stdin".to_string());
     };
 
     let events = spawn_task_event_reader(BufReader::new(child_stdout), "engine stdout");
     let debug = spawn_debug_line_reader(BufReader::new(child_stderr), "engine stderr");
+
+    // v0.20 P0：进 alternate screen 之前先等引擎 boot（首个 session.ready）。子进程若在会话就绪前
+    // 退出（坏员工名 / 缺 SOUL.md / 错 CWD / 非法 YAML），把它的 stdout/stderr 诊断收集起来，回到
+    // 调用方在正常终端打印——不进备用屏，杜绝"闪一下就退且无任何提示"（本次 P0 的根因）。
+    let boot = match await_engine_boot(&events, &debug, &mut child_stdin) {
+        BootOutcome::Ready {
+            seed_events,
+            client_ready_sent,
+        } => EngineBootState {
+            seed_events,
+            client_ready_sent,
+        },
+        BootOutcome::Failed { diagnostics } => {
+            drop(child_stdin);
+            let _ = shutdown_runtime(
+                &mut child,
+                &process_tree,
+                Duration::from_millis(RUNTIME_GRACEFUL_EXIT_MS),
+            );
+            return Err(startup_failure_message(&runtime_args[0], &diagnostics));
+        }
+    };
+
     let mut terminal = match TerminalGuard::enter(tui_config.mouse) {
         Ok(terminal) => terminal,
         Err(error) => {
             drop(child_stdin);
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = shutdown_runtime(&mut child, &process_tree, Duration::from_millis(250));
             return Err(error);
         }
     };
@@ -154,23 +320,36 @@ pub fn run_workbench_live(runtime_args: &[String], root: &Path) -> Result<i32, S
         &mut child_stdin,
         root,
         &runtime_args[0],
+        boot,
     );
     drop(terminal);
+    if matches!(&loop_result, Ok(LiveLoopExit::UserQuit)) {
+        let _ = child_stdin.write_all(b"/exit\n");
+        let _ = child_stdin.flush();
+    }
     drop(child_stdin);
 
     match loop_result {
-        Ok(LiveLoopExit::UserQuit) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            Ok(0)
-        }
-        Ok(LiveLoopExit::ChildEof) => child
-            .wait()
-            .map(|status| status.code().unwrap_or(1))
-            .map_err(|error| format!("failed to wait for Node runtime: {error}")),
+        Ok(LiveLoopExit::UserQuit) => shutdown_runtime(
+            &mut child,
+            &process_tree,
+            Duration::from_millis(RUNTIME_GRACEFUL_EXIT_MS),
+        )
+        .map(|_| 0)
+        .map_err(|error| format!("failed to stop Node runtime: {error}")),
+        Ok(LiveLoopExit::ChildEof) => shutdown_runtime(
+            &mut child,
+            &process_tree,
+            Duration::from_millis(RUNTIME_GRACEFUL_EXIT_MS),
+        )
+        .map(|status| status.code().unwrap_or(1))
+        .map_err(|error| format!("failed to wait for Node runtime: {error}")),
         Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = shutdown_runtime(
+                &mut child,
+                &process_tree,
+                Duration::from_millis(RUNTIME_GRACEFUL_EXIT_MS),
+            );
             Err(error)
         }
     }
@@ -332,6 +511,118 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// boot 结果：Ready 携带 boot 阶段已收到的事件（灌入初始状态）与 client.ready 是否已发；
+/// Failed 携带子进程在会话就绪前打印的诊断行（stdout 非 JSON 行 + stderr）。
+enum BootOutcome {
+    Ready {
+        seed_events: Vec<TaskEvent>,
+        client_ready_sent: bool,
+    },
+    Failed {
+        diagnostics: Vec<String>,
+    },
+}
+
+/// v0.20 P0：在进入 alternate screen 之前，阻塞等待引擎发出首个 `session.ready`。
+/// - 收到 `session.ready` → Ready（把这之前的事件一并带回作为初始状态种子）。
+/// - 子进程 stdout 在就绪前 EOF（启动即退）/ 超时 → Failed（带回收集到的诊断行）。
+///
+/// 这样启动失败时根本不进备用屏、不画那一帧——"闪退且无提示"的根因正是"先进屏后才发现子进程死了"。
+fn await_engine_boot<W: io::Write>(
+    events: &Receiver<WorkbenchMessage>,
+    debug: &Receiver<WorkbenchMessage>,
+    child_stdin: &mut W,
+) -> BootOutcome {
+    const BOOT_TIMEOUT: Duration = Duration::from_secs(20);
+
+    fn drain_debug(debug: &Receiver<WorkbenchMessage>, diagnostics: &mut Vec<String>) {
+        while let Ok(message) = debug.try_recv() {
+            if let WorkbenchMessage::Debug(line) | WorkbenchMessage::Error(line) = message {
+                diagnostics.push(line);
+            }
+        }
+    }
+
+    let deadline = Instant::now() + BOOT_TIMEOUT;
+    let mut seed_events = Vec::new();
+    let mut diagnostics = Vec::new();
+    let mut client_ready_sent = false;
+
+    loop {
+        drain_debug(debug, &mut diagnostics);
+        match events.recv_timeout(Duration::from_millis(100)) {
+            Ok(WorkbenchMessage::Event(event)) => {
+                if matches!(event, TaskEvent::ProtocolReady { .. }) && !client_ready_sent {
+                    // 镜像 live loop 的协商：回 client.ready，dream/v1 家族的 opt-in 才生效。
+                    if write_user_action(
+                        child_stdin,
+                        &UserAction::client_ready(vec![
+                            "core/v1".to_string(),
+                            "dream/v1".to_string(),
+                        ]),
+                    )
+                    .is_ok()
+                    {
+                        client_ready_sent = true;
+                    }
+                }
+                let ready = event.event_type() == "session.ready";
+                seed_events.push(event);
+                if ready {
+                    return BootOutcome::Ready {
+                        seed_events,
+                        client_ready_sent,
+                    };
+                }
+            }
+            Ok(WorkbenchMessage::Debug(line)) | Ok(WorkbenchMessage::Error(line)) => {
+                diagnostics.push(line);
+            }
+            Ok(WorkbenchMessage::Eof) => {
+                // stdout 关闭 = 子进程在会话就绪前退出。给 stderr 一点时间冲刷最后几行再收尾。
+                thread::sleep(Duration::from_millis(80));
+                drain_debug(debug, &mut diagnostics);
+                return BootOutcome::Failed { diagnostics };
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if Instant::now() >= deadline {
+                    diagnostics.push(
+                        "引擎在 20 秒内没有发出 session.ready（可能卡在启动或依赖加载）。"
+                            .to_string(),
+                    );
+                    return BootOutcome::Failed { diagnostics };
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                drain_debug(debug, &mut diagnostics);
+                return BootOutcome::Failed { diagnostics };
+            }
+        }
+    }
+}
+
+/// 把启动诊断整理成一条给用户看的错误（会被 main 以 `Error: {msg}` 打到正常终端）。
+fn startup_failure_message(employee: &str, diagnostics: &[String]) -> String {
+    let mut msg = format!("crew chat 无法启动员工 \"{employee}\"：引擎在会话就绪前退出。");
+    // 只保留最后若干行诊断——最相关的引擎报错通常在尾部。
+    let tail: Vec<&String> = diagnostics.iter().rev().take(24).collect();
+    if tail.is_empty() {
+        msg.push_str(
+            "\n引擎没有输出任何诊断。请确认 node 在 PATH 上，且该员工已安装（experts/<slug>/SOUL.md 存在）。",
+        );
+    } else {
+        msg.push_str("\n引擎输出：");
+        for line in tail.iter().rev() {
+            msg.push_str("\n  ");
+            msg.push_str(line);
+        }
+        msg.push_str(
+            "\n\n排查：确认该员工已安装（experts/<slug>/SOUL.md 存在），或运行 `crew doctor` 体检；coming-soon 员工尚无可运行包。",
+        );
+    }
+    msg
+}
+
 fn run_live_loop(
     terminal: &mut TuiTerminal,
     events: Receiver<WorkbenchMessage>,
@@ -339,7 +630,12 @@ fn run_live_loop(
     child_stdin: &mut ChildStdin,
     root: &Path,
     employee_id: &str,
+    boot: EngineBootState,
 ) -> Result<LiveLoopExit, String> {
+    let EngineBootState {
+        seed_events,
+        client_ready_sent,
+    } = boot;
     let mut state = AppState::default();
     let mut ui_state = UiState::default();
     // v0.10：Enter 突发启发式开关来自 tui.json（默认开）。
@@ -356,9 +652,15 @@ fn run_live_loop(
     ui_state.market = market;
     ui_state.hire_reports = hire_reports;
     let mut input = InputBuffer::with_history_path(prompt_history_path(root));
+    // v0.20 P0：把 boot 阶段已收到的事件（protocol.ready/session.ready）先灌入状态，
+    // 让工作台一进屏就带着员工头信息与工具目录，而不是空白再逐帧补。
+    for event in &seed_events {
+        state.reduce(event);
+    }
     refresh_persisted_insights(root, employee_id, &mut state, &mut ui_state);
     let mut next_persisted_refresh = Instant::now() + Duration::from_secs(2);
-    let mut client_ready_sent = false;
+    // client.ready 若已在 boot 阶段发出（响应 protocol.ready），此处不再重发。
+    let mut client_ready_sent = client_ready_sent;
 
     loop {
         if ui_state.persisted_refresh_requested || Instant::now() >= next_persisted_refresh {
@@ -725,10 +1027,11 @@ fn nav_session_cursor(state: &AppState, ui_state: &mut UiState, delta: i32) {
     }
     let last = state.timeline.len() - 1;
     let next = match ui_state.session_cursor {
-        None => last as i32, // 首按落在最新事件
-        Some(cur) => cur as i32 + delta,
+        None => last, // 首按落在最新事件
+        Some(cur) if delta.is_negative() => cur.saturating_sub(delta.unsigned_abs() as usize),
+        Some(cur) => cur.saturating_add(delta as usize).min(last),
     }
-    .clamp(0, last as i32) as usize;
+    .min(last);
     ui_state.session_cursor = Some(next);
     ui_state.follow = false;
 }
@@ -1807,6 +2110,183 @@ fn restore_terminal() -> io::Result<()> {
 mod tests {
     use super::*;
 
+    // ── v0.20 P0：await_engine_boot / startup_failure_message 回归守卫 ──────────────────
+    // 这些锁住"启动失败要显错、不要闪退"的契约，是 crew chat 闪退修复的核心不变量。
+
+    #[test]
+    fn await_engine_boot_returns_ready_and_replies_client_ready() {
+        let (etx, erx) = mpsc::channel();
+        let (_dtx, drx) = mpsc::channel();
+        etx.send(WorkbenchMessage::Event(TaskEvent::from_parts(
+            "protocol.ready",
+            1,
+            json!({ "protocol": "crewclaw.task-event/v1" }),
+        )))
+        .expect("send protocol.ready");
+        etx.send(WorkbenchMessage::Event(TaskEvent::from_parts(
+            "session.ready",
+            2,
+            json!({ "employee": { "name": "AI 落地鲸" } }),
+        )))
+        .expect("send session.ready");
+
+        let mut sink: Vec<u8> = Vec::new();
+        match await_engine_boot(&erx, &drx, &mut sink) {
+            BootOutcome::Ready {
+                seed_events,
+                client_ready_sent,
+            } => {
+                assert_eq!(seed_events.len(), 2, "both boot events seeded");
+                assert!(
+                    client_ready_sent,
+                    "protocol.ready must be answered with client.ready"
+                );
+            }
+            BootOutcome::Failed { diagnostics } => {
+                panic!("expected Ready, got Failed: {diagnostics:?}")
+            }
+        }
+        let written = String::from_utf8(sink).expect("utf8 stdin");
+        assert!(
+            written.contains("client.ready"),
+            "client.ready must be written to engine stdin, got: {written}"
+        );
+    }
+
+    #[test]
+    fn await_engine_boot_reports_failure_when_child_exits_before_ready() {
+        let (etx, erx) = mpsc::channel();
+        let (dtx, drx) = mpsc::channel();
+        // 模拟坏员工名：引擎在 stderr 报错后 stdout EOF，没有任何 session.ready。
+        dtx.send(WorkbenchMessage::Debug(
+            "engine stderr: Error: no runnable profile for \"ghost\" (no SOUL.md in agents/ or experts/)."
+                .to_string(),
+        ))
+        .expect("send stderr diag");
+        etx.send(WorkbenchMessage::Eof).expect("send eof");
+        drop(etx);
+        drop(dtx);
+
+        let mut sink: Vec<u8> = Vec::new();
+        match await_engine_boot(&erx, &drx, &mut sink) {
+            BootOutcome::Failed { diagnostics } => {
+                assert!(
+                    diagnostics
+                        .iter()
+                        .any(|line| line.contains("no runnable profile")),
+                    "engine stderr must be captured as a diagnostic, got: {diagnostics:?}"
+                );
+            }
+            BootOutcome::Ready { .. } => panic!("expected Failed on pre-ready EOF"),
+        }
+    }
+
+    #[test]
+    fn startup_failure_message_surfaces_engine_output_and_hint() {
+        let msg = startup_failure_message(
+            "ghost",
+            &["engine stderr: no runnable profile for \"ghost\"".to_string()],
+        );
+        assert!(msg.contains("ghost"), "names the employee");
+        assert!(
+            msg.contains("no runnable profile"),
+            "echoes the engine error"
+        );
+        assert!(msg.contains("SOUL.md"), "gives an actionable hint");
+
+        let empty = startup_failure_message("ghost", &[]);
+        assert!(
+            empty.contains("node"),
+            "no-diagnostic path still hints at node/PATH: {empty}"
+        );
+    }
+
+    fn runtime_process_test_root(label: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "crewclaw-runtime-{label}-{}-{nanos}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn runtime_shutdown_allows_real_node_to_handle_exit_before_fallback() {
+        let root = runtime_process_test_root("graceful-exit");
+        std::fs::create_dir_all(&root).expect("create graceful root");
+        let marker = root.join("graceful.txt");
+        let marker_json = serde_json::to_string(&marker.to_string_lossy()).expect("quote path");
+        let script = format!(
+            "const fs=require('node:fs');let data='';process.stdin.on('data',c=>data+=c);process.stdin.on('end',()=>fs.writeFileSync({marker_json},data));"
+        );
+        let mut command = Command::new("node");
+        command
+            .arg("-e")
+            .arg(script)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        configure_runtime_process_group(&mut command);
+        let mut child = command.spawn().expect("spawn graceful node");
+        let tree = RuntimeProcessTree::attach(&child);
+        let mut stdin = child.stdin.take().expect("capture graceful stdin");
+        stdin.write_all(b"/exit\n").expect("write exit");
+        stdin.flush().expect("flush exit");
+        drop(stdin);
+
+        let status = shutdown_runtime(&mut child, &tree, Duration::from_secs(1))
+            .expect("graceful runtime shutdown");
+        assert!(status.success(), "Node should exit itself: {status:?}");
+        assert_eq!(
+            std::fs::read_to_string(&marker).expect("graceful marker"),
+            "/exit\n"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn runtime_shutdown_fallback_kills_real_grandchild_tree() {
+        let root = runtime_process_test_root("tree-kill");
+        std::fs::create_dir_all(&root).expect("create tree root");
+        let started = root.join("started.flag");
+        let late = root.join("late.flag");
+        let started_json = serde_json::to_string(&started.to_string_lossy()).expect("quote path");
+        let late_json = serde_json::to_string(&late.to_string_lossy()).expect("quote path");
+        let grandchild_script = format!(
+            "const fs=require('node:fs');fs.writeFileSync({started_json},'yes');setTimeout(()=>fs.writeFileSync({late_json},'late'),500);setTimeout(()=>process.exit(0),900);"
+        );
+        let grandchild_json = serde_json::to_string(&grandchild_script).expect("quote script");
+        let parent_script = format!(
+            "const{{spawn}}=require('node:child_process');spawn(process.execPath,['-e',{grandchild_json}],{{stdio:'ignore'}});setInterval(()=>{{}},1000);"
+        );
+        let mut command = Command::new("node");
+        command
+            .arg("-e")
+            .arg(parent_script)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        configure_runtime_process_group(&mut command);
+        let mut child = command.spawn().expect("spawn runtime parent");
+        let tree = RuntimeProcessTree::attach(&child);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !started.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(started.exists(), "real grandchild must start");
+
+        let _ = shutdown_runtime(&mut child, &tree, Duration::from_millis(30))
+            .expect("forced runtime shutdown");
+        thread::sleep(Duration::from_millis(1_000));
+        assert!(
+            !late.exists(),
+            "tree fallback must prevent the grandchild's late side effect"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     /// v0.10：Enter 突发启发式——<10ms 间隔到达的裸 Enter 是粘贴注入的换行，插 `\n` 不提交；
     /// 正常敲击（间隔大）仍提交。这是 Windows Terminal 拦截 Ctrl+V 后唯一可靠的多行粘贴修法。
     #[test]
@@ -1911,12 +2391,14 @@ mod tests {
                 r.status
             );
         }
-        // v0.17 P2 C1：真实仓库里从未跑过任务的员工 → 全零默认值，不是 panic，也不伪造历史。
+        // v0.17 P2 C1：MARKET 投影必须逐员工读取当前 root 的真实 KPI。测试不能假设开发者
+        // checkout 的可变状态为空；显式用同一读者计算期望值，既覆盖缺省零也覆盖已有历史。
         for e in &market {
             assert_eq!(
                 e.kpi_cumulative,
-                state::KpiCumulative::default(),
-                "no .crewclaw/kpi file yet in the repo checkout"
+                read_kpi_cumulative(&root, &e.name),
+                "market KPI must mirror the injected root for {}",
+                e.name
             );
         }
     }
@@ -2642,28 +3124,37 @@ mod tests {
                 1_000 + i,
                 json!({"id": format!("t{i}"), "title": format!("任务{i}"), "mode": "Chat"}),
             ));
+            state.reduce(&TaskEvent::from_parts(
+                "task.completed",
+                2_000 + i,
+                json!({"id": format!("t{i}"), "taskRunId": format!("t{i}")}),
+            ));
         }
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
         let mut input = InputBuffer::default();
 
         // 首按 j 落在最新事件；k 上移；follow 脱离。
+        let newest = state
+            .timeline
+            .len()
+            .checked_sub(1)
+            .expect("fixture must contain session events");
+        assert!(newest >= 1, "fixture must exercise upward navigation");
         press(&mut state, &mut ui, &mut input, KeyCode::Char('j'));
-        assert_eq!(
-            ui.session_cursor,
-            Some(state.timeline.len() - 1),
-            "first j → newest"
-        );
+        assert_eq!(ui.session_cursor, Some(newest), "first j → newest");
         assert!(!ui.follow, "selection detaches follow");
         press(&mut state, &mut ui, &mut input, KeyCode::Char('k'));
         assert_eq!(
             ui.session_cursor,
-            Some(state.timeline.len() - 2),
+            Some(newest.saturating_sub(1)),
             "k moves up"
         );
         // g → 顶。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('g'));
         assert_eq!(ui.session_cursor, Some(0), "g jumps to top");
+        press(&mut state, &mut ui, &mut input, KeyCode::Char('k'));
+        assert_eq!(ui.session_cursor, Some(0), "k saturates at the top");
         // Esc → 清游标恢复跟随。
         press(&mut state, &mut ui, &mut input, KeyCode::Esc);
         assert_eq!(ui.session_cursor, None, "Esc clears cursor");

@@ -34,7 +34,7 @@ function contentLines(output) {
     .map(line => line.replace(/^.*?› ?/u, ""))
     .filter(line => line.trim() !== "")
     .filter(line => !/· model .* · \d+ skills · live$/.test(line))
-    .filter(line => !/^\s*\$ ls \(\d+ 行\)$/.test(line));
+    .filter(line => !/^\s*→ workspace-file\.txt \(\d+ 行\)$/.test(line));
 }
 
 async function run() {
@@ -47,8 +47,8 @@ async function run() {
             id: "c1",
             type: "function",
             function: {
-              name: "bash",
-              arguments: JSON.stringify({ command: "ls" }),
+              name: "read_file",
+              arguments: JSON.stringify({ path: "workspace-file.txt" }),
             },
           },
         ],
@@ -59,9 +59,7 @@ async function run() {
 
   const { url, close } = await startMockModel(scenario);
   const root = createRuntimeTestRoot("crew-e2e-tools-");
-  // The shell is confined to the workspace root (not process cwd), so `ls` lists THIS temp root.
-  // Seed a file so the compact tool line reads "(1 行)" — an empty root would honestly print
-  // "(无输出)", which is the confinement working, not a tool failure.
+  // Seed a workspace file so a role-allowed structured read renders one compact activity line.
   writeFileSync(join(root, "workspace-file.txt"), "seeded for ls\n");
 
   try {
@@ -69,8 +67,8 @@ async function run() {
       process.execPath,
       [
         RUNTIME_ENTRY,
-        "ai-adoption-whale",
-        "请先用 bash ls 查看目录，然后用中文给出最终答复",
+        "code-review-shrimp",
+        "请先读取 workspace-file.txt，然后用中文给出最终答复",
       ],
       {
         cwd: REPO_ROOT,
@@ -106,7 +104,9 @@ async function run() {
 
     const plain = stripAnsi(stdout);
     const lines = plain.split(/\r?\n/);
-    const toolLines = lines.filter(line => /^\s*\$ ls \(\d+ 行\)$/.test(line));
+    const toolLines = lines.filter(line =>
+      /^\s*→ workspace-file\.txt \(\d+ 行\)$/.test(line)
+    );
 
     assert.equal(
       toolLines.length,

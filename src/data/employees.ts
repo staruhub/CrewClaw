@@ -24,6 +24,74 @@ export type EmployeeIdentity = {
   location?: string;
 };
 
+export type EmployeeToolNecessity =
+  | "required"
+  | "conditional"
+  | "non_default"
+  | "disabled";
+export type EmployeeToolPermission =
+  | "readonly"
+  | "write"
+  | "requires_authorization"
+  | "disabled";
+export type EmployeeToolAvailability =
+  | "runtime_implementation"
+  | "engine_service"
+  | "adapter_required"
+  | "policy_disabled";
+
+export type EmployeeToolCapability = {
+  capability: string;
+  necessity: EmployeeToolNecessity;
+  permission: EmployeeToolPermission;
+  description: string;
+  scopes: string[];
+  approval: "never" | "when_needed" | "always" | null;
+  purpose: string | null;
+  limits: {
+    max_calls_per_task?: number;
+    timeout_ms?: number;
+  } | null;
+  on_unavailable: "fail" | "degrade" | "ask_user" | "skip" | null;
+  capability_version: string;
+  invocation: "model" | "engine" | "adapter";
+  operation: "read" | "write" | "send" | "execute";
+  risk_tier: "P0" | "P1" | "P2" | "P3" | "P4";
+  runtime_tool: string | null;
+  provider_bindings: { provider: string; tools: string[] }[];
+  side_effects: string[];
+  supports_preview: boolean;
+  idempotent: boolean;
+  timeout_ms: number;
+  error_codes: string[];
+  availability: EmployeeToolAvailability;
+};
+
+export function isToolCapabilityEnabledByDefault(
+  capability: EmployeeToolCapability
+) {
+  return ["required", "conditional"].includes(capability.necessity);
+}
+
+export function isToolCapabilitySelectable(capability: EmployeeToolCapability) {
+  return ["conditional", "non_default"].includes(capability.necessity);
+}
+
+export function toolCapabilitiesForHire(
+  capabilities: EmployeeToolCapability[],
+  selectedCapabilities: string[]
+) {
+  const selected = new Set(selectedCapabilities);
+  return capabilities
+    .filter(
+      capability =>
+        capability.necessity === "required" ||
+        (isToolCapabilitySelectable(capability) &&
+          selected.has(capability.capability))
+    )
+    .map(capability => capability.capability);
+}
+
 export type Employee = AgentEmployee & {
   mascot?: string;
   version: string;
@@ -36,6 +104,7 @@ export type Employee = AgentEmployee & {
   identity: EmployeeIdentity;
   skills: string[];
   tools: string[];
+  tool_capabilities: EmployeeToolCapability[];
   permissions: string[];
   examples: EmployeeExamples;
   limitations: string[];
@@ -70,6 +139,11 @@ export function searchEmployees(keyword: string) {
       ...employee.tags,
       ...employee.skills,
       ...employee.tools,
+      ...employee.tool_capabilities.flatMap(capability => [
+        capability.capability,
+        capability.description,
+        capability.runtime_tool ?? "",
+      ]),
     ]
       .join(" ")
       .toLowerCase();

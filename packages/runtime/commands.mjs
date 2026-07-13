@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getRuntimeToolCatalog } from "./tool-truth.mjs";
 import { c } from "./ui.mjs";
 
 const COMMANDS = [
@@ -11,16 +12,6 @@ const COMMANDS = [
   ["/agent <id>, /switch <id>", "Switch to an available expert."],
   ["/topbar [on|off]", "Toggle the sticky token/cost top bar (TTY only)."],
   ["/exit, /quit", "Exit chat."],
-];
-
-const TOOL_DESCRIPTIONS = [
-  ["bash", "Run shell commands for local inspection."],
-  ["search", "Search file contents with ripgrep."],
-  ["web_search", "Search the web (Tavily/DDG) for sources."],
-  ["web_fetch", "Fetch a URL as clean markdown text."],
-  ["read_file", "Read a local file incl. Office/PDF (text-extracted)."],
-  ["edit_file", "Preview and apply a targeted text edit."],
-  ["write_file", "Preview and write full file contents."],
 ];
 
 export function isCommand(line) {
@@ -84,17 +75,71 @@ function helpText(color) {
 }
 
 function toolsText(ctx, color) {
-  const enabled = new Set(
-    Array.isArray(ctx.tools) && ctx.tools.length
-      ? ctx.tools
-      : TOOL_DESCRIPTIONS.map(([name]) => name)
-  );
-  return [
-    c.accent("Tools", color),
-    ...TOOL_DESCRIPTIONS.filter(([name]) => enabled.has(name)).map(
-      ([name, description]) => `  ${c.info(name, color)}  ${description}`
-    ),
-  ].join("\n");
+  const catalog = getRuntimeToolCatalog({
+    catalog: ctx.toolCatalog,
+    installRoot: ctx.installRoot,
+  });
+  const definitions = Array.isArray(catalog?.capabilities)
+    ? catalog.capabilities
+    : [];
+  const definitionIds = new Set(definitions.map(item => item.id));
+  const sessionCatalog = Array.isArray(ctx.toolResolution?.sessionCatalog)
+    ? ctx.toolResolution.sessionCatalog
+    : Array.isArray(ctx.sessionCatalog)
+      ? ctx.sessionCatalog
+      : null;
+  let rows = [];
+
+  if (sessionCatalog) {
+    rows = sessionCatalog
+      .filter(item => definitionIds.has(item?.capability))
+      .map(item => {
+        const symbol =
+          item.availability === "ready"
+            ? "✓"
+            : item.availability === "forbidden"
+              ? "–"
+              : "✗";
+        const runtime = item.runtime_tool ? ` · ${item.runtime_tool}` : "";
+        const reason = item.reason ? ` · ${item.reason}` : "";
+        return `  ${symbol} ${c.info(item.capability, color)}${runtime} · ${item.availability}${reason}`;
+      });
+  } else if (Array.isArray(ctx.tools)) {
+    const definitionsByRuntimeTool = new Map();
+    for (const definition of definitions) {
+      const names = new Set(
+        [
+          definition.runtime_tool,
+          ...(definition.provider_bindings || []).flatMap(
+            binding => binding?.tools || []
+          ),
+        ].filter(Boolean)
+      );
+      for (const name of names) {
+        const ids = definitionsByRuntimeTool.get(name) || [];
+        ids.push(definition.id);
+        definitionsByRuntimeTool.set(name, ids);
+      }
+    }
+    rows = [...new Set(ctx.tools)]
+      .filter(name => definitionsByRuntimeTool.has(name))
+      .map(name => {
+        const capabilities = [
+          ...new Set(definitionsByRuntimeTool.get(name)),
+        ].join(" / ");
+        return `  ✓ ${c.info(name, color)}  ${capabilities}`;
+      });
+  }
+
+  if (!rows.length) {
+    rows.push(
+      c.warn(
+        "  No resolved employee tools are available; run onboarding doctor.",
+        color
+      )
+    );
+  }
+  return [c.accent("Tools", color), ...rows].join("\n");
 }
 
 function modelText(ctx, color) {

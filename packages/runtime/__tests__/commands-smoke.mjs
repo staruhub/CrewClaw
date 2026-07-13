@@ -51,6 +51,17 @@ assert.match(tools.text, /bash/);
 assert.match(tools.text, /write_file/);
 assert.doesNotMatch(tools.text, /\x1b\[/);
 
+const unresolvedTools = runCommand("/tools", { color: false });
+assert.match(unresolvedTools.text, /No resolved employee tools/);
+assert.doesNotMatch(unresolvedTools.text, /bash/);
+
+const outsideCatalog = runCommand("/tools", {
+  color: false,
+  tools: ["invented_super_tool"],
+});
+assert.match(outsideCatalog.text, /No resolved employee tools/);
+assert.doesNotMatch(outsideCatalog.text, /invented_super_tool/);
+
 const model = runCommand("/model", ctx);
 assert.equal(model.handled, true);
 assert.match(model.text, /anthropic\/claude-opus-4\.8/);

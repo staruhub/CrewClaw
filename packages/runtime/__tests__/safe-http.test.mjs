@@ -69,6 +69,32 @@ try {
   });
   assert.equal(large.ok, false);
   assert.equal(large.code, "response_too_large");
+
+  let lateResolverSettled = false;
+  const controller = new AbortController();
+  const startedAt = Date.now();
+  const resolving = requestPublicText("http://slow-resolver.test/", {
+    signal: controller.signal,
+    resolveTarget: () =>
+      new Promise((_resolve, reject) => {
+        setTimeout(() => {
+          lateResolverSettled = true;
+          reject(new Error("late resolver rejection"));
+        }, 300);
+      }),
+  });
+  setTimeout(() => controller.abort("test_abort"), 30);
+  await assert.rejects(resolving, error => error?.name === "AbortError");
+  assert.ok(
+    Date.now() - startedAt < 180,
+    "abort must not wait for a slow DNS/policy resolver"
+  );
+  await new Promise(resolve => setTimeout(resolve, 330));
+  assert.equal(
+    lateResolverSettled,
+    true,
+    "the late resolver still settles and its rejection is safely consumed"
+  );
 } finally {
   server.close();
   await once(server, "close");

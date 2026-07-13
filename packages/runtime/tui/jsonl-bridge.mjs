@@ -82,13 +82,19 @@ export async function startJsonlBridge({
 }) {
   let sessionPendingActions = []; // last task's actions — digit input matches these (§6.4)
   const artifactsById = new Map();
-  let turnText = "";
+  let partText = "";
+  let activePartId = null;
   let turnSeq = 0,
+    eventSeq = 0,
+    partSeq = 0,
     toolSeq = 0,
     apprSeq = 0;
   let pendingConfirm = null; // {id, taskRunId, resolve} while agentLoop awaits a tool authorization
   let pendingApproval = null; // durable held deliverable awaiting acceptance
   let activeTaskRunId = null;
+  let activeTurnId = null;
+  let generationActive = false;
+  let activeAbortController = null;
   let busy = false;
   let closing = false;
   let closeReason = "input_eof";
@@ -96,63 +102,203 @@ export async function startJsonlBridge({
   let usageAcc = { prompt: 0, completion: 0 };
   const clientEventFamilies = new Set();
   const emittedDreamRecommendations = new Set();
+  const terminalTaskIds = new Set();
+  const queuedInputs = [];
   const turnUsage = () => ({ ...usageAcc });
+  const terminalEvents = new Set([
+    EVENTS.TASK_COMPLETED,
+    EVENTS.TASK_REJECTED,
+    EVENTS.TASK_BLOCKED,
+    EVENTS.TASK_FAILED,
+    EVENTS.TASK_REVISION_NEEDED,
+  ]);
+  const lateContentEvents = new Set([
+    EVENTS.TOKEN_DELTA,
+    EVENTS.THINKING_DELTA,
+    EVENTS.ASSISTANT_RENDERED,
+    EVENTS.TOOL_REQUESTED,
+    EVENTS.TOOL_RUNNING,
+    EVENTS.TOOL_SUCCEEDED,
+    EVENTS.TOOL_FAILED,
+    EVENTS.TOOL_BLOCKED,
+    EVENTS.TOOL_CANCELLED,
+  ]);
+  const correlatedEvents = new Set([
+    EVENTS.TASK_STARTED,
+    ...terminalEvents,
+    EVENTS.GENERATION_STARTED,
+    EVENTS.GENERATION_COMPLETED,
+    EVENTS.GENERATION_FAILED,
+    EVENTS.GENERATION_CANCELLED,
+    EVENTS.TOKEN_DELTA,
+    EVENTS.THINKING_DELTA,
+    EVENTS.ASSISTANT_RENDERED,
+    EVENTS.TOKEN_USAGE,
+    EVENTS.TOOL_REQUESTED,
+    EVENTS.TOOL_RUNNING,
+    EVENTS.TOOL_SUCCEEDED,
+    EVENTS.TOOL_FAILED,
+    EVENTS.TOOL_BLOCKED,
+    EVENTS.TOOL_CANCELLED,
+  ]);
 
-  const emit = (type, data) => {
+  const emit = (type, data = {}) => {
+    let payload = data && typeof data === "object" ? { ...data } : {};
+    const referencedTaskId = payload.taskRunId || payload.id;
+    if (
+      lateContentEvents.has(type) &&
+      referencedTaskId &&
+      terminalTaskIds.has(referencedTaskId)
+    ) {
+      return false;
+    }
+    if (
+      type === EVENTS.TOKEN_DELTA &&
+      generationActive &&
+      activeTaskRunId &&
+      !payload.part_id
+    ) {
+      const text = payload.text ?? "";
+      if (!text) return false;
+      const partId = ensurePartId();
+      partText += text;
+      payload = { ...payload, part_id: partId };
+    }
+    if (
+      type === EVENTS.APPROVAL_REQUESTED &&
+      generationActive &&
+      referencedTaskId === activeTaskRunId
+    ) {
+      finishGeneration();
+    }
+    if (
+      terminalEvents.has(type) &&
+      generationActive &&
+      referencedTaskId === activeTaskRunId
+    ) {
+      const failed =
+        type === EVENTS.TASK_FAILED ||
+        (type === EVENTS.TASK_REJECTED && payload.status === "failed");
+      finishGeneration(
+        failed ? EVENTS.GENERATION_FAILED : EVENTS.GENERATION_COMPLETED,
+        failed ? { reason: payload.reason || "task failed" } : {}
+      );
+    }
+    if (
+      activeTaskRunId &&
+      activeTurnId &&
+      correlatedEvents.has(type) &&
+      !payload.turn_id
+    ) {
+      payload = turnPayload({
+        ...payload,
+        taskRunId: payload.taskRunId || activeTaskRunId,
+      });
+    }
     if (type === EVENTS.PENDING_ACTIONS)
-      sessionPendingActions = (data && data.actions) || [];
+      sessionPendingActions = payload.actions || [];
     // v0.15 P0-1: a NEW task starting makes the previous deliverable's PendingActions stale.
     // Wipe them at task.started so a later digit (2 → MARKET) is never captured by a ghost list.
     // (deliver turns emit PENDING_ACTIONS *after* TASK_STARTED, so the fresh list still lands.)
     if (type === EVENTS.TASK_STARTED) {
       sessionPendingActions = [];
-      activeTaskRunId = data?.id || data?.taskRunId || activeTaskRunId;
+      activeTaskRunId = payload.id || payload.taskRunId || activeTaskRunId;
     }
-    if (type === EVENTS.ARTIFACT_CREATED && data?.id) {
-      artifactsById.set(data.id, {
-        ...data,
-        artifact_id: data.id,
-        taskRunId: data.taskRunId || activeTaskRunId || null,
+    if (type === EVENTS.ARTIFACT_CREATED && payload.id) {
+      artifactsById.set(payload.id, {
+        ...payload,
+        artifact_id: payload.id,
+        taskRunId: payload.taskRunId || activeTaskRunId || null,
       });
     }
     if (
       type === EVENTS.ARTIFACT_UPDATED &&
-      data?.id &&
-      artifactsById.has(data.id)
+      payload.id &&
+      artifactsById.has(payload.id)
     ) {
-      const current = artifactsById.get(data.id);
-      artifactsById.set(data.id, {
+      const current = artifactsById.get(payload.id);
+      artifactsById.set(payload.id, {
         ...current,
-        ...(data.patch || {}),
-        taskRunId: data.taskRunId || current.taskRunId,
+        ...(payload.patch || {}),
+        taskRunId: payload.taskRunId || current.taskRunId,
       });
     }
-    if (type === EVENTS.ARTIFACT_DELETED && data?.ok === true) {
-      const id = data.artifact_id || data.id;
+    if (type === EVENTS.ARTIFACT_DELETED && payload.ok === true) {
+      const id = payload.artifact_id || payload.id;
       if (id && artifactsById.has(id))
         artifactsById.set(id, { ...artifactsById.get(id), status: "deleted" });
     }
-    if (type === EVENTS.ARTIFACT_EXPORTED && data?.ok === true) {
-      const id = data.artifact_id || data.id;
+    if (type === EVENTS.ARTIFACT_EXPORTED && payload.ok === true) {
+      const id = payload.artifact_id || payload.id;
       if (id && artifactsById.has(id))
         artifactsById.set(id, {
           ...artifactsById.get(id),
-          exportPath: data.path,
+          exportPath: payload.path,
           status: "exported",
         });
     }
-    if (
-      [
-        EVENTS.TASK_COMPLETED,
-        EVENTS.TASK_REJECTED,
-        EVENTS.TASK_BLOCKED,
-      ].includes(type)
-    ) {
-      const terminalTaskId = data?.taskRunId || data?.id;
+    if (terminalEvents.has(type)) {
+      const terminalTaskId = payload.taskRunId || payload.id;
+      if (terminalTaskId) terminalTaskIds.add(terminalTaskId);
       if (terminalTaskId && terminalTaskId === activeTaskRunId)
         activeTaskRunId = null;
     }
-    output.write(JSON.stringify(makeEvent(type, data, Date.now())) + "\n");
+    output.write(JSON.stringify(makeEvent(type, payload, Date.now())) + "\n");
+    return true;
+  };
+
+  const nextEventSeq = () => ++eventSeq;
+  const turnPayload = data => ({
+    turn_id: activeTurnId,
+    taskRunId: activeTaskRunId,
+    seq: nextEventSeq(),
+    ...data,
+  });
+  const emitTurn = (type, data = {}) => {
+    if (!activeTaskRunId || !activeTurnId) return false;
+    if (
+      terminalTaskIds.has(activeTaskRunId) &&
+      ![
+        EVENTS.TASK_COMPLETED,
+        EVENTS.TASK_REJECTED,
+        EVENTS.TASK_BLOCKED,
+        EVENTS.TASK_FAILED,
+      ].includes(type)
+    ) {
+      return false;
+    }
+    return emit(type, turnPayload(data));
+  };
+  const ensurePartId = () => {
+    if (!activePartId && activeTurnId) {
+      activePartId = `${activeTurnId}-part-${++partSeq}`;
+    }
+    return activePartId;
+  };
+  const flushAssistantPart = () => {
+    if (!partText.trim() || !generationActive) {
+      partText = "";
+      activePartId = null;
+      return false;
+    }
+    const partId = ensurePartId();
+    const emitted = emitTurn(EVENTS.ASSISTANT_RENDERED, {
+      part_id: partId,
+      text: partText,
+      ansi_lines: renderMessage(partText, { color: true }),
+    });
+    partText = "";
+    activePartId = null;
+    return emitted;
+  };
+  const finishGeneration = (type = EVENTS.GENERATION_COMPLETED, extra = {}) => {
+    if (!generationActive) return false;
+    flushAssistantPart();
+    generationActive = false;
+    return emitTurn(type, {
+      id: `${activeTurnId}-generation`,
+      ...extra,
+    });
   };
 
   // Capability negotiation comes before optional event families. Old clients may continue with
@@ -265,12 +411,22 @@ export async function startJsonlBridge({
       kpi_cumulative: kpiCumulative,
       eval: evalResult,
     },
+    tool_catalog: {
+      version: meta.toolCatalogVersion || null,
+      capabilities: meta.canonicalToolCatalog || [],
+      resolution: meta.toolCatalog || [],
+      declarations: meta.toolCatalog || [],
+      blocking: meta.toolBlocking || [],
+      degraded: meta.toolDegraded || [],
+      surface: meta.toolSurface || meta.mode?.toLowerCase?.() || null,
+      grant_source: meta.toolGrantSource || null,
+      grant_warning: meta.toolGrantWarning || null,
+    },
     caps: { ansi: true, parts: true, commands: commandCatalog() },
   });
 
-  // v0.8 M2: turnText accumulates assistant text from every source so the completed turn can be
-  // typeset once. Approval state above is declared before emit() because artifact/terminal events
-  // update the bridge's correlation registry synchronously.
+  // Assistant prose is accumulated per part. A tool request flushes only the current part, and a
+  // later token opens a new one; no whole-turn snapshot can move prose across a tool row.
 
   // v0.18 C3: add a settled task's estimated cost to this month's ledger; emit a one-shot
   // budget.warning the moment cumulative spend crosses 80% of the SETTINGS cap (the ledger's
@@ -571,52 +727,149 @@ export async function startJsonlBridge({
       decision: durableDecision.decision,
       decisionAt: durableDecision.decisionAt,
     };
-    return accepted
+    const settled = accepted
       ? completeAcceptedDelivery(decided)
       : completeRejectedDelivery(decided, { decision, reason });
+    if (settled) queueMicrotask(() => scheduleQueuedInput());
+    return settled;
   };
 
+  const seenToolLifecycle = new Set();
+  const activeToolLifecycles = new Map();
+  const terminalToolLifecycles = new Set();
+  const cancelActiveToolLifecycles = reason => {
+    for (const [id, common] of activeToolLifecycles) {
+      if (terminalToolLifecycles.has(id)) continue;
+      terminalToolLifecycles.add(id);
+      emitTurn(EVENTS.TOOL_CANCELLED, {
+        ...common,
+        summary: "工具已取消",
+        code: "generation_cancelled",
+        detail: String(reason || "generation cancelled"),
+      });
+    }
+    activeToolLifecycles.clear();
+  };
   const sink = {
+    get signal() {
+      return activeAbortController?.signal;
+    },
     onDelta: text => {
-      turnText += text ?? "";
-      emit(EVENTS.TOKEN_DELTA, { text });
+      if (!generationActive || terminalTaskIds.has(activeTaskRunId)) return;
+      const value = text ?? "";
+      if (!value) return;
+      const partId = ensurePartId();
+      partText += value;
+      emitTurn(EVENTS.TOKEN_DELTA, { part_id: partId, text: value });
     },
     // v0.11 M4：真·思考增量 → thinking.delta（前端折叠成「思考」块）。不计入 turnText（思考不是交付正文）。
     onThinking: text => {
-      if (text) emit(EVENTS.THINKING_DELTA, { text });
+      if (text && generationActive) emitTurn(EVENTS.THINKING_DELTA, { text });
     },
-    onInvocation: (inv = {}) => {
-      const id = "tool" + ++toolSeq;
-      emit(EVENTS.TOOL_REQUESTED, {
-        id,
-        taskRunId: activeTaskRunId,
-        tool: inv.toolName,
-        label: inv.line || inv.action || inv.toolName,
-      });
-      const failed = inv.status === "blocked" || inv.status === "error";
-      // v0.8 M4: carry the full tool output (capped ~4KB) so the front-end's collapsed line can
-      // expand to show it. Pick the richest available field; stringify non-strings defensively.
+    onToolEvent: (toolEvent = {}) => {
+      if (!generationActive || terminalTaskIds.has(activeTaskRunId)) return;
+      const id = toolEvent.id || `tool${++toolSeq}`;
+      const tool = toolEvent.toolName || toolEvent.tool || "unknown";
+      const phase = toolEvent.phase;
       const rawDetail =
-        inv.output ?? inv.result ?? inv.detail ?? inv.stdout ?? inv.error ?? "";
+        toolEvent.detail ??
+        toolEvent.output ??
+        toolEvent.result ??
+        toolEvent.error ??
+        "";
       const detail = String(
         typeof rawDetail === "string"
           ? rawDetail
           : JSON.stringify(rawDetail, null, 2)
       ).slice(0, 4096);
-      emit(failed ? EVENTS.TOOL_FAILED : EVENTS.TOOL_SUCCEEDED, {
+      const common = {
         id,
-        taskRunId: activeTaskRunId,
-        summary: inv.action,
-        code: failed ? inv.code || inv.action : undefined,
-        detail,
+        tool,
+        capability: toolEvent.decision?.capability,
+        capabilities: toolEvent.decision?.capabilities,
+        args: toolEvent.args || {},
+        label: toolEvent.action || toolEvent.summary || tool,
+        decision: toolEvent.decision?.decision,
+        decision_source: toolEvent.decision?.decision_source,
+        permission_level: toolEvent.decision?.level,
+      };
+      if (phase === "requested") {
+        if (terminalToolLifecycles.has(id)) return;
+        const current = activeToolLifecycles.get(id);
+        if (current?.phase === "requested" || current?.phase === "running")
+          return;
+        flushAssistantPart();
+        seenToolLifecycle.add(id);
+        activeToolLifecycles.set(id, { phase, ...common });
+        emitTurn(EVENTS.TOOL_REQUESTED, common);
+        return;
+      }
+      if (phase === "running") {
+        if (terminalToolLifecycles.has(id)) return;
+        if (activeToolLifecycles.get(id)?.phase === "running") return;
+        seenToolLifecycle.add(id);
+        activeToolLifecycles.set(id, { phase, ...common });
+        emitTurn(EVENTS.TOOL_RUNNING, common);
+        return;
+      }
+      const terminalType = {
+        succeeded: EVENTS.TOOL_SUCCEEDED,
+        failed: EVENTS.TOOL_FAILED,
+        blocked: EVENTS.TOOL_BLOCKED,
+        cancelled: EVENTS.TOOL_CANCELLED,
+      }[phase];
+      if (terminalType) {
+        if (terminalToolLifecycles.has(id)) return;
+        terminalToolLifecycles.add(id);
+        activeToolLifecycles.delete(id);
+        seenToolLifecycle.add(id);
+        emitTurn(terminalType, {
+          ...common,
+          summary: toolEvent.summary || toolEvent.action || tool,
+          code: toolEvent.code,
+          detail,
+        });
+      }
+    },
+    // Backward-compatible adapter for injected/older agentLoop implementations that only expose
+    // the settled audit record. The current runtime emits onToolEvent and is therefore skipped.
+    onInvocation: (inv = {}) => {
+      const knownId = inv.call_id || inv.id;
+      if (knownId && seenToolLifecycle.has(knownId)) return;
+      const id = knownId || `tool${++toolSeq}`;
+      const tool = inv.toolName || inv.tool_name || "unknown";
+      sink.onToolEvent({
+        id,
+        toolName: tool,
+        args: inv.args || {},
+        phase: "requested",
+        action: inv.line || inv.action || tool,
+      });
+      sink.onToolEvent({
+        id,
+        toolName: tool,
+        args: inv.args || {},
+        phase:
+          inv.status === "blocked"
+            ? "blocked"
+            : inv.status === "error"
+              ? "failed"
+              : "succeeded",
+        action: inv.action || tool,
+        detail:
+          inv.output ??
+          inv.result ??
+          inv.detail ??
+          inv.output_summary ??
+          inv.error,
+        code: inv.code,
       });
     },
     onUsage: u => {
       if (!u) return;
       usageAcc.prompt += u.prompt_tokens || 0;
       usageAcc.completion += u.completion_tokens || 0;
-      emit(EVENTS.TOKEN_USAGE, {
-        taskRunId: activeTaskRunId,
+      emitTurn(EVENTS.TOKEN_USAGE, {
         prompt: u.prompt_tokens,
         completion: u.completion_tokens,
       });
@@ -625,9 +878,8 @@ export async function startJsonlBridge({
     confirm: (msg, info = {}) => {
       const taskRunId = activeTaskRunId;
       const id = `tool-appr-${taskRunId || "session"}-${++apprSeq}`;
-      emit(EVENTS.APPROVAL_REQUIRED, {
+      emitTurn(EVENTS.APPROVAL_REQUIRED, {
         id,
-        taskRunId,
         kind: "tool_authorization",
         tool: info.tool || info.toolName,
         reason: typeof msg === "string" ? msg : info.reason,
@@ -760,10 +1012,21 @@ export async function startJsonlBridge({
     if (closeTerminalEmitted) return;
     closeTerminalEmitted = true;
     closing = true;
+    queuedInputs.length = 0;
+    if (activeAbortController && !activeAbortController.signal.aborted) {
+      activeAbortController.abort(closeReason);
+    }
+    // Close every visible invocation before the generation/task terminals. The underlying
+    // operation receives the same AbortSignal; this eager event makes the transcript truthful
+    // even while Windows is still reaping a child-process tree.
+    cancelActiveToolLifecycles(closeReason);
 
     if (pendingConfirm) {
       const held = pendingConfirm;
       pendingConfirm = null;
+      finishGeneration(EVENTS.GENERATION_CANCELLED, {
+        reason: "工具授权等待期间会话已结束",
+      });
       emit(EVENTS.APPROVAL_RESOLVED, {
         id: held.id,
         taskRunId: held.taskRunId,
@@ -772,9 +1035,8 @@ export async function startJsonlBridge({
         reason: closeReason,
       });
       if (held.taskRunId) {
-        emit(EVENTS.TASK_BLOCKED, {
+        emitTurn(EVENTS.TASK_BLOCKED, {
           id: held.taskRunId,
-          taskRunId: held.taskRunId,
           status: "approval_interrupted",
           reason: "工具授权等待期间输入通道关闭，任务已安全阻塞",
         });
@@ -823,18 +1085,47 @@ export async function startJsonlBridge({
     }
 
     if (busy && activeTaskRunId) {
-      emit(EVENTS.TASK_BLOCKED, {
+      finishGeneration(EVENTS.GENERATION_CANCELLED, {
+        reason: "输入通道关闭，生成已取消",
+      });
+      emitTurn(EVENTS.TASK_BLOCKED, {
         id: activeTaskRunId,
-        taskRunId: activeTaskRunId,
         status: "input_interrupted",
         reason: "输入通道关闭，运行中的任务已阻塞",
       });
+      busy = false;
     }
   };
   rl.once("close", interruptPendingWork);
   const closedPromise = new Promise(resolve => rl.once("close", resolve));
+  let queueScheduled = false;
+  let handleLine;
+  const scheduleQueuedInput = () => {
+    if (
+      queueScheduled ||
+      closing ||
+      busy ||
+      pendingApproval ||
+      pendingConfirm ||
+      queuedInputs.length === 0
+    ) {
+      return false;
+    }
+    const queued = queuedInputs.shift();
+    queueScheduled = true;
+    queueMicrotask(() => {
+      queueScheduled = false;
+      void handleLine(queued.raw, { fromQueue: true }).catch(error => {
+        emit(EVENTS.DEBUG_LINE, {
+          line: `queued input failed: ${String(error?.message || error)}`,
+        });
+        scheduleQueuedInput();
+      });
+    });
+    return true;
+  };
 
-  rl.on("line", async raw => {
+  handleLine = async (raw, { fromQueue = false } = {}) => {
     let action;
     try {
       action = parseUserActionLine(raw);
@@ -1029,7 +1320,14 @@ export async function startJsonlBridge({
       }
       const clear = result.action?.type === "clear";
       if (clear) history.length = 0; // single source of truth: engine clears, front-end mirrors
-      const body = result.text || (clear ? "（上下文已清空）" : "");
+      const switchUnavailable = result.action?.type === "switch";
+      const body =
+        result.text ||
+        (clear
+          ? "（上下文已清空）"
+          : switchUnavailable
+            ? "Workbench 会话不支持原地切换员工；请退出后用 crew chat <employee> 启动新会话，以便重新执行工具预检。"
+            : "");
       emit(EVENTS.COMMAND_OUTPUT, {
         command: text,
         clear,
@@ -1038,7 +1336,20 @@ export async function startJsonlBridge({
       });
       return;
     }
-    if (busy) return; // a task is already running; ignore stray input
+    if (busy) {
+      const queued = {
+        id: `input-${randomUUID()}`,
+        raw: String(raw),
+        text: text.slice(0, 240),
+      };
+      queuedInputs.push(queued);
+      emitTurn(EVENTS.INPUT_QUEUED, {
+        id: queued.id,
+        position: queuedInputs.length,
+        text: queued.text,
+      });
+      return;
+    }
     // v0.18 C3: monthly budget enforcement. At ≥100% of the SETTINGS cap, refuse to start a NEW
     // task. A digit that matches a pending action ("1"=accept/"2"=revise/"3"=reveal) is NOT a new
     // task — it closes an existing one — so it's exempt. The refusal names the cap + points at SETTINGS.
@@ -1050,33 +1361,6 @@ export async function startJsonlBridge({
     const cap = capForBudgetIndex(budgetIndex);
     const budgetBlocksNewTask =
       spend.state === SPEND_STATE_INVALID || (cap > 0 && spend.total >= cap);
-    if (!isPendingActionInput && budgetBlocksNewTask) {
-      if (spend.state === SPEND_STATE_INVALID) {
-        emit(EVENTS.BUDGET_WARNING, {
-          level: "block",
-          month: monthKey(),
-          spent: null,
-          cap,
-          reason_code: "budget_state_unavailable",
-          reason: "月度预算账本无法安全验证",
-        });
-        emit(EVENTS.TOKEN_DELTA, {
-          text: "\n⛔ 月度预算账本无法安全验证，新任务已暂停。请先修复或恢复 SETTINGS 对应的本月预算状态。",
-        });
-        return;
-      }
-      const total = spend.total;
-      emit(EVENTS.BUDGET_WARNING, {
-        level: "block",
-        month: monthKey(),
-        spent: total,
-        cap,
-      });
-      emit(EVENTS.TOKEN_DELTA, {
-        text: `\n⛔ 本月已达预算上限（$${total.toFixed(2)}/$${cap}）。新任务已暂停——去 SETTINGS 调高月度预算上限后再派活。`,
-      });
-      return;
-    }
     busy = true;
     // v0.15 P0-1: snapshot the pending actions BEFORE task.started wipes them. The digit the user
     // pressed matches against what was on screen; task.started clears the list for the NEXT turn.
@@ -1084,16 +1368,57 @@ export async function startJsonlBridge({
     const taskRunId = `task-${randomUUID()}`;
     const root = bridgeRoot;
     const turnId = "turn" + ++turnSeq;
+    activeTaskRunId = taskRunId;
+    activeTurnId = turnId;
+    activeAbortController = new AbortController();
+    generationActive = true;
+    seenToolLifecycle.clear();
+    activeToolLifecycles.clear();
+    terminalToolLifecycles.clear();
+    partText = "";
+    activePartId = null;
     // 纯附件轮 text 为空——给个占位标题，避免任务标题空白。
-    emit(EVENTS.TASK_STARTED, {
+    emitTurn(EVENTS.TASK_STARTED, {
       id: taskRunId,
-      taskRunId,
       title: text || "（附件消息）",
       mode: meta.mode,
+      ...(fromQueue ? { queued: true } : {}),
     });
-    turnText = ""; // start collecting this turn's assistant text for the typeset "set" event
+    emitTurn(EVENTS.GENERATION_STARTED, {
+      id: `${turnId}-generation`,
+    });
     usageAcc = { prompt: 0, completion: 0 }; // 每轮重置 token 计量，ProofPack 成本只算本任务本轮（不累计历史轮）
     try {
+      if (!isPendingActionInput && budgetBlocksNewTask) {
+        const unavailable = spend.state === SPEND_STATE_INVALID;
+        const reason = unavailable
+          ? "月度预算账本无法安全验证"
+          : `本月已达预算上限（$${spend.total.toFixed(2)}/$${cap}）`;
+        emit(EVENTS.BUDGET_WARNING, {
+          level: "block",
+          month: monthKey(),
+          spent: unavailable ? null : spend.total,
+          cap,
+          ...(unavailable
+            ? {
+                reason_code: "budget_state_unavailable",
+                reason,
+              }
+            : {}),
+        });
+        sink.onDelta(
+          unavailable
+            ? "\n⛔ 月度预算账本无法安全验证，新任务已暂停。请先修复或恢复 SETTINGS 对应的本月预算状态。"
+            : `\n⛔ 本月已达预算上限（$${spend.total.toFixed(2)}/$${cap}）。新任务已暂停——去 SETTINGS 调高月度预算上限后再派活。`
+        );
+        finishGeneration();
+        emitTurn(EVENTS.TASK_BLOCKED, {
+          id: taskRunId,
+          status: "budget_blocked",
+          reason,
+        });
+        return;
+      }
       // v0.11：不跑 runModelTurn 的分支（天气卡/轻路径快捷工具）也必须把问答写进共享历史，
       // 否则下一轮模型看不到上一轮（"那明天呢"接不上中山天气——真实用户卡点）。
       const recordExchange = (userText, assistantText) => {
@@ -1131,16 +1456,6 @@ export async function startJsonlBridge({
         agentId: meta.agentId, // v0.13 M2：memory.state 的真实条目数按员工读取
       });
       if (closing) return;
-      // v0.8 M2: the turn's text is complete — typeset it ONCE via the shared markdown renderer
-      // and "set" it over the live token.delta stream. Non-empty guard: pure tool/memory turns
-      // that streamed no prose don't emit an empty rendered block.
-      if (turnText.trim()) {
-        emit(EVENTS.ASSISTANT_RENDERED, {
-          turn_id: turnId,
-          taskRunId,
-          ansi_lines: renderMessage(turnText, { color: true }),
-        });
-      }
       // §11 Approval-before-Done + CC-PROOF-001. Three terminal shapes:
       //  (a) user accepted a held deliverable → write the ProofPack, emit approval.accepted, done.
       //  (b) task produced a deliverable → enter Approval (approval.requested), do NOT complete.
@@ -1250,6 +1565,9 @@ export async function startJsonlBridge({
       }
     } catch (e) {
       if (!closing) {
+        finishGeneration(EVENTS.GENERATION_FAILED, {
+          reason: String((e && e.message) || e),
+        });
         emit(EVENTS.TASK_REJECTED, {
           id: taskRunId,
           taskRunId,
@@ -1259,7 +1577,16 @@ export async function startJsonlBridge({
       }
     } finally {
       busy = false;
+      activeAbortController = null;
+      scheduleQueuedInput();
     }
+  };
+  rl.on("line", raw => {
+    void handleLine(raw).catch(error => {
+      emit(EVENTS.DEBUG_LINE, {
+        line: `input handler failed: ${String(error?.message || error)}`,
+      });
+    });
   });
 
   await closedPromise;

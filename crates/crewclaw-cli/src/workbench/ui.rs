@@ -1283,7 +1283,7 @@ fn layout_lines_impl(
         }
     }
 
-    let last_index = state.conversation.len().saturating_sub(1);
+    let active_caret_index = state.active_streaming_assistant_index();
     let mut first_message = true;
     for (idx, item) in state.conversation.iter().enumerate() {
         match item {
@@ -1308,23 +1308,29 @@ fn layout_lines_impl(
                 }
             }
             ConversationItem::Assistant(text) => {
-                // 被整轮排版块取代的前置分片：跳过裸文本（否则与富文本块重复显示同一句）。
-                if state.is_superseded_assistant(idx) {
-                    continue;
-                }
                 if !first_message {
                     lines.push(Line::from(""));
                 }
                 first_message = false;
-                let stream_caret = state.is_busy() && idx == last_index;
-                // M2 定妆：完结后有预排版 ANSI 时用富文本（仅在非流式态，避免与 caret 争用末行）。
-                let rendered = if stream_caret {
-                    None
-                } else {
-                    state.rendered_assistant.get(&idx)
-                };
-                if let Some(ansi) = rendered {
-                    lines.extend(ansi_lines_to_ratatui(ansi, width));
+                let stream_caret = active_caret_index == Some(idx);
+                // Stable parts switch to their engine-rendered snapshot as soon as it arrives.
+                // The caret remains attached to that exact part (including while a later tool row
+                // is active); generation completion therefore removes only the caret and never
+                // swaps raw Markdown for rendered content at the terminal boundary.
+                if let Some(ansi) = state.rendered_assistant.get(&idx) {
+                    let mut rendered_lines = ansi_lines_to_ratatui(ansi, width);
+                    if stream_caret {
+                        if let Some(last) = rendered_lines.last_mut() {
+                            last.spans
+                                .push(Span::styled(STREAM_CARET, Style::default().fg(DIM())));
+                        } else {
+                            rendered_lines.push(Line::from(Span::styled(
+                                STREAM_CARET,
+                                Style::default().fg(DIM()),
+                            )));
+                        }
+                    }
+                    lines.extend(rendered_lines);
                 } else {
                     // 助手直排（无头）；末行在生成态挂流式 caret。
                     let rows: Vec<&str> = text.split('\n').collect();
@@ -2403,10 +2409,10 @@ pub(crate) fn truncate_display_width(text: &str, max_width: usize) -> String {
 
 pub(crate) fn status_symbol(status: &str) -> &'static str {
     match status {
-        "ok" | "done" | "ready" | "accepted" | "exported" => SYM_OK,
+        "ok" | "succeeded" | "done" | "ready" | "accepted" | "exported" => SYM_OK,
         "failed" | "rejected" | "deleted" => SYM_FAIL,
-        "running" => SYM_RUNNING,
-        "blocked" | "needs_review" | "needs_artifact" => SYM_WARN,
+        "requested" | "running" => SYM_RUNNING,
+        "blocked" | "cancelled" | "needs_review" | "needs_artifact" => SYM_WARN,
         "idle" | "draft" | "awaiting_approval" | "proposed" => SYM_WAIT,
         _ => SYM_WARN,
     }
@@ -2418,10 +2424,11 @@ fn status_label(status: &str) -> String {
 
 fn status_color(status: &str) -> Color {
     match status {
-        "ok" | "done" | "ready" | "accepted" | "exported" => OK(),
+        "ok" | "succeeded" | "done" | "ready" | "accepted" | "exported" => OK(),
         "failed" | "rejected" | "deleted" => BAD(),
-        "running" => ACCENT(),
-        "draft" | "awaiting_approval" | "needs_review" | "needs_artifact" => WARN(),
+        "requested" | "running" => ACCENT(),
+        "draft" | "awaiting_approval" | "blocked" | "cancelled" | "needs_review"
+        | "needs_artifact" => WARN(),
         _ => DIM(),
     }
 }
@@ -2439,6 +2446,7 @@ pub(crate) fn symbol_color(symbol: &str) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workbench::TaskEvent;
     use ratatui::{Terminal, backend::TestBackend};
 
     use super::super::state::{Approval, PendingAction, QuickUtility};
@@ -5130,58 +5138,84 @@ mod tests {
         assert!(title_cell.is_some(), "title cell rendered");
     }
 
-    /// 流式态优先裸文本 + caret，不使用预排版（避免与 caret 争用末行）。
+    /// Stable rendered parts keep rich Markdown while the caret remains attached to the part.
     #[test]
-    fn streaming_prefers_raw_text_over_rendered() {
+    fn streaming_stable_rendered_part_keeps_rich_text_and_caret() {
         let mut state = AppState::default();
-        state
-            .conversation
-            .push(ConversationItem::Assistant("RAW_STREAM".to_string()));
-        state
-            .rendered_assistant
-            .insert(0, vec!["RENDERED_ONLY".to_string()]);
-        state.busy_since = Some(std::time::Instant::now());
+        state.reduce(&TaskEvent::from_parts(
+            "token.delta",
+            1,
+            serde_json::json!({"part_id":"p","text":"## RAW_MARKDOWN"}),
+        ));
+        state.reduce(&TaskEvent::from_parts(
+            "assistant.rendered",
+            2,
+            serde_json::json!({
+                "part_id":"p",
+                "ansi_lines":["\u{1b}[1;36mRICH_HEADING\u{1b}[0m", "RICH_BODY"]
+            }),
+        ));
         let ui_state = UiState::default();
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
         terminal
             .draw(|frame| render(frame, &state, &ui_state, ""))
             .expect("draw frame");
         let out = screen(&terminal);
-        assert!(
-            out.contains("RAW_STREAM"),
-            "streaming shows raw text: {out}"
-        );
+        assert!(out.contains("RICH_HEADING"), "rendered heading: {out}");
+        assert!(out.contains("RICH_BODY"), "rendered body: {out}");
         assert!(
             out.contains(STREAM_CARET),
             "caret present while streaming: {out}"
         );
         assert!(
-            !out.contains("RENDERED_ONLY"),
-            "rendered must not preempt streaming: {out}"
+            !out.contains("RAW_MARKDOWN"),
+            "raw Markdown must not replace a stable rendered snapshot: {out}"
         );
+
+        state.reduce(&TaskEvent::from_parts(
+            "generation.completed",
+            3,
+            serde_json::json!({}),
+        ));
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw completed frame");
+        let completed = screen(&terminal);
+        assert!(completed.contains("RICH_HEADING"), "{completed}");
+        assert!(completed.contains("RICH_BODY"), "{completed}");
+        assert!(!completed.contains(STREAM_CARET), "{completed}");
     }
 
     /// AC-LIVE-002: 流式中最新助手消息尾部有 caret；完成后消失。
     #[test]
     fn stream_caret_present_while_busy_absent_when_complete() {
         let mut state = AppState::default();
-        state
-            .conversation
-            .push(ConversationItem::Assistant("CARET_BODY".to_string()));
+        state.reduce(&TaskEvent::from_parts(
+            "token.delta",
+            1,
+            serde_json::json!({"part_id":"p","text":"CARET_BODY"}),
+        ));
         let ui_state = UiState::default();
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
 
-        state.busy_since = Some(std::time::Instant::now());
         terminal
             .draw(|frame| render(frame, &state, &ui_state, ""))
             .expect("draw frame");
         let streaming = screen(&terminal);
         assert!(
+            streaming.contains("CARET_BODY"),
+            "raw text remains visible before a rendered snapshot: {streaming}"
+        );
+        assert!(
             streaming.contains(STREAM_CARET),
             "caret missing: {streaming}"
         );
 
-        state.busy_since = None;
+        state.reduce(&TaskEvent::from_parts(
+            "generation.completed",
+            2,
+            serde_json::json!({}),
+        ));
         terminal
             .draw(|frame| render(frame, &state, &ui_state, ""))
             .expect("draw frame");
@@ -5202,10 +5236,11 @@ mod tests {
         state
             .conversation
             .push(ConversationItem::User("MID".to_string()));
-        state
-            .conversation
-            .push(ConversationItem::Assistant("NEW_ONE".to_string()));
-        state.busy_since = Some(std::time::Instant::now());
+        state.reduce(&TaskEvent::from_parts(
+            "token.delta",
+            1,
+            serde_json::json!({"part_id":"new","text":"NEW_ONE"}),
+        ));
         let ui_state = UiState::default();
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
         terminal
@@ -5214,6 +5249,68 @@ mod tests {
         let out = screen(&terminal);
         let caret_count = out.matches(STREAM_CARET).count();
         assert_eq!(caret_count, 1, "exactly one caret expected: {out}");
+    }
+
+    #[test]
+    fn stream_caret_stays_on_active_part_when_a_nonassistant_event_is_last() {
+        let mut state = AppState::default();
+        state.reduce(&TaskEvent::from_parts(
+            "generation.started",
+            1,
+            serde_json::json!({"turn_id":"t","seq":1}),
+        ));
+        state.reduce(&TaskEvent::from_parts(
+            "token.delta",
+            2,
+            serde_json::json!({"turn_id":"t","seq":2,"part_id":"p","text":"ACTIVE_PART"}),
+        ));
+        state.reduce(&TaskEvent::from_parts(
+            "tool.requested",
+            3,
+            serde_json::json!({"turn_id":"t","seq":3,"id":"tool1","tool":"web_search","label":"搜索"}),
+        ));
+        state.reduce(&TaskEvent::from_parts(
+            "tool.running",
+            4,
+            serde_json::json!({"turn_id":"t","seq":4,"id":"tool1","tool":"web_search"}),
+        ));
+        assert!(matches!(
+            state.conversation.last(),
+            Some(ConversationItem::Event(_))
+        ));
+        let ui_state = UiState::default();
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw frame");
+        let out = screen(&terminal);
+        assert!(out.contains("ACTIVE_PART"));
+        assert_eq!(out.matches(STREAM_CARET).count(), 1, "{out}");
+
+        state.reduce(&TaskEvent::from_parts(
+            "tool.succeeded",
+            5,
+            serde_json::json!({"turn_id":"t","seq":5,"id":"tool1","tool":"web_search","summary":"ok"}),
+        ));
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw frame");
+        let after_tool = screen(&terminal);
+        assert_eq!(
+            after_tool.matches(STREAM_CARET).count(),
+            1,
+            "caret remains on the active part until generation terminal: {after_tool}"
+        );
+
+        state.reduce(&TaskEvent::from_parts(
+            "generation.completed",
+            6,
+            serde_json::json!({"turn_id":"t","seq":6}),
+        ));
+        terminal
+            .draw(|frame| render(frame, &state, &ui_state, ""))
+            .expect("draw frame");
+        assert_eq!(screen(&terminal).matches(STREAM_CARET).count(), 0);
     }
 
     #[test]
