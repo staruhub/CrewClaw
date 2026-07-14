@@ -1,6 +1,11 @@
 import { resolve } from "node:path";
 
-import { loadDotEnv, loadProfile, requiredToolPreflight } from "./run.mjs";
+import {
+  loadDotEnv,
+  loadProfile,
+  probeModelAccess,
+  requiredToolPreflight,
+} from "./run.mjs";
 
 const employeeId = String(process.argv[2] || "").trim();
 const workspaceRoot = resolve(process.argv[3] || process.cwd());
@@ -18,6 +23,7 @@ try {
   await loadDotEnv({ workspaceRoot, env: process.env });
   const surfaces = {};
   let grantSnapshot = null;
+  let resolvedModel = null;
   for (const surface of ["chat", "task"]) {
     const profile = await loadProfile(employeeId, {
       workspaceRoot,
@@ -25,6 +31,7 @@ try {
       surface,
     });
     grantSnapshot ||= profile.grantSnapshot;
+    resolvedModel ||= profile.model;
     const preflight = requiredToolPreflight(profile.toolResolution);
     surfaces[surface] = {
       status: preflight.ok ? "ready" : "blocked",
@@ -33,6 +40,17 @@ try {
       resolution: profile.toolResolution.sessionCatalog,
     };
   }
+  // v0.20 G2：真·模型可用性预检——用配置的模型发一次最小请求，把 403/无权限/模型名错等
+  // 在 doctor 阶段就诊断出来（这正是 crew chat 里 HTTP 403 的根因所在）。CREW_DOCTOR_SKIP_MODEL=1 可跳过。
+  const model_access =
+    process.env.CREW_DOCTOR_SKIP_MODEL === "1"
+      ? {
+          ok: true,
+          code: "skipped",
+          model: resolvedModel,
+          message: "已按 CREW_DOCTOR_SKIP_MODEL 跳过模型探测。",
+        }
+      : await probeModelAccess({ model: resolvedModel, env: process.env });
   process.stdout.write(
     `${JSON.stringify({
       schema_version: "crewclaw.tool-doctor/v1",
@@ -42,6 +60,7 @@ try {
       grant_source: grantSnapshot?.source || "none",
       grant_warning: grantSnapshot?.warning || null,
       grants: grantSnapshot?.grants || [],
+      model_access,
       surfaces,
     })}\n`
   );

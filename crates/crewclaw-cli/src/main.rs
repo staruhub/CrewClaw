@@ -838,6 +838,28 @@ fn run_runtime_tool_doctor(root: &Path, employee: &str) -> Result<bool, String> 
             }
         );
     }
+    // v0.20 G2：模型可用性预检——把 403 / 无权限 / 模型名错 / 缺 key 在 doctor 阶段显性化，
+    // 而不是等到 crew chat 里才丢一个截断的 HTTP 403。
+    let model_ok = {
+        let ma = &snapshot["model_access"];
+        let ok = ma["ok"].as_bool().unwrap_or(false);
+        let model = ma["model"].as_str().unwrap_or("<unresolved>");
+        let code = ma["code"].as_str().unwrap_or("unknown");
+        if ok {
+            println!("  model access: ok ({model}) [{code}]");
+        } else {
+            println!("  model access: BLOCKED ({model}) [{code}]");
+            if let Some(msg) = ma["message"].as_str() {
+                println!("    {msg}");
+            }
+            match ma["hint"].as_str() {
+                Some(hint) if !hint.is_empty() => println!("    → {hint}"),
+                _ => {}
+            }
+        }
+        ok
+    };
+
     for surface in ["chat", "task"] {
         let state = &snapshot["surfaces"][surface];
         let status = state["status"].as_str().unwrap_or("unknown");
@@ -867,7 +889,7 @@ fn run_runtime_tool_doctor(root: &Path, employee: &str) -> Result<bool, String> 
             }
         }
     }
-    Ok(snapshot["surfaces"]["task"]["status"] == "ready")
+    Ok(snapshot["surfaces"]["task"]["status"] == "ready" && model_ok)
 }
 
 fn reject_unhireable(expert: &Expert, root: &Path) -> Option<i32> {

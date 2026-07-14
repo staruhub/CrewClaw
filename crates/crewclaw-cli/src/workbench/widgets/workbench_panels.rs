@@ -18,7 +18,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::workbench::config;
-use crate::workbench::state::AppState;
+use crate::workbench::state::{AppState, SYM_FAIL, SYM_OK, SYM_WARN};
 use crate::workbench::ui::{
     EMP_AVATAR, employee_tag, status_symbol, symbol_color, truncate_display_width,
 };
@@ -467,14 +467,21 @@ pub(crate) fn render_task_queue(frame: &mut Frame<'_>, state: &AppState, area: R
         if let Some(cost) = meta.est_cost {
             tail.push_str(&format!("  ${cost:.2}"));
         }
-        let head = format!("✓ #{seq} ");
+        let icon = if entry.status == SYM_OK {
+            SYM_OK
+        } else if entry.status == SYM_FAIL {
+            SYM_FAIL
+        } else {
+            SYM_WARN
+        };
+        let head = format!("{icon} #{seq} ");
         let title = entry.label.trim_start_matches("任务：");
         let title_w = width.saturating_sub(2 + head.len() + tail.len() + 1);
         let title = truncate_display_width(title, title_w.max(4));
         let pad = width.saturating_sub(2 + head.len() + title.width() + tail.len());
         lines.push(Line::from(vec![
             Span::styled("▌ ", Style::default().fg(config::bg())),
-            Span::styled(head, Style::default().fg(config::green())),
+            Span::styled(head, Style::default().fg(symbol_color(icon))),
             Span::styled(title, Style::default().fg(config::fg())),
             Span::raw(" ".repeat(pad)),
             Span::styled(tail, dim),

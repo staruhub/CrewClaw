@@ -303,10 +303,27 @@ assert.equal(
       0
     );
     await writeFile(join(root, "tracked.txt"), "before\n");
-    await writeFile(join(root, ".gitignore"), "redirected/\n");
+    await writeFile(
+      join(root, ".gitignore"),
+      "redirected/\nignored-secret.txt\n"
+    );
     assert.equal(git("add", "tracked.txt", ".gitignore").status, 0);
     assert.equal(git("commit", "-m", "fixture").status, 0);
     await writeFile(join(root, "tracked.txt"), "after\n");
+
+    const searchSecret = "TOP_SECRET_SEARCH_MARKER";
+    const ignoredSecret = "GITIGNORED_SEARCH_MARKER";
+    await writeFile(
+      join(root, ".env.local"),
+      `ZENMUX_API_KEY=${searchSecret}\n`
+    );
+    await writeFile(
+      join(root, "credentials.json"),
+      JSON.stringify({ token: searchSecret })
+    );
+    await writeFile(join(root, "private-key.pem"), searchSecret);
+    await writeFile(join(root, "ignored-secret.txt"), ignoredSecret);
+    await writeFile(join(root, "pathological.txt"), `${"a".repeat(5000)}!\n`);
 
     const allowRead = { decision: "allow", level: "L1", scope: "workspace" };
     const redirected = join(root, "redirected");
@@ -343,21 +360,129 @@ assert.equal(
     assert.doesNotMatch(status, /redirected/);
 
     const injectedMarker = join(root, "search-injected");
-    await assert.rejects(
-      runTool(
+    // 关键安全不变量：恶意 query 只作为搜索"模式"，绝不经 shell → 注入的 touch 不得执行。
+    // 该不变量与搜索引擎无关：ripgrep 可能拒绝非法正则；缺 rg 时的内置回退把输入当安全
+    // 字面量搜索。两条路径都必须满足"marker 不被创建"。
+    try {
+      await runTool(
         "search",
         { query: `no-match'; touch '${injectedMarker}' #`, path: "." },
         { permission: allowRead, root }
-      ),
-      error =>
-        error?.code === "tool_process_failed" &&
-        /regex parse error/.test(error.message)
-    );
+      );
+    } catch (error) {
+      assert.equal(error?.code, "tool_process_failed");
+      assert.match(error.message, /regex parse error/);
+    }
     assert.equal(
       existsSync(injectedMarker),
       false,
-      "repo search passes model text as an rg argument, never through a shell"
+      "repo search passes model text as a search pattern, never through a shell"
     );
+
+    const sensitiveResult = await runTool(
+      "search",
+      { query: searchSecret, path: "." },
+      { permission: allowRead, root }
+    );
+    assert.doesNotMatch(
+      sensitiveResult,
+      new RegExp(searchSecret),
+      "repository search must never return credential-file contents"
+    );
+    const ignoredResult = await runTool(
+      "search",
+      { query: ignoredSecret, path: "." },
+      { permission: allowRead, root }
+    );
+    assert.doesNotMatch(
+      ignoredResult,
+      new RegExp(ignoredSecret),
+      "repository search must honor .gitignore for non-hidden files"
+    );
+    const rgAvailable =
+      spawnSync("rg", ["--version"], {
+        encoding: "utf8",
+        windowsHide: true,
+      }).status === 0;
+    if (rgAvailable) {
+      await assert.rejects(
+        runTool(
+          "search",
+          { query: ignoredSecret, path: "ignored-secret.txt" },
+          { permission: allowRead, root }
+        ),
+        error =>
+          error?.code === "invalid_tool_arguments" &&
+          /Git ignore|许可集/.test(error.message)
+      );
+    }
+    await assert.rejects(
+      runTool(
+        "search",
+        { query: "ZENMUX", path: ".env.local" },
+        { permission: allowRead, root }
+      ),
+      error =>
+        error?.code === "invalid_tool_arguments" &&
+        /敏感凭据/.test(error.message)
+    );
+
+    // Force a fresh process onto the no-rg branch. The adversarial regex-shaped text must be
+    // treated literally and finish before the child timeout; credential files remain excluded.
+    const gitOnlyEnv = Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([key]) => key.toLowerCase() !== "path"
+      )
+    );
+    const currentPath =
+      Object.entries(process.env).find(
+        ([key]) => key.toLowerCase() === "path"
+      )?.[1] || "";
+    const gitExecutable = process.platform === "win32" ? "git.exe" : "git";
+    const gitBin = currentPath
+      .split(process.platform === "win32" ? ";" : ":")
+      .find(dir => dir && existsSync(join(dir, gitExecutable)));
+    assert.ok(gitBin, "test requires git on PATH");
+    gitOnlyEnv.PATH = gitBin;
+    const fallbackProbe = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+          import { runTool } from ${JSON.stringify(new URL("../run.mjs", import.meta.url).href)};
+          const permission = { decision: "allow", level: "L1", scope: "workspace" };
+          const root = ${JSON.stringify(root)};
+          const pathological = await runTool("search", { query: "(a+)+$", path: "." }, { permission, root });
+          const secret = await runTool("search", { query: ${JSON.stringify(searchSecret)}, path: "." }, { permission, root });
+          const ignored = await runTool("search", { query: ${JSON.stringify(ignoredSecret)}, path: "." }, { permission, root });
+          const deniedCode = async path => {
+            try {
+              await runTool("search", { query: "secret", path }, { permission, root });
+              return "allowed";
+            } catch (error) {
+              return error?.code || "unknown";
+            }
+          };
+          const ignoredDirect = await deniedCode("ignored-secret.txt");
+          const gitConfigDirect = await deniedCode(".git/config");
+          process.stdout.write(JSON.stringify({ pathological, secret, ignored, ignoredDirect, gitConfigDirect }));
+        `,
+      ],
+      { encoding: "utf8", env: gitOnlyEnv, timeout: 8000 }
+    );
+    assert.equal(
+      fallbackProbe.error?.code,
+      undefined,
+      "literal fallback must not hang on regex-shaped model input"
+    );
+    assert.equal(fallbackProbe.status, 0, fallbackProbe.stderr);
+    const fallbackResults = JSON.parse(fallbackProbe.stdout);
+    assert.doesNotMatch(fallbackResults.secret, new RegExp(searchSecret));
+    assert.doesNotMatch(fallbackResults.ignored, new RegExp(ignoredSecret));
+    assert.match(fallbackResults.pathological, /内置搜索回退/);
+    assert.equal(fallbackResults.ignoredDirect, "invalid_tool_arguments");
+    assert.equal(fallbackResults.gitConfigDirect, "invalid_tool_arguments");
 
     const confirmExecute = {
       decision: "confirm",
@@ -391,6 +516,25 @@ assert.equal(
         0,
         "confirmation denial happens before web handlers"
       );
+
+      // A denied explicit-file search must not launch the Git permission enumerator.
+      const savedPath = process.env.PATH;
+      process.env.PATH = "";
+      try {
+        const deniedSearch = await runTool(
+          "search",
+          { query: readMarker, path: "approval-marker.txt" },
+          {
+            permission: confirmExecute,
+            confirm: async () => false,
+            root,
+          }
+        );
+        assert.match(deniedSearch, /未获授权/);
+      } finally {
+        if (savedPath === undefined) delete process.env.PATH;
+        else process.env.PATH = savedPath;
+      }
     } finally {
       globalThis.fetch = originalFetch;
     }

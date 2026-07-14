@@ -10,12 +10,18 @@
 // Usage: node packages/runtime/run.mjs <agent-id> ["<task>"] [--input <file>] [--json]
 //   env: ZENMUX_API_KEY (required), ZENMUX_BASE_URL, HERMES_MODEL  (from .env.local)
 
-import { existsSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { createInterface } from "node:readline";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { agentBadge, statusBar, userRailPrompt, visibleLen } from "./ui.mjs";
 import { renderMdLine, renderMessage } from "./ui-markdown.mjs";
@@ -269,6 +275,162 @@ function mockModelReply({ messages }) {
   );
 }
 
+// ── v0.20 G2：模型可用性探测（crew doctor 预检 + 更可诊断的运行时报错）───────────────────
+// 把上游返回码翻译成"可执行"的中文提示，避免像 P0 之前那样只丢一个截断的 HTTP 403 原文。
+function classifyModelHttp(status) {
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "model_not_found";
+  if (status === 429) return "rate_limited";
+  if (status >= 500) return "provider_error";
+  return "http_error";
+}
+
+function modelAccessHint(status, model) {
+  switch (status) {
+    case 401:
+      return "API key 无效或已撤销：检查 .env.local 的 ZENMUX_API_KEY。";
+    case 403:
+      return "key 可能有效但无权调用该模型（账号未开通推理 / 未充值 / 无该模型权限）。到 ZENMUX 后台开通或充值；本地开发可临时用 CREW_MOCK=1。";
+    case 404:
+      return `模型 "${model || "?"}" 不在可用目录：检查 HERMES_MODEL 或员工 YAML 的模型名。`;
+    case 429:
+      return "触发限流：稍后重试或降低并发。";
+    default:
+      return status >= 500 ? "上游服务异常：稍后重试。" : "";
+  }
+}
+
+// 运行时模型调用失败时抛出的消息：把最可执行的摘要放最前（时间线会截断），再附原始正文。
+function modelHttpErrorMessage(status) {
+  const hint = modelAccessHint(status, "");
+  const head =
+    status === 403
+      ? "模型无调用权限 (HTTP 403)"
+      : status === 401
+        ? "密钥无效 (HTTP 401)"
+        : status === 404
+          ? "模型不存在 (HTTP 404)"
+          : `HTTP ${status}`;
+  return hint ? `${head}：${hint}` : head;
+}
+
+/**
+ * 探测"配置的模型是否真的能调用"。用于 crew doctor 预检：一次最小请求即可区分
+ * key 无效 / 无推理权限（账号侧）/ 模型名错 / 限流 / 网络。返回结构化结果，绝不抛。
+ */
+async function probeModelAccess({
+  model,
+  baseUrl = process.env.ZENMUX_BASE_URL || "https://zenmux.ai/api/v1",
+  apiKey = process.env.ZENMUX_API_KEY,
+  timeoutMs = 12000,
+} = {}) {
+  if (process.env.CREW_MOCK === "1") {
+    return {
+      ok: true,
+      code: "mock",
+      model,
+      message: "CREW_MOCK 模式：跳过真实模型探测。",
+    };
+  }
+  if (!model) {
+    return { ok: false, code: "no_model", message: "未解析出模型名。" };
+  }
+  if (!apiKey) {
+    return {
+      ok: false,
+      code: "missing_key",
+      model,
+      message: "ZENMUX_API_KEY 未设置（应在 crewhire/.env.local）。",
+      hint: "在 .env.local 设置 ZENMUX_API_KEY。",
+    };
+  }
+  const base = String(baseUrl).replace(/\/+$/, "");
+  const probe = async (path, init, ms) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    try {
+      return await fetch(`${base}${path}`, {
+        ...init,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  try {
+    const response = await probe(
+      "/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: "ping" }],
+          max_tokens: 1,
+          temperature: 0,
+        }),
+      },
+      timeoutMs
+    );
+    if (response.ok) {
+      return {
+        ok: true,
+        code: "ok",
+        status: response.status,
+        model,
+        message: `模型 ${model} 可调用。`,
+      };
+    }
+    // Consume the body so the connection can be reused, but never surface it. A provider,
+    // proxy, or test endpoint may echo request credentials in an error response.
+    await response.text().catch(() => "");
+    let code = classifyModelHttp(response.status);
+    let keyValid = null;
+    // 401/403 时交叉验证 /models：能列模型 => key 有效，问题在账号推理权限/额度，而非 key 本身。
+    if (response.status === 401 || response.status === 403) {
+      try {
+        const list = await probe(
+          "/models",
+          { headers: { Authorization: `Bearer ${apiKey}` } },
+          Math.min(timeoutMs, 8000)
+        );
+        keyValid = list.ok;
+      } catch {
+        keyValid = null;
+      }
+      if (response.status === 403 && keyValid === true) {
+        code = "forbidden_key_valid";
+      }
+    }
+    const hint =
+      code === "forbidden_key_valid"
+        ? `key 有效且能列模型，但对 "${model}" 无调用权限——账号未开通推理 / 未充值 / 无该模型权限。到 ZENMUX 后台处理；本地开发可临时用 CREW_MOCK=1。`
+        : modelAccessHint(response.status, model);
+    return {
+      ok: false,
+      code,
+      status: response.status,
+      model,
+      key_valid: keyValid,
+      message: `HTTP ${response.status}`,
+      hint,
+    };
+  } catch (error) {
+    const aborted = error?.name === "AbortError";
+    return {
+      ok: false,
+      code: aborted ? "timeout" : "network_error",
+      model,
+      message: aborted ? `探测超时 (${timeoutMs}ms)。` : "网络请求失败。",
+      hint: aborted ? "检查网络 / 代理 / ZENMUX_BASE_URL。" : undefined,
+    };
+  }
+}
+
 async function callModel({
   baseUrl,
   apiKey,
@@ -338,8 +500,10 @@ async function callModel({
     });
 
     if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new Error(`HTTP ${response.status}: ${detail.slice(0, 200)}`);
+      // Drain the response for connection reuse, but never expose arbitrary provider text:
+      // custom endpoints and proxies may echo Authorization or other request credentials.
+      await response.text().catch(() => "");
+      throw new Error(modelHttpErrorMessage(response.status));
     }
 
     if (!stream) {
@@ -1491,6 +1655,243 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
   });
 }
 
+// ── v0.20 G2：ripgrep 缺失时的内置搜索回退 ────────────────────────────────────────────
+// 数字员工的 search 工具原来硬依赖 PATH 上的 `rg`；很多机器/CI 没装 → `spawn rg ENOENT`
+// 直接把工具打挂。这里做成"有 rg 用 rg（快），没有则用内置 Node 走查"，让工具永远可用。
+let RIPGREP_AVAILABLE = null;
+function ripgrepAvailable() {
+  if (RIPGREP_AVAILABLE !== null) return RIPGREP_AVAILABLE;
+  try {
+    const probe = spawnSync("rg", ["--version"], {
+      stdio: "ignore",
+      timeout: 3000,
+      windowsHide: true,
+    });
+    RIPGREP_AVAILABLE = !probe.error && probe.status === 0;
+  } catch {
+    RIPGREP_AVAILABLE = false;
+  }
+  return RIPGREP_AVAILABLE;
+}
+
+// Repository search is allowed to read project text, never credential material. Keep the
+// policy in one place and apply it to both the rg and built-in engines so installing rg cannot
+// change the security boundary.
+const SEARCH_SENSITIVE_DIRS = new Set([
+  ".git",
+  ".ssh",
+  ".gnupg",
+  ".aws",
+  ".azure",
+  ".kube",
+  ".docker",
+]);
+const SEARCH_SENSITIVE_FILES = new Set([
+  ".npmrc",
+  ".pypirc",
+  ".netrc",
+  "_netrc",
+  ".git-credentials",
+  "credentials",
+  "credentials.json",
+  "secrets.json",
+  "service-account.json",
+  "service_account.json",
+  "application_default_credentials.json",
+]);
+const SEARCH_SENSITIVE_EXTENSIONS = new Set([
+  ".pem",
+  ".key",
+  ".p12",
+  ".pfx",
+  ".jks",
+]);
+const SEARCH_SENSITIVE_KEY_PREFIXES = [
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519",
+];
+const SEARCH_SENSITIVE_IGLOBS = [
+  "!.env*",
+  "!**/.env*",
+  "!**/.git/**",
+  "!**/.ssh/**",
+  "!**/.gnupg/**",
+  "!**/.aws/**",
+  "!**/.azure/**",
+  "!**/.kube/**",
+  "!**/.docker/**",
+  "!**/.npmrc",
+  "!**/.pypirc",
+  "!**/.netrc",
+  "!**/_netrc",
+  "!**/.git-credentials",
+  "!**/credentials",
+  "!**/credentials.json",
+  "!**/secrets.json",
+  "!**/service-account.json",
+  "!**/service_account.json",
+  "!**/application_default_credentials.json",
+  "!**/id_rsa*",
+  "!**/id_dsa*",
+  "!**/id_ecdsa*",
+  "!**/id_ed25519*",
+  "!**/*.pem",
+  "!**/*.key",
+  "!**/*.p12",
+  "!**/*.pfx",
+  "!**/*.jks",
+];
+
+function isSensitiveSearchPath(filePath) {
+  const parts = resolve(String(filePath || ""))
+    .replaceAll("\\", "/")
+    .toLowerCase()
+    .split("/")
+    .filter(Boolean);
+  const name = parts.at(-1) || "";
+  if (parts.some(part => SEARCH_SENSITIVE_DIRS.has(part))) return true;
+  if (name.startsWith(".env")) return true;
+  if (SEARCH_SENSITIVE_FILES.has(name)) return true;
+  if (
+    SEARCH_SENSITIVE_KEY_PREFIXES.some(
+      prefix => name === prefix || name.startsWith(`${prefix}.`)
+    )
+  )
+    return true;
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 && SEARCH_SENSITIVE_EXTENSIONS.has(name.slice(dot));
+}
+
+function gitPermittedSearchFiles(
+  absPath,
+  { cwd = WORKSPACE_ROOT, timeoutMs = 5000, signal, maxFiles = 5000 } = {}
+) {
+  const pathspec = relative(cwd, absPath).replaceAll("\\", "/") || ".";
+  const listing = spawnSync(
+    "git",
+    ["ls-files", "-co", "--exclude-standard", "-z", "--", pathspec],
+    {
+      cwd,
+      env: safeGitEnvironment(cwd),
+      encoding: "buffer",
+      windowsHide: true,
+      shell: false,
+      timeout: Math.max(1000, Math.min(timeoutMs, 5000)),
+      maxBuffer: 4 * 1024 * 1024,
+    }
+  );
+  throwIfGenerationCancelled(signal);
+  if (listing.error || listing.status !== 0) {
+    invalidToolArguments(
+      "search 需要可用的 Git 仓库（已拒绝绕过 ignore 规则的文件扫描）"
+    );
+  }
+  const files = [];
+  for (const listed of String(listing.stdout || "")
+    .split("\0")
+    .filter(Boolean)
+    .slice(0, maxFiles)) {
+    const checked = resolvePathInsideRoot(listed, cwd, {
+      mustExist: true,
+      rejectSymlinks: true,
+    });
+    if (!checked.ok || isSensitiveSearchPath(checked.path)) continue;
+    try {
+      if (statSync(checked.path).isFile()) files.push(checked.path);
+    } catch {
+      // File changed after Git enumerated it; fail closed for that entry.
+    }
+  }
+  return files;
+}
+
+// 纯 Node 内容搜索：smart-case 字面量匹配（含大写→大小写敏感，否则不敏感）。模型输入
+// 永不进入 shell 或 JS RegExp，避免命令注入与灾难性回溯；敏感文件在 readFileSync 前过滤。
+function nodeContentSearch(
+  query,
+  absPath,
+  {
+    cwd = WORKSPACE_ROOT,
+    maxOutput = 12000,
+    maxMatches = 300,
+    timeoutMs = 15000,
+    signal,
+  } = {}
+) {
+  const pattern = String(query || "");
+  if (!pattern) invalidToolArguments("search 缺少 query");
+  if (isSensitiveSearchPath(absPath))
+    invalidToolArguments("search 拒绝读取敏感凭据路径");
+  const deadline = Date.now() + timeoutMs;
+  const hasUpper = pattern !== pattern.toLowerCase();
+  const needle = hasUpper ? pattern : pattern.toLowerCase();
+  const matcher = line =>
+    (hasUpper ? line : line.toLowerCase()).includes(needle);
+
+  const files = [];
+  let stat;
+  try {
+    stat = statSync(absPath);
+  } catch {
+    return "（无匹配）";
+  }
+  const singleFile = stat.isFile();
+  files.push(...gitPermittedSearchFiles(absPath, { cwd, timeoutMs, signal }));
+  if (singleFile && files.length === 0)
+    invalidToolArguments("search 拒绝读取被 Git ignore 或许可集排除的文件");
+
+  const rows = [];
+  let bytes = 0;
+  let truncated = false;
+  outer: for (const file of files) {
+    throwIfGenerationCancelled(signal);
+    if (Date.now() > deadline) {
+      truncated = true;
+      break;
+    }
+    if (isSensitiveSearchPath(file)) continue;
+    let buf;
+    try {
+      buf = readFileSync(file);
+    } catch {
+      continue;
+    }
+    if (buf.length > 2_000_000 || buf.includes(0)) continue; // 跳过超大文件与二进制
+    const lines = buf.toString("utf8").split(/\r?\n/);
+    const rel = relative(cwd, file).replaceAll("\\", "/") || file;
+    for (let i = 0; i < lines.length; i++) {
+      if ((i & 127) === 0) {
+        throwIfGenerationCancelled(signal);
+        if (Date.now() > deadline) {
+          truncated = true;
+          break outer;
+        }
+      }
+      const line = lines[i];
+      if (!matcher(line)) continue;
+      const text = line.length > 400 ? `${line.slice(0, 400)}…` : line;
+      const row = `${rel}:${i + 1}:${text}`;
+      if (bytes + row.length + 1 > maxOutput) {
+        truncated = true;
+        break outer;
+      }
+      rows.push(row);
+      bytes += row.length + 1;
+      if (rows.length >= maxMatches) {
+        truncated = true;
+        break outer;
+      }
+    }
+  }
+
+  const header =
+    "（未检测到 ripgrep，已用内置搜索回退；安装 rg 可更快更全。）\n";
+  const body = rows.length ? rows.join("\n") : "（无匹配）";
+  return header + body + (truncated ? "\n…（结果已截断）" : "");
+}
+
 function runStructuredProcess(
   executable,
   args,
@@ -2100,29 +2501,58 @@ async function runTool(
       { mustExist: true, rejectSymlinks: true }
     );
     if (!checked.ok) invalidToolArguments(`search 路径无效：${checked.error}`);
+    if (isSensitiveSearchPath(checked.path))
+      invalidToolArguments("search 拒绝读取敏感凭据路径");
+    let checkedStat;
+    try {
+      checkedStat = statSync(checked.path);
+    } catch {
+      invalidToolArguments("search 路径在执行前已失效");
+    }
     return await runApproved(
       `在工作区 ${String(args?.path || ".")} 中搜索 ${q} ?`,
-      () =>
-        runStructuredProcess(
-          "rg",
-          [
-            "--line-number",
-            "--no-heading",
-            "--color",
-            "never",
-            "-S",
-            "--",
-            q,
-            checked.path,
-          ],
-          {
+      () => {
+        if (
+          checkedStat.isFile() &&
+          gitPermittedSearchFiles(checked.path, {
             cwd: checked.rootPath,
-            timeoutMs: 15000,
-            maxOutput: 12000,
-            allowedExitCodes: [0, 1],
+            timeoutMs: 5000,
             signal,
-          }
+            maxFiles: 2,
+          }).length === 0
         )
+          invalidToolArguments(
+            "search 拒绝读取被 Git ignore 或许可集排除的文件"
+          );
+        return ripgrepAvailable()
+          ? runStructuredProcess(
+              "rg",
+              [
+                "--line-number",
+                "--no-heading",
+                "--color",
+                "never",
+                "-S",
+                ...SEARCH_SENSITIVE_IGLOBS.flatMap(glob => ["--iglob", glob]),
+                "--",
+                q,
+                checked.path,
+              ],
+              {
+                cwd: checked.rootPath,
+                timeoutMs: 15000,
+                maxOutput: 12000,
+                allowedExitCodes: [0, 1],
+                signal,
+              }
+            )
+          : nodeContentSearch(q, checked.path, {
+              cwd: checked.rootPath,
+              timeoutMs: 15000,
+              maxOutput: 12000,
+              signal,
+            });
+      }
     );
   }
   if (name === "git_diff")
@@ -5443,6 +5873,7 @@ export {
   loadDotEnv,
   loadProfile,
   normalizeOfficialDomains,
+  probeModelAccess,
   requiredToolPreflight,
   runStructuredProcess,
   runTool,

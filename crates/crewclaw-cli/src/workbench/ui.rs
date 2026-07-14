@@ -3870,6 +3870,83 @@ mod tests {
         );
     }
 
+    /// A terminal task is not necessarily a successful task. Reproduce the 403 screenshot's
+    /// reducer sequence and keep a real successful chat turn as the positive control.
+    #[test]
+    fn task_queue_renders_rejected_as_failure_and_completed_as_success() {
+        use super::super::protocol::TaskEvent;
+
+        let ev =
+            |kind: &str, seq: u64, data: serde_json::Value| TaskEvent::from_parts(kind, seq, data);
+        let render_state = |state: &AppState| {
+            let ui = UiState::default();
+            let mut terminal = Terminal::new(TestBackend::new(160, 44)).expect("term");
+            terminal
+                .draw(|frame| render(frame, state, &ui, ""))
+                .expect("draw");
+            screen(&terminal)
+        };
+
+        let mut rejected = AppState::default();
+        rejected.reduce(&ev(
+            "task.started",
+            1,
+            serde_json::json!({"id":"task-fail","title":"hi","mode":"Chat","turn_id":"turn-fail","seq":1}),
+        ));
+        rejected.reduce(&ev(
+            "generation.started",
+            2,
+            serde_json::json!({"id":"generation-fail","taskRunId":"task-fail","turn_id":"turn-fail","seq":2}),
+        ));
+        rejected.reduce(&ev(
+            "generation.failed",
+            3,
+            serde_json::json!({"id":"generation-fail","taskRunId":"task-fail","turn_id":"turn-fail","seq":3,"reason":"HTTP 403"}),
+        ));
+        rejected.reduce(&ev(
+            "task.rejected",
+            4,
+            serde_json::json!({"id":"task-fail","taskRunId":"task-fail","reason":"HTTP 403"}),
+        ));
+        let rejected_screen = render_state(&rejected);
+        assert!(
+            rejected_screen.contains("✗ #1"),
+            "rejected task must carry a failure symbol: {rejected_screen}"
+        );
+        assert!(
+            !rejected_screen.contains("✓ #1"),
+            "rejected task must never look completed: {rejected_screen}"
+        );
+
+        let mut completed = AppState::default();
+        completed.reduce(&ev(
+            "task.started",
+            1,
+            serde_json::json!({"id":"task-ok","title":"hello","mode":"Chat","turn_id":"turn-ok","seq":1}),
+        ));
+        completed.reduce(&ev(
+            "generation.started",
+            2,
+            serde_json::json!({"id":"generation-ok","taskRunId":"task-ok","turn_id":"turn-ok","seq":2}),
+        ));
+        completed.reduce(&ev(
+            "generation.completed",
+            3,
+            serde_json::json!({"id":"generation-ok","taskRunId":"task-ok","turn_id":"turn-ok","seq":3}),
+        ));
+        completed.reduce(&ev(
+            "task.completed",
+            4,
+            serde_json::json!({"id":"task-ok","taskRunId":"task-ok"}),
+        ));
+        let completed_screen = render_state(&completed);
+        assert!(
+            completed_screen.contains("✓ #1"),
+            "completed task keeps the success symbol: {completed_screen}"
+        );
+        assert!(!completed_screen.contains("✗ #1"));
+    }
+
     /// v0.16 W3.5：审批 accepted 后,WAITING APPROVAL 条槽位改画绿色 verdict 结论
     /// (真事件驱动,非造数据);approval 仍 pending 时不显示 verdict。
     #[test]

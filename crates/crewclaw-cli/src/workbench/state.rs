@@ -1638,13 +1638,21 @@ impl AppState {
                 self.generation_phase = Some("completed");
                 self.active_assistant_part = None;
                 self.clear_busy();
-                self.finalize_task_meta(data);
-                let line_id = self.id_for(data);
                 // v0.9 M2：自由聊天轮（Chat 模式）不受 artifact 门禁约束——每轮 chat 天然无交付物，
                 // 若照 formal-task 规则会每轮把状态刷成 needs_artifact 并 spam「缺少交付物」timeline 行。
                 // 只有正式任务模式（Task/Workbench）才要求 Done 必须留下可打开的 artifact。
                 let is_chat = self.mode.eq_ignore_ascii_case("chat");
-                if !is_chat && !self.current_task_has_artifact() {
+                let has_artifact = self.current_task_has_artifact();
+                let queue_status = if is_chat
+                    || (has_artifact && matches!(self.current_task_outcome, Some(Some(true))))
+                {
+                    SYM_OK
+                } else {
+                    SYM_WARN
+                };
+                self.finalize_task_meta(data, queue_status);
+                let line_id = self.id_for(data);
+                if !is_chat && !has_artifact {
                     if let Some(task) = &mut self.task {
                         task.status = "needs_artifact".to_string();
                     }
@@ -1717,7 +1725,7 @@ impl AppState {
                 self.current_task_terminal = Some("task.rejected");
                 self.clear_current_approval();
                 self.clear_busy();
-                self.finalize_task_meta(data);
+                self.finalize_task_meta(data, SYM_FAIL);
                 if let Some(task) = &mut self.task {
                     task.status = "rejected".to_string();
                 }
@@ -1751,7 +1759,7 @@ impl AppState {
                 self.current_task_terminal = Some("task.blocked");
                 self.clear_current_approval();
                 self.clear_busy();
-                self.finalize_task_meta(data);
+                self.finalize_task_meta(data, SYM_WARN);
                 if let Some(task) = &mut self.task {
                     task.status = "blocked".to_string();
                 }
@@ -1779,7 +1787,7 @@ impl AppState {
                 self.current_task_terminal = Some("task.failed");
                 self.clear_current_approval();
                 self.clear_busy();
-                self.finalize_task_meta(data);
+                self.finalize_task_meta(data, SYM_FAIL);
                 if let Some(task) = &mut self.task {
                     task.status = "failed".to_string();
                 }
@@ -1804,7 +1812,7 @@ impl AppState {
                 self.current_task_terminal = Some("task.revision_needed");
                 self.clear_current_approval();
                 self.clear_busy();
-                self.finalize_task_meta(data);
+                self.finalize_task_meta(data, SYM_WARN);
                 if let Some(task) = &mut self.task {
                     task.status = "needs_revision".to_string();
                 }
@@ -2818,7 +2826,7 @@ impl AppState {
     }
 
     /// v0.11 M3：任务终态——冻结耗时 + 活动计数写回任务头 timeline 条，供渲染层画计数条。
-    fn finalize_task_meta(&mut self, data: &Value) {
+    fn finalize_task_meta(&mut self, data: &Value, status: &str) {
         let elapsed_ms = self
             .task_started_at
             .map(|t| t.elapsed().as_millis())
@@ -2844,6 +2852,9 @@ impl AppState {
         if let Some(hdr) = self.task_header_line
             && let Some(entry) = self.timeline.get_mut(hdr)
         {
+            // A task being terminal does not imply success. Freeze the terminal symbol on the
+            // task header so TASK QUEUE can render the actual outcome instead of a green check.
+            entry.status = status.to_string();
             entry.task_meta = Some(TaskMeta {
                 elapsed_ms,
                 counts: self.task_activity,
