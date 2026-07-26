@@ -1047,6 +1047,7 @@ export async function validateExpert(
   const skillFiles = [...files.keys()].filter(path =>
     path.endsWith("SKILL.md")
   );
+  const installedSkillNames = new Set<string>();
   if (skillFiles.length === 0) warnings.push("No SKILL.md files found");
   for (const skillPath of skillFiles) {
     const raw = await readPackageText(skillPath, files, errors);
@@ -1059,8 +1060,26 @@ export async function validateExpert(
       !frontmatter.description.startsWith("Use when")
     ) {
       errors.push(`Invalid skill frontmatter: ${skillPath}`);
+    } else {
+      installedSkillNames.add(frontmatter.name);
+      if (frontmatter.description.length > 1536) {
+        errors.push(`Skill description exceeds 1536 characters: ${skillPath}`);
+      }
     }
     if (raw.length > 20_000) warnings.push(`Large skill file: ${skillPath}`);
+  }
+  if (manifest) {
+    const declared = [...manifest.skills].sort();
+    const installed = [...installedSkillNames].sort();
+    const missing = declared.filter(name => !installedSkillNames.has(name));
+    const undeclared = installed.filter(
+      name => !manifest.skills.includes(name)
+    );
+    if (missing.length > 0 || undeclared.length > 0) {
+      errors.push(
+        `Skill manifest mismatch: missing SKILL.md=${missing.join(",") || "none"}; undeclared SKILL.md=${undeclared.join(",") || "none"}`
+      );
+    }
   }
 
   for (const [path] of files) {

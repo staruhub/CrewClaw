@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 /// v0.15 P1-1：偏好设置（SETTINGS 浮层）。持久化到 `.crewclaw/prefs.json`(独立于用户 tui.json,
 /// 不覆写用户手写配置)。字段存**选项下标**——具体可选值由 overlay_settings 的静态表定义。
-/// APPEARANCE(theme_index/scanlines/density) 全真生效；BEHAVIOR 组引擎暂不支持,仅存选择(为接入预留)。
+/// APPEARANCE(theme_index/scanlines/density) 全真生效；BEHAVIOR 字段按各自引擎接线状态消费。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Prefs {
     #[serde(default)]
@@ -36,11 +36,16 @@ pub struct Prefs {
 impl Prefs {
     /// 从 `root/.crewclaw/prefs.json` 读；不存在/损坏 → 默认（不 panic）。
     pub fn load(root: &Path) -> Self {
-        crate::state_store::read_string(root, "prefs.json")
+        let mut prefs: Self = crate::state_store::read_string(root, "prefs.json")
             .ok()
             .flatten()
             .and_then(|contents| serde_json::from_str(&contents).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Legacy Dream-time indexes were 0=01:00 and 1..=3=other/off. The engine has always
+        // consumed this as a boolean recommendation gate, so normalize old values to the honest
+        // two-state contract before the UI renders or persists them.
+        prefs.dream = usize::from(prefs.dream != 0);
+        prefs
     }
 
     /// 写回 `root/.crewclaw/prefs.json`（best-effort;IO 失败静默——偏好丢失不该炸 UI）。
@@ -356,6 +361,18 @@ const EMPLOYEE_PALETTE: [Color; 8] = [
     Color::Rgb(0x00, 0xD7, 0xFF), // cyan
 ];
 
+/// Same stable employee identities, tuned for contrast on light terminal backgrounds.
+const EMPLOYEE_PALETTE_LIGHT: [Color; 8] = [
+    Color::Rgb(0x00, 0x69, 0x5C), // teal
+    Color::Rgb(0xAD, 0x14, 0x57), // pink
+    Color::Rgb(0x15, 0x65, 0xC0), // blue
+    Color::Rgb(0x9A, 0x5A, 0x00), // amber
+    Color::Rgb(0x6A, 0x1B, 0x9A), // purple
+    Color::Rgb(0x2E, 0x7D, 0x32), // green
+    Color::Rgb(0xB7, 0x31, 0x28), // coral
+    Color::Rgb(0x00, 0x62, 0x7A), // cyan
+];
+
 /// 员工标识 → accent 色。FNV-1a 稳定哈希取模选色（与运行环境无关，可单测）。
 pub fn employee_accent(key: &str) -> Color {
     let mut hash: u64 = 0xcbf29ce484222325;
@@ -366,13 +383,46 @@ pub fn employee_accent(key: &str) -> Color {
     EMPLOYEE_PALETTE[(hash % EMPLOYEE_PALETTE.len() as u64) as usize]
 }
 
+fn employee_palette_index(color: Color) -> Option<usize> {
+    EMPLOYEE_PALETTE
+        .iter()
+        .position(|candidate| *candidate == color)
+        .or_else(|| {
+            EMPLOYEE_PALETTE_LIGHT
+                .iter()
+                .position(|candidate| *candidate == color)
+        })
+}
+
+fn light_theme(theme: Theme) -> bool {
+    theme == Theme::GRUVBOX_LIGHT || theme == Theme::SOLARIZED_LIGHT
+}
+
+pub fn employee_accent_for_theme(key: &str, theme: Theme) -> Color {
+    let dark = employee_accent(key);
+    let index = employee_palette_index(dark).unwrap_or(0);
+    if light_theme(theme) {
+        EMPLOYEE_PALETTE_LIGHT[index]
+    } else {
+        EMPLOYEE_PALETTE[index]
+    }
+}
+
 /// v0.12：应用 THEME_CYCLE 中第 `index` 套主题，并保留员工派生 accent。
 /// `t` 键每次自增 index（调用方对 4 取模），换底色/命名色但员工主色恒定。
 /// `accent` 为 None（demo/离线无员工）时用主题自带 accent。
 pub fn apply_theme_index(index: usize, employee_accent_color: Option<Color>) {
     let mut theme = THEME_CYCLE[index % THEME_CYCLE.len()];
     if let Some(accent_color) = employee_accent_color {
-        theme.accent = accent_color;
+        theme.accent = employee_palette_index(accent_color)
+            .map(|palette_index| {
+                if light_theme(theme) {
+                    EMPLOYEE_PALETTE_LIGHT[palette_index]
+                } else {
+                    EMPLOYEE_PALETTE[palette_index]
+                }
+            })
+            .unwrap_or(accent_color);
     }
     set_theme(theme);
 }

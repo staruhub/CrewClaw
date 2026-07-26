@@ -109,7 +109,7 @@ fn mock_rows(step: usize) -> Vec<(&'static str, &'static str)> {
 }
 
 pub(crate) fn render_publish(frame: &mut Frame<'_>, ui_state: &UiState) {
-    let Some(step) = ui_state.publish_step else {
+    let Some(step) = ui_state.publish_step() else {
         return;
     };
     let step = step.min(STEP_COUNT - 1);

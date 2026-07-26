@@ -130,6 +130,11 @@ async function blockedNoCompleted() {
     t.includes("tool.preflight_checked"),
     "block is backed by a preflight tool-truth event"
   );
+  assert.equal(
+    b.events[blockedIdx].data.est_cost,
+    0,
+    "a pre-model search block carries exact zero-cost evidence"
+  );
   await b.exit();
   console.log("  ✓ E2E-02 preflight-blocked: task.blocked, no task.completed");
 }

@@ -40,7 +40,36 @@ export function ToolLine({ tool }) {
     },
     { color: true }
   );
-  return html`<${Text} wrap="truncate">${"   " + line}</>`;
+  const rawOutput =
+    typeof t.output === "string"
+      ? t.output
+      : t.output == null
+        ? ""
+        : JSON.stringify(t.output, null, 2);
+  const outputRows = rawOutput
+    .split(/\r?\n/)
+    .map(row => row.trimEnd())
+    .filter(Boolean);
+  const body = outputRows.slice(0, 5);
+  if (outputRows.length > body.length) {
+    body.push(`… +${outputRows.length - body.length} lines`);
+  }
+  if (!body.length) {
+    body.push(
+      t.status === "running"
+        ? "执行中"
+        : t.status === "blocked"
+          ? "等待确认"
+          : "完成"
+    );
+  }
+  const rail = [
+    `   ● ${line}`,
+    ...body.map(
+      (row, index) => `   ${index === body.length - 1 ? "└" : "│"}  ${row}`
+    ),
+  ];
+  return html`<${Text} wrap="truncate">${rail.join("\n")}</>`;
 }
 
 // The user's turn: an accent left-rail "bubble" (rail-only). Multi-line keeps the rail.

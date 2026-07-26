@@ -147,9 +147,10 @@ impl EmployeeManifest {
         if self.skills.is_empty() {
             missing.push("skills");
         }
-        if self.tools.is_empty() {
-            missing.push("tools");
-        }
+        // `tools` mirrors the Hermes toolset list in config.yaml (validator enforces
+        // equality) and was deliberately emptied when unsafe bundles were retired
+        // (fbb7c1a). Empty is a valid state; capability declarations live in
+        // crewclaw.employee.yaml `tool_needs`, so an empty list must not block hire.
         if self.permissions.is_empty() {
             missing.push("permissions");
         }

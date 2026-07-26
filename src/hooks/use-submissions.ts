@@ -486,7 +486,7 @@ export function useSubmissions() {
 
         result = {
           ok: true,
-          message: "Verified Employee published.",
+          message: "Employee published.",
           submission: approved,
         };
         return approved;

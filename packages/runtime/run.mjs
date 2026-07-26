@@ -25,15 +25,21 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { agentBadge, statusBar, userRailPrompt, visibleLen } from "./ui.mjs";
 import { renderMdLine, renderMessage } from "./ui-markdown.mjs";
-import { toolLine } from "./ui-tools.mjs";
-import { installTopBar, costFor, ctxPercent } from "./ui-topbar.mjs";
-import { webSearch, cleanHtml, pickBackend } from "./tools-web.mjs";
+import { toolEventPresentation, toolLine } from "./ui-tools.mjs";
+import {
+  installTopBar,
+  costFor,
+  contextTokensForModel,
+  ctxPercent,
+} from "./ui-topbar.mjs";
+import { webSearch, cleanHtml } from "./tools-web.mjs";
 import { diffCard } from "./ui-diff.mjs";
 import {
   fsToolSchemas,
   computeEdit,
   computeWrite,
   applyWrite,
+  listFiles,
 } from "./tools-fs.mjs";
 import {
   readAnyFile,
@@ -62,15 +68,15 @@ import {
   evaluateCompletionGate,
 } from "./task-state.mjs";
 import { newArtifact, saveArtifact, markAccepted } from "./artifact-store.mjs";
+import { writeArtifact } from "./artifact-contract.mjs";
 import { grade } from "./outcome-grader.mjs";
-import { loadMemory, addMemory, summarizeForPrompt } from "./memory-store.mjs";
+import { addMemory, loadMemory } from "./memory-store.mjs";
 import { reviewTaskRun } from "./dream.mjs";
 import { buildReflection, writeReflection } from "./reflect.mjs";
 import { legacyLearningEnabled } from "./tui/prefs.mjs";
 import { statusHeader, actionBar } from "./workbench-view.mjs";
 import { permissionRequest } from "./permission-copy.mjs";
 import { generateQueries, FAILURE_PLAYBOOK } from "./search-harness.mjs";
-import { summarizeAction } from "./event-summary.mjs";
 import { estimateCost, formatBudget } from "./budget-guard.mjs";
 import { renderReport } from "./task-report.mjs";
 import {
@@ -90,10 +96,32 @@ import { renderPage } from "./render-provider.mjs";
 import { requestPublicText } from "./safe-http.mjs";
 import { loadProfileSources } from "./profile-skills.mjs";
 import {
-  configuredProvidersFromEnv,
+  activeSkillToolPolicy,
+  buildIndexedSystem,
+  buildSkillCatalog,
+  contextToolSchemas,
+  loadRecalledMemory,
+  recordSkillUse,
+} from "./context-runtime.mjs";
+import {
+  normalizeQuestion,
+  normalizeTodos,
+  orchestrationToolSchemas,
+} from "./orchestration-tools.mjs";
+import { writeMemoryCandidate } from "./memory-candidates.mjs";
+import { createDocx, docxToolSchema } from "./docx-write.mjs";
+import {
+  callMcpTool,
+  mcpCallToolSchema,
+  mcpReadiness,
+  parseMcpConfig,
+} from "./mcp-client.mjs";
+import {
   loadToolCatalog,
   loadWorkspaceCapabilityGrants,
+  requireActiveWorkspaceEmployee,
   resolveEmployeeTools,
+  runtimeToolReadiness,
   validateEmployeeToolNeeds,
 } from "./employee-tools.mjs";
 import { readStateFileGuarded, writeStateFileAtomic } from "./state-lock.mjs";
@@ -123,7 +151,21 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const INSTALL_ROOT = resolve(__dirname, "../..");
 const WORKSPACE_ROOT = resolve(process.env.CREWCLAW_ROOT || process.cwd());
 const TOOL_CATALOG = loadToolCatalog(INSTALL_ROOT);
-const TIMEOUT_MS = Number(process.env.HERMES_TIMEOUT_MS || 45000);
+function positiveTimeout(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+// HERMES_TIMEOUT_MS remains backwards-compatible, but now means inactivity rather than
+// total generation duration. Long, healthy streams may run until the independent hard cap.
+const MODEL_IDLE_TIMEOUT_MS = positiveTimeout(
+  process.env.HERMES_TIMEOUT_MS,
+  45_000
+);
+const MODEL_TOTAL_TIMEOUT_MS = positiveTimeout(
+  process.env.HERMES_TOTAL_TIMEOUT_MS,
+  15 * 60_000
+);
 const MAX_DOTENV_BYTES = 1024 * 1024;
 const MAX_INPUT_BYTES = 1024 * 1024;
 const MAX_DREAM_RESPONSE_CHARS = 64 * 1024;
@@ -199,18 +241,6 @@ function readInputFile(rawPath) {
 // Reject ids that try to escape the profile roots (B2 hardening).
 function safeAgentId(agentId) {
   return /^[a-z0-9-]+$/.test(agentId);
-}
-
-function buildSystemPrompt(soul, skills) {
-  const parts = [soul.trim()];
-  if (skills.length) {
-    parts.push("\n\n# Installed Skills\n");
-    parts.push(
-      "You have the following ChaoGeek-certified skills installed. Use the one that fits the task.\n"
-    );
-    for (const skill of skills) parts.push("\n---\n\n" + skill.trim());
-  }
-  return parts.join("\n");
 }
 
 function parseArgs(argv) {
@@ -313,6 +343,13 @@ function modelHttpErrorMessage(status) {
           ? "模型不存在 (HTTP 404)"
           : `HTTP ${status}`;
   return hint ? `${head}：${hint}` : head;
+}
+
+function modelProviderError(message, { code, httpStatus, cause } = {}) {
+  const error = new Error(message, cause ? { cause } : undefined);
+  if (code) error.code = code;
+  if (Number.isInteger(httpStatus)) error.httpStatus = httpStatus;
+  return error;
 }
 
 /**
@@ -444,6 +481,8 @@ async function callModel({
   onThinking,
   mock = false,
   signal,
+  idleTimeoutMs = MODEL_IDLE_TIMEOUT_MS,
+  totalTimeoutMs = MODEL_TOTAL_TIMEOUT_MS,
 }) {
   if (mock === true) {
     const content = mockModelReply({ messages });
@@ -464,14 +503,29 @@ async function callModel({
     };
   }
   const controller = new AbortController();
-  let timedOut = false;
+  let timeoutKind = null;
+  let idleTimer = null;
+  let totalTimer = null;
+  const abortForTimeout = kind => {
+    if (controller.signal.aborted) return;
+    timeoutKind = kind;
+    controller.abort();
+  };
+  const armIdleWatchdog = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(
+      () => abortForTimeout("idle"),
+      positiveTimeout(idleTimeoutMs, MODEL_IDLE_TIMEOUT_MS)
+    );
+  };
   const cancelFromCaller = () => controller.abort(signal?.reason);
   if (signal?.aborted) cancelFromCaller();
   else signal?.addEventListener("abort", cancelFromCaller, { once: true });
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, TIMEOUT_MS);
+  armIdleWatchdog();
+  totalTimer = setTimeout(
+    () => abortForTimeout("total"),
+    positiveTimeout(totalTimeoutMs, MODEL_TOTAL_TIMEOUT_MS)
+  );
   try {
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
@@ -498,12 +552,16 @@ async function callModel({
         ...(tools && tools.length ? { tools, tool_choice: "auto" } : {}),
       }),
     });
+    armIdleWatchdog();
 
     if (!response.ok) {
       // Drain the response for connection reuse, but never expose arbitrary provider text:
       // custom endpoints and proxies may echo Authorization or other request credentials.
       await response.text().catch(() => "");
-      throw new Error(modelHttpErrorMessage(response.status));
+      throw modelProviderError(modelHttpErrorMessage(response.status), {
+        code: classifyModelHttp(response.status),
+        httpStatus: response.status,
+      });
     }
 
     if (!stream) {
@@ -566,6 +624,8 @@ async function callModel({
       return false;
     };
     streamLoop: for await (const chunk of response.body) {
+      // A healthy stream renews the stall window; the independent total timer remains bounded.
+      armIdleWatchdog();
       buffer += decoder.decode(chunk, { stream: true });
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
@@ -592,19 +652,36 @@ async function callModel({
     }
     return { content, usage, toolCalls };
   } catch (error) {
-    if (controller.signal.aborted && signal?.aborted && !timedOut) {
+    if (controller.signal.aborted && signal?.aborted && !timeoutKind) {
       const cancelled = new Error("generation cancelled");
       cancelled.code = "CREW_GENERATION_CANCELLED";
       throw cancelled;
     }
-    if (timedOut || error.name === "AbortError") {
-      throw new Error(
-        `timed out after ${Math.round(TIMEOUT_MS / 1000)}s (network or endpoint stalled)`
+    if (timeoutKind === "idle") {
+      throw modelProviderError(
+        `model stream was idle for ${Math.round(positiveTimeout(idleTimeoutMs, MODEL_IDLE_TIMEOUT_MS) / 1000)}s; check the network or endpoint, then retry`,
+        { code: "timeout", cause: error }
       );
+    }
+    if (timeoutKind === "total") {
+      throw modelProviderError(
+        `model generation exceeded the ${Math.round(positiveTimeout(totalTimeoutMs, MODEL_TOTAL_TIMEOUT_MS) / 1000)}s safety limit; narrow the task or raise HERMES_TOTAL_TIMEOUT_MS`,
+        { code: "timeout", cause: error }
+      );
+    }
+    if (
+      !error?.code &&
+      (error?.name === "TypeError" || /\bfetch failed\b/i.test(error?.message))
+    ) {
+      throw modelProviderError("model provider network request failed", {
+        code: "network_error",
+        cause: error,
+      });
     }
     throw error;
   } finally {
-    clearTimeout(timer);
+    clearTimeout(idleTimer);
+    clearTimeout(totalTimer);
     signal?.removeEventListener("abort", cancelFromCaller);
   }
 }
@@ -634,6 +711,18 @@ async function callDreamModel(input, { baseUrl, apiKey, model, onUsage } = {}) {
   return content;
 }
 
+function safeDreamFailureDetail(error) {
+  return String(error?.message || error || "unknown_error")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(
+      /([?&](?:api[_-]?key|token|access_token)=)[^&\s]+/gi,
+      "$1[redacted]"
+    )
+    .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[redacted]@")
+    .slice(0, 240);
+}
+
 async function loadProfile(
   agentId,
   {
@@ -651,12 +740,24 @@ async function loadProfile(
   const soul = sources.soul.text;
   let temperature = 0.3;
   let modelFromConfig = "";
+  let contextTokensFromConfig = 0;
   if (sources.config) {
     const cfg = yaml.load(sources.config.text) || {};
     if (typeof cfg.temperature === "number") temperature = cfg.temperature;
-    if (cfg.model && typeof cfg.model.default === "string")
+    if (cfg.model && typeof cfg.model.default === "string") {
       modelFromConfig = cfg.model.default;
+    }
+    if (
+      cfg.model &&
+      Number.isSafeInteger(cfg.model.context_tokens) &&
+      cfg.model.context_tokens > 0
+    ) {
+      contextTokensFromConfig = cfg.model.context_tokens;
+    }
   }
+  const model =
+    modelFromConfig || env.HERMES_MODEL || "anthropic/claude-opus-4.8";
+  const contextTokens = contextTokensFromConfig || contextTokensForModel(model);
   // Prefer the human display name from the manifest (e.g. "AI 落地鲸").
   let displayName = "";
   let title = "";
@@ -682,7 +783,8 @@ async function loadProfile(
       dreamPolicy = employeeSpec.dream_policy;
     }
   }
-  const skills = sources.skillFiles.map(skill => skill.text);
+  const skillCatalog = buildSkillCatalog(sources.skillFiles);
+  const skills = skillCatalog.map(skill => skill.name);
   const avatar = (sources.avatar?.text || "")
     .split(/\r?\n/)
     .filter(line => line.length > 0)
@@ -703,12 +805,16 @@ async function loadProfile(
       );
     }
   }
+  const mcp = parseMcpConfig(sources.mcp?.text, {
+    env,
+    profileDir: sources.profileDir,
+  });
   const toolResolution = resolveEmployeeTools({
     catalog: TOOL_CATALOG,
     toolSchemas: TOOLS,
     toolNeeds: employeeSpec?.tool_needs || {},
     grants: grantSnapshot.grants,
-    configuredProviders: configuredProviders ?? configuredProvidersFromEnv(env),
+    configuredProviders: configuredProviders ?? mcp.providers,
     env,
     surface,
   });
@@ -719,13 +825,45 @@ async function loadProfile(
         .map(item => `- ${item.capability}: ${item.reason}`)
         .join("\n")}\n不得声称调用了不可用工具；请使用现有输入或明确说明缺口。`
     : "";
+  // Keep context construction behind one closure. Dream activation/rollback can call this after
+  // the durable memory swap and replace only the per-turn prompt snapshot; tool grants and the
+  // rest of the loaded profile remain frozen for the session.
+  const refreshContext = () => {
+    const indexedContext = buildIndexedSystem({
+      soul,
+      degradedPrompt,
+      skillCatalog,
+      root: workspaceRoot,
+      employeeId: agentId,
+      contextTokens,
+    });
+    return {
+      contextIndex: {
+        skills: indexedContext.skillIndex,
+        memory: indexedContext.memoryIndex,
+      },
+      memoryStateHash: indexedContext.memoryState.memory_state_hash,
+      contextTokens,
+      system: [indexedContext.system, mcp.indexText]
+        .filter(Boolean)
+        .join("\n\n"),
+    };
+  };
+  const initialContext = refreshContext();
+  attachIntrinsicRuntimeTools(toolResolution, {
+    employeeId: agentId,
+    skillCatalog,
+    mcp,
+  });
   return {
     temperature,
-    model:
-      modelFromConfig ||
-      process.env.HERMES_MODEL ||
-      "anthropic/claude-opus-4.8",
+    model,
+    contextTokens,
     skills,
+    skillCatalog,
+    contextIndex: initialContext.contextIndex,
+    memoryStateHash: initialContext.memoryStateHash,
+    refreshContext,
     displayName,
     title,
     runtime,
@@ -735,9 +873,138 @@ async function loadProfile(
     grantSnapshot,
     surface,
     profileDir: sources.profileDir,
+    mcp,
     avatar,
-    system: buildSystemPrompt(soul, skills) + degradedPrompt,
+    system: initialContext.system,
   };
+}
+
+function attachIntrinsicRuntimeTools(
+  toolResolution,
+  { employeeId, skillCatalog = [], mcp } = {}
+) {
+  const schemas = new Map(
+    [
+      ...contextToolSchemas,
+      ...orchestrationToolSchemas,
+      docxToolSchema,
+      mcpCallToolSchema,
+    ].map(schema => [schema.function.name, schema])
+  );
+  const definitions = [
+    ...(skillCatalog.length > 0
+      ? [
+          {
+            name: "use_skill",
+            capability: "skills.use",
+            label: "Load installed skill",
+          },
+        ]
+      : []),
+    {
+      name: "recall_memory",
+      capability: "memory.recall",
+      label: "Recall employee memory",
+    },
+    {
+      name: "todo_write",
+      capability: "task.todo.write",
+      label: "Update live task checklist",
+    },
+    {
+      name: "ask_user",
+      capability: "task.ask_user",
+      label: "Ask a structured user question",
+    },
+    {
+      name: "note_memory",
+      capability: "memory.candidate.write",
+      label: "Save a Dream memory candidate",
+      permission: "write",
+      operation: "write",
+      riskTier: "P1",
+    },
+    {
+      name: "docx_write",
+      capability: "artifact.docx.write",
+      label: "Write a managed DOCX artifact",
+      permission: "write",
+      operation: "write",
+      riskTier: "P2",
+      approval: "when_needed",
+    },
+    ...(mcpReadiness(mcp).ready
+      ? [
+          {
+            name: "mcp_call",
+            capability: "mcp.read",
+            label: "Call an allowlisted MCP tool",
+            permission: "requires_authorization",
+            operation: "read",
+            riskTier: "P1",
+            approval: "always",
+          },
+        ]
+      : []),
+  ];
+  toolResolution.visibleTools ||= [];
+  toolResolution.employeePolicy ||= { tools: {} };
+  toolResolution.employeePolicy.tools ||= {};
+  toolResolution.sessionCatalog ||= [];
+  for (const definition of definitions) {
+    const permission = definition.permission || "readonly";
+    const approval = definition.approval || "never";
+    const authorization =
+      permission === "requires_authorization" || approval === "always"
+        ? "per_call"
+        : "automatic";
+    if (
+      !toolResolution.visibleTools.some(
+        tool => tool?.function?.name === definition.name
+      )
+    ) {
+      toolResolution.visibleTools.push(schemas.get(definition.name));
+    }
+    toolResolution.employeePolicy.tools[definition.name] = {
+      capability: definition.capability,
+      capabilities: [definition.capability],
+      necessity: "required",
+      permission,
+      granted: true,
+      authorization,
+      scopes: [employeeId],
+      approval,
+      on_unavailable: "fail",
+      limits: {},
+    };
+    if (
+      !toolResolution.sessionCatalog.some(
+        item => item.runtime_tool === definition.name
+      )
+    ) {
+      toolResolution.sessionCatalog.push({
+        capability: definition.capability,
+        label: definition.label,
+        invocation: "model",
+        operation: definition.operation || "read",
+        risk_tier: definition.riskTier || "P0",
+        runtime_tool: definition.name,
+        necessity: "required",
+        permission,
+        declared: true,
+        granted: true,
+        availability: "ready",
+        reason: "运行时 handler 已注册",
+        code: "ready",
+        provider: null,
+        applicable: true,
+        authorization,
+      });
+    }
+  }
+  toolResolution.employeeId = employeeId;
+  toolResolution.skillCatalog = skillCatalog;
+  toolResolution.mcp = mcp;
 }
 
 function employeeAgentLoopDeps(profile, root = WORKSPACE_ROOT) {
@@ -751,13 +1018,69 @@ function employeeAgentLoopDeps(profile, root = WORKSPACE_ROOT) {
       root,
       employeePolicy: resolution.employeePolicy || { tools: {} },
     }),
+    employeeId: resolution.employeeId,
+    skillCatalog: resolution.skillCatalog || [],
+    mcpConfig: resolution.mcp,
   };
 }
 
-function requiredToolPreflight(toolResolution) {
+function requestedArtifact(taskText) {
+  const text = String(taskText || "");
+  const match = text.match(
+    /(?:输出(?:为|成)?|生成|导出|保存(?:为|到)?|write(?:\s+to)?|export(?:\s+as)?)\s*[:：]?\s*["'`]?([^\s"'`]+\.(pdf|docx|xlsx|pptx|csv|html|md|json))["'`]?/i
+  );
+  return match ? { path: match[1], extension: match[2].toLowerCase() } : null;
+}
+
+function resolvedRuntimeToolNames(toolResolution) {
+  return new Set(
+    (Array.isArray(toolResolution?.visibleTools)
+      ? toolResolution.visibleTools
+      : []
+    )
+      .map(tool =>
+        String(
+          tool?.function?.name || tool?.runtime_tool || tool?.name || ""
+        ).trim()
+      )
+      .filter(Boolean)
+  );
+}
+
+const ARTIFACT_WRITERS_BY_EXTENSION = {
+  md: ["artifact_write"],
+  json: ["artifact_write"],
+  csv: ["artifact_write"],
+  html: ["artifact_write"],
+  pdf: ["pdf_write", "document_export"],
+  docx: ["docx_write", "document_export"],
+  xlsx: ["xlsx_write", "spreadsheet_export"],
+  pptx: ["pptx_write", "deck_export"],
+};
+
+function requiredToolPreflight(toolResolution, { taskText = "" } = {}) {
   const blocking = Array.isArray(toolResolution?.blocking)
-    ? toolResolution.blocking
+    ? [...toolResolution.blocking]
     : [];
+  const artifact = requestedArtifact(taskText);
+  const runtimeTools = resolvedRuntimeToolNames(toolResolution);
+  const requiredWriters = artifact
+    ? ARTIFACT_WRITERS_BY_EXTENSION[artifact.extension] || []
+    : [];
+  if (
+    artifact &&
+    (requiredWriters.length === 0 ||
+      !requiredWriters.some(tool => runtimeTools.has(tool)))
+  ) {
+    blocking.push({
+      capability: `artifact.${artifact.extension}`,
+      reason: ["pdf", "xlsx", "pptx"].includes(artifact.extension)
+        ? `${artifact.path}: ${artifact.extension.toUpperCase()} 文档生成能力建设中；当前不会伪装已生成。可改为 DOCX/Markdown，或等待对应受管写入器上线。`
+        : `任务明确要求生成 ${artifact.path}，但当前员工没有可生成该格式的受管工具` +
+          `${requiredWriters.length ? `（需要 ${requiredWriters.join(" / ")}）` : ""}。` +
+          "按 3 打开 HIRE 后按 d 重跑 Doctor，或运行 `crew doctor`，完成招聘/授权后重试。",
+    });
+  }
   return {
     ok: blocking.length === 0,
     code: blocking.length ? "tool_preflight_blocked" : "ready",
@@ -843,6 +1166,40 @@ function createMdPrinter(render) {
 // --- Tools the agent can call (OpenAI function-calling format) ---
 
 const TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "artifact_write",
+      description:
+        "Write a real task-scoped deliverable into CrewClaw's managed artifact store. Use this for Markdown, JSON, CSV or HTML deliverables instead of claiming a file was created in chat.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: {
+            type: "string",
+            description: "Output filename including extension",
+          },
+          kind: {
+            type: "string",
+            enum: [
+              "markdown",
+              "table",
+              "spreadsheet",
+              "document",
+              "deck",
+              "code",
+              "report",
+              "evidence",
+              "checklist",
+            ],
+          },
+          content: { type: "string", description: "Complete artifact content" },
+        },
+        required: ["name", "kind", "content"],
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -1001,7 +1358,13 @@ const TOOLS = [
   },
 ];
 
-TOOLS.push(...fsToolSchemas);
+TOOLS.push(
+  ...fsToolSchemas,
+  ...contextToolSchemas,
+  ...orchestrationToolSchemas,
+  docxToolSchema,
+  mcpCallToolSchema
+);
 
 function generationCancelledError(reason = "generation cancelled") {
   const message =
@@ -2294,7 +2657,7 @@ async function htmlToMd(html, url) {
       .replace(/<[^>]+>/g, " ")
       .replace(/&nbsp;/gi, " ")
       .replace(/[ \t]+/g, " ")
-      .replace(/\n\s*\n\s*\n+/g, "\n\n")
+      .replace(/\x0A\s*\x0A\s*\x0A+/g, "\x0A\x0A")
   ).trim();
 }
 
@@ -2432,6 +2795,16 @@ async function runTool(
     permission = { decision: "deny", scope: "unknown", level: "L4" },
     root = WORKSPACE_ROOT,
     signal,
+    taskRunId,
+    onArtifactCreated,
+    onTodoUpdated,
+    onMemoryCandidate,
+    askUser,
+    employeeId,
+    skillCatalog = [],
+    mcpConfig,
+    todoState = { proposed: false, approved: false, todos: [] },
+    planApproval = "interactive",
   } = {}
 ) {
   throwIfGenerationCancelled(signal);
@@ -2442,9 +2815,12 @@ async function runTool(
     if (!confirm) return false;
     return !!(await confirm(message, {
       tool: name,
+      args,
       scope: permission.scope,
       level: permission.level,
       reason: permission.reason,
+      decisionSource: permission.decision_source,
+      employeePermission: permission.employee_permission,
     }));
   };
   // Every executable branch must cross this single gate. The Permission Gateway may strengthen
@@ -2460,6 +2836,188 @@ async function runTool(
     throwIfGenerationCancelled(signal);
     return await operation();
   };
+  if (name === "use_skill") {
+    const id = String(args?.id || "").trim();
+    if (!id) invalidToolArguments("use_skill 缺少 id");
+    const skill = skillCatalog.find(item => item.id === id);
+    if (!skill) invalidToolArguments(`未知技能：${id}`);
+    if (skill.modelInvocable === false) {
+      invalidToolArguments(`技能 ${id} 禁止模型调用；仅可由用户 /${id} 启动`);
+    }
+    if (!employeeId) invalidToolArguments("use_skill 缺少员工上下文");
+    return await runApproved(`加载员工技能 ${id} ?`, () => {
+      recordSkillUse(root, employeeId, id);
+      const toolBoundary = Array.isArray(skill.allowedTools)
+        ? `\n\nDeclared tool boundary: ${skill.allowedTools.join(", ") || "none"}. This declaration does not grant permission; CrewClaw Gateway/P0-P4 still decides every call.`
+        : "";
+      return `# Loaded skill: ${id}\n\n${skill.text.trim()}${toolBoundary}`;
+    });
+  }
+  if (name === "recall_memory") {
+    if (!employeeId) invalidToolArguments("recall_memory 缺少员工上下文");
+    return await runApproved("读取员工长期记忆 ?", () =>
+      loadRecalledMemory(root, employeeId, {
+        id: args?.id,
+        query: args?.query,
+      })
+    );
+  }
+  if (name === "todo_write") {
+    const todos = normalizeTodos(args?.todos);
+    const firstPlan = !todoState.proposed;
+    todoState.proposed = true;
+    todoState.todos = todos;
+    onTodoUpdated?.({ phase: firstPlan ? "proposed" : "updated", todos });
+    if (!todoState.approved && todos.length >= 3) {
+      if (planApproval === "auto_policy") {
+        // 无人值守面（--json 一次性任务 / eval smoke）：没有审批人，计划审批若走恒拒
+        // confirm 会形成"提交计划→被拒→重交"死循环烧光步数（2026-07-17 crab 评测实证）。
+        // 计划是协调语义而非外部副作用，按策略自动通过并如实标注；危险工具审批不走这里。
+        todoState.approved = true;
+        onTodoUpdated?.({ phase: "approved", todos, approved_by: "policy" });
+        return JSON.stringify({
+          approved: true,
+          approved_by: "policy",
+          note: "无人值守模式：计划按策略自动通过并记录，立即开始执行",
+          todos,
+        });
+      }
+      if (!confirm) {
+        return "（计划已提出，但当前界面不能审批；尚未开始执行）";
+      }
+      const approved = await confirm(
+        `请审批执行计划：\n${todos
+          .map((todo, index) => `${index + 1}. ${todo.content}`)
+          .join("\n")}`,
+        {
+          tool: "todo_write",
+          kind: "plan_approval",
+          scope: "task_plan",
+          level: "L1",
+          reason: "多步任务先看计划再执行",
+        }
+      );
+      if (!approved) {
+        todoState.approved = false;
+        onTodoUpdated?.({ phase: "revision_requested", todos });
+        return "（用户要求修订计划；请调整清单后再次调用 todo_write，不要执行其它步骤）";
+      }
+      todoState.approved = true;
+      onTodoUpdated?.({ phase: "approved", todos });
+    }
+    if (!todoState.approved && todos.length < 3) {
+      // 短计划（<3 步）低风险：自动放行，避免 proposed-but-never-confirmed 死锁
+      todoState.approved = true;
+      onTodoUpdated?.({
+        phase: "approved",
+        todos,
+        approved_by: "short_plan_policy",
+      });
+    }
+    return JSON.stringify({ approved: todoState.approved, todos });
+  }
+  if (name === "ask_user") {
+    const question = normalizeQuestion(args);
+    if (!askUser) {
+      return `（当前界面不支持结构化回答；请直接向用户提问：${question.question}）`;
+    }
+    const answer = await askUser(question);
+    return JSON.stringify({ question: question.question, answer });
+  }
+  if (name === "note_memory") {
+    if (!employeeId) invalidToolArguments("note_memory 缺少员工上下文");
+    if (!taskRunId) invalidToolArguments("note_memory 缺少 taskRunId");
+    return await runApproved("记录一条待 Dream 审核的记忆候选 ?", () => {
+      const candidate = writeMemoryCandidate(root, employeeId, args, {
+        taskRunId,
+      });
+      onMemoryCandidate?.(candidate);
+      return JSON.stringify({
+        candidate_id: candidate.id,
+        status: candidate.status,
+        category: candidate.category,
+        active_memory_changed: false,
+      });
+    });
+  }
+  if (name === "docx_write") {
+    if (!taskRunId) invalidToolArguments("docx_write 缺少 taskRunId");
+    const artifactName = String(args?.name || "").trim();
+    if (!/^[^/\\]+\.docx$/i.test(artifactName)) {
+      invalidToolArguments("docx_write.name 必须是安全的 .docx 文件名");
+    }
+    return await runApproved(
+      `生成 Word 文档 ${artifactName} ?`,
+      () => {
+        const buffer = createDocx({
+          title: args?.title,
+          content: args?.content,
+        });
+        const artifact = writeArtifact({
+          name: artifactName,
+          kind: "document",
+          content: buffer,
+          taskRunId,
+          root,
+        });
+        onArtifactCreated?.(artifact);
+        return JSON.stringify({
+          artifact_id: artifact.artifact_id,
+          name: artifact.name,
+          kind: artifact.kind,
+          path: artifact.path,
+          bytes: artifact.bytes,
+          status: artifact.status,
+          format: "docx",
+          validated: true,
+        });
+      },
+      "（用户取消，未生成 Word 文档）"
+    );
+  }
+  if (name === "mcp_call") {
+    if (!employeeId) invalidToolArguments("mcp_call 缺少员工上下文");
+    return await runApproved(
+      `调用第三方 MCP 工具 ${String(args?.server || "")}.${String(args?.tool || "")} ?`,
+      () =>
+        callMcpTool(mcpConfig, args, {
+          signal,
+          root,
+          employeeId,
+          taskRunId,
+        })
+    );
+  }
+  if (name === "artifact_write") {
+    if (!taskRunId) invalidToolArguments("artifact_write 缺少 taskRunId");
+    const artifactName = String(args?.name ?? "").trim();
+    const kind = String(args?.kind ?? "").trim();
+    const content = String(args?.content ?? "");
+    if (!artifactName || !kind || !content)
+      invalidToolArguments("artifact_write 需要 name、kind、content");
+    return await runApproved(
+      `写入受管交付物 ${artifactName} ?`,
+      () => {
+        const artifact = writeArtifact({
+          name: artifactName,
+          kind,
+          content,
+          taskRunId,
+          root,
+        });
+        onArtifactCreated?.(artifact);
+        return JSON.stringify({
+          artifact_id: artifact.artifact_id,
+          name: artifact.name,
+          kind: artifact.kind,
+          path: artifact.path,
+          bytes: artifact.bytes,
+          status: artifact.status,
+        });
+      },
+      "（用户取消，未写入交付物）"
+    );
+  }
   if (name === "web_fetch") {
     const webFetchRequest = resolveWebFetchCapability(args);
     if (webFetchRequest.error) return `（${webFetchRequest.error}）`;
@@ -2590,6 +3148,22 @@ async function runTool(
       }
     );
   }
+  if (name === "list_files") {
+    const path = String(args?.path ?? ".");
+    const pattern = String(args?.pattern ?? "*");
+    return await runApproved(
+      `列出工作区 ${path} 中匹配 ${pattern} 的文件 ?`,
+      () => {
+        const result = listFiles(path, {
+          root,
+          pattern,
+          recursive: Boolean(args?.recursive),
+          maxResults: args?.max_results,
+        });
+        return result.ok ? result.text : `（列出文件失败：${result.error}）`;
+      }
+    );
+  }
   if (name === "edit_file" || name === "write_file") {
     const path = String(args?.path ?? "");
     const r =
@@ -2599,6 +3173,10 @@ async function runTool(
     if (!r.ok)
       return `（${name === "edit_file" ? "编辑" : "写入"}失败：${r.error}）`;
     const diffColor = process.env.CREW_MD === "1" || !!process.stdout.isTTY;
+    const plainDiff = diffCard(
+      { path, oldText: r.oldContent, newText: r.newContent },
+      { color: false }
+    );
     if (!quiet) {
       process.stdout.write(
         "\n" +
@@ -2615,7 +3193,9 @@ async function runTool(
       "应用以上改动到 " + path + " ?",
       () => {
         const w = applyWrite(path, r.newContent, { root, guard: r.guard });
-        return w.ok ? `✓ 已写入 ${path}` : `（写入失败：${w.error}）`;
+        return w.ok
+          ? `✓ 已写入 ${path}\n${plainDiff}`
+          : `（写入失败：${w.error}）`;
       },
       "（用户取消，未写入）"
     );
@@ -2656,6 +3236,41 @@ function buildAgentGuide(tools) {
   if (available.has("read_file")) {
     lines.push("- 本地文件使用 read_file，路径必须在获准的工作区范围内。");
   }
+  if (available.has("list_files")) {
+    lines.push(
+      "- 不确定文件路径时先用 list_files 浏览工作区，不要用 shell 代替。"
+    );
+  }
+  if (available.has("artifact_write")) {
+    lines.push(
+      "- 需要交付文件时必须调用 artifact_write 写入受管产物；不要只在聊天中声称已生成文件。"
+    );
+  }
+  if (available.has("docx_write")) {
+    lines.push(
+      "- 用户明确要求 .docx 时调用 docx_write 生成并校验真实 Word 文件；其它 Office 格式不可虚标。"
+    );
+  }
+  if (available.has("todo_write")) {
+    lines.push(
+      "- 任务有 3 个以上具体步骤时，执行任何其它工具前先调用 todo_write 提交计划审批；获批后每完成一步就更新状态。"
+    );
+  }
+  if (available.has("ask_user")) {
+    lines.push(
+      "- 关键选择缺失时用 ask_user 给 2-4 个互斥选项，不要猜用户意图。"
+    );
+  }
+  if (available.has("note_memory")) {
+    lines.push(
+      "- 发现稳定、非敏感且未来有用的信息时可用 note_memory 送入待审核池；不得声称已写入活跃记忆。"
+    );
+  }
+  if (available.has("mcp_call")) {
+    lines.push(
+      "- MCP 只调用 system 索引列出的 server/tool；完整 schema 会在调用时从真服务加载。"
+    );
+  }
   if (available.has("git_diff") || available.has("git_status")) {
     lines.push(
       "- 仓库检查使用结构化 git_diff/git_status，不要尝试拼接 shell 命令。"
@@ -2686,12 +3301,25 @@ async function agentLoop({
   onUsage,
   gateway,
   root = WORKSPACE_ROOT,
+  taskRunId,
+  onArtifactCreated,
   onInvocation,
   onToolEvent,
+  onSkillLaunched,
+  onTodoUpdated,
+  onMemoryCandidate,
+  askUser,
+  // "interactive"（默认）：计划审批走 confirm；"auto_policy"：无人值守面（--json/eval）
+  // 的任务计划按策略自动通过并如实标注。危险工具的 gateway confirm 不受此影响，仍 fail-closed。
+  planApproval = "interactive",
   budget,
   onDelta,
   onThinking,
   tools = TOOLS,
+  employeeId,
+  skillCatalog = [],
+  initialSkillIds = [],
+  mcpConfig,
   signal,
   callModelFn = callModel,
   runToolFn = runTool,
@@ -2706,15 +3334,43 @@ async function agentLoop({
   const label = magenta(`${name} › `);
   const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   const today = new Date().toISOString().slice(0, 10);
-  const sys =
-    system +
-    buildAgentGuide(tools) +
-    `\n\n# 时间锚点\n今天是 ${today}。你的训练知识可能截止得更早——所以**日期/模型/事件比你印象中新，并不代表它是假的**，很可能就是真实的近期信息。HTTP 200 只证明页面可读取，不证明内容可信或域名官方；官方性只能依据任务显式声明的官方域名，关键结论仍需检查来源质量并尽量交叉验证。不要仅因日期超出认知就判成虚构；该存疑时标 [需核实]。`;
+  const initialSkills = [...new Set(initialSkillIds)]
+    .map(id => skillCatalog.find(skill => skill.id === id))
+    .filter(Boolean);
+  if (initialSkills.length !== new Set(initialSkillIds).size) {
+    throw new Error("user-invoked skill is not installed");
+  }
+  const initialSkillInstructions = initialSkills
+    .map(
+      skill =>
+        `# User-invoked skill: ${skill.id}\nThe user explicitly invoked this skill for the current turn. Follow its full instructions.\n\n${skill.text.trim()}`
+    )
+    .join("\n\n---\n\n");
+  const sys = [
+    system,
+    buildAgentGuide(tools),
+    initialSkillInstructions,
+    `# 时间锚点\n今天是 ${today}。你的训练知识可能截止得更早——所以**日期/模型/事件比你印象中新，并不代表它是假的**，很可能就是真实的近期信息。HTTP 200 只证明页面可读取，不证明内容可信或域名官方；官方性只能依据任务显式声明的官方域名，关键结论仍需检查来源质量并尽量交叉验证。不要仅因日期超出认知就判成虚构；该存疑时标 [需核实]。`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   let renderCount = 0; // browser_render is capped per task (Step 3 safety)
+  const todoState = { proposed: false, approved: false, todos: [] };
   // Per-agentLoop means per chat turn / formal task. Employee capability limits must reset for
   // the next task, while every logical invocation in this turn (including refused confirmations)
   // consumes one slot so a model cannot approval-spam around the bound.
   const toolCallCounts = new Map();
+  const activeSkillIds = new Set(initialSkills.map(skill => skill.id));
+  for (const skill of initialSkills) {
+    if (!employeeId)
+      throw new Error("user-invoked skill requires employee context");
+    recordSkillUse(root, employeeId, skill.id);
+    onSkillLaunched?.({
+      id: `user-skill-${skill.id}-${randomUUID()}`,
+      skill: skill.id,
+      source: "user",
+    });
+  }
   // Step 5 — Budget Guard: stop flailing (cost / repeated empty search / JS shells).
   let spentPrompt = 0,
     spentCompletion = 0,
@@ -2834,14 +3490,28 @@ async function agentLoop({
           args,
           rawArguments: tc.function.arguments || "{}",
         };
-        onToolEvent?.({
-          ...toolBase,
-          phase: "requested",
-          action: summarizeAction({
-            tool: toolName,
+        const emitToolLifecycle = event => {
+          const eventDecision =
+            typeof event.decision === "string"
+              ? event.decision
+              : event.decision?.decision;
+          const presentation = toolEventPresentation({
+            name: toolName,
+            command: args.command,
             args,
-            status: "requested",
-          }),
+            output:
+              event.detail ?? event.output ?? event.result ?? event.error ?? "",
+            phase: event.phase,
+            decision: eventDecision,
+          });
+          onToolEvent?.({
+            ...toolBase,
+            ...event,
+            ...presentation,
+          });
+        };
+        emitToolLifecycle({
+          phase: "requested",
         });
         const t0 = Date.now();
         // Permission Gateway (PRD §13): the model declares, one gateway decides, runTool enforces
@@ -2856,6 +3526,34 @@ async function agentLoop({
               decision_source: "input_validation",
             }
           : (gateway || makeGateway({ root })).check(toolName, args);
+        const skillToolPolicy = activeSkillToolPolicy(
+          skillCatalog,
+          activeSkillIds,
+          toolName
+        );
+        if (decision.decision !== "deny" && !skillToolPolicy.allowed) {
+          decision = {
+            ...decision,
+            decision: "deny",
+            level: "L4",
+            reason: `已激活技能 ${skillToolPolicy.scopedSkills.join(", ")} 未声明工具 ${toolName}`,
+            decision_source: "skill_allowed_tools",
+            skill_allowed_tools: skillToolPolicy.declarations,
+          };
+        }
+        if (
+          decision.decision !== "deny" &&
+          todoState.proposed &&
+          !todoState.approved &&
+          !["todo_write", "ask_user"].includes(toolName)
+        ) {
+          decision = {
+            ...decision,
+            decision: "deny",
+            reason: "执行计划尚未获批；只能修订 todo_write 或继续 ask_user",
+            decision_source: "plan_gate",
+          };
+        }
         if (decision.decision !== "deny") {
           const maxCalls = Number(decision.limits?.max_calls_per_task);
           if (Number.isSafeInteger(maxCalls) && maxCalls > 0) {
@@ -2884,8 +3582,7 @@ async function agentLoop({
         let forcedBlocked = false;
         if (decision.decision === "deny") {
           result = `（该动作未授权：${decision.reason}）`;
-          onToolEvent?.({
-            ...toolBase,
+          emitToolLifecycle({
             phase: "blocked",
             decision,
             code: argsError
@@ -2900,8 +3597,7 @@ async function agentLoop({
           forcedBlocked = true;
           result =
             "（本任务已渲染 2 次，达上限——继续渲染需用户确认，避免浏览器乱点烧钱。）";
-          onToolEvent?.({
-            ...toolBase,
+          emitToolLifecycle({
             phase: "blocked",
             decision,
             code: "browser_render_limit",
@@ -2927,8 +3623,7 @@ async function agentLoop({
                 "\n"
             );
           }
-          onToolEvent?.({
-            ...toolBase,
+          emitToolLifecycle({
             phase: "running",
             decision,
           });
@@ -2942,6 +3637,16 @@ async function agentLoop({
                   permission: decision,
                   root,
                   signal: toolSignal,
+                  taskRunId,
+                  onArtifactCreated,
+                  onTodoUpdated,
+                  onMemoryCandidate,
+                  askUser,
+                  employeeId,
+                  skillCatalog,
+                  mcpConfig,
+                  todoState,
+                  planApproval,
                 }),
               {
                 signal,
@@ -2967,6 +3672,15 @@ async function agentLoop({
           /^（(用户拒绝|该命令需要人工确认|test_run 需要人工确认|用户取消|非交互|该动作未授权|不要抓取|疑似)/.test(
             result
           );
+        if (
+          toolName === "use_skill" &&
+          !cancelled &&
+          !executionError &&
+          !skipped
+        ) {
+          activeSkillIds.add(String(args?.id || ""));
+          onSkillLaunched?.({ id: callId, skill: String(args?.id || "") });
+        }
         const invocation = auditRecord({
           toolName,
           capability: decision.capability,
@@ -2987,18 +3701,29 @@ async function agentLoop({
           output: result,
           error: executionError,
         });
-        invocation.action = summarizeAction({
-          tool: toolName,
-          args,
-          status: invocation.status,
-          decision: invocation.decision,
-        });
+        const invocationPhase =
+          invocation.status === "success"
+            ? "succeeded"
+            : invocation.status === "error"
+              ? "failed"
+              : invocation.status;
+        Object.assign(
+          invocation,
+          toolEventPresentation({
+            name: toolName,
+            command: args.command,
+            args,
+            output: result,
+            confirmed: skipped ? false : undefined,
+            phase: invocationPhase,
+            decision: invocation.decision,
+          })
+        );
         invocation.call_id = callId;
         invocation.args = args;
         onInvocation?.(invocation);
         if (cancelled && !lifecycleTerminalEmitted) {
-          onToolEvent?.({
-            ...toolBase,
+          emitToolLifecycle({
             phase: "cancelled",
             decision,
             code: "generation_cancelled",
@@ -3006,8 +3731,7 @@ async function agentLoop({
           });
           lifecycleTerminalEmitted = true;
         } else if (executionError && !lifecycleTerminalEmitted) {
-          onToolEvent?.({
-            ...toolBase,
+          emitToolLifecycle({
             phase: "failed",
             decision,
             code: executionError.code || "tool_execution_failed",
@@ -3016,11 +3740,9 @@ async function agentLoop({
           });
           lifecycleTerminalEmitted = true;
         } else if (!skipped && !lifecycleTerminalEmitted) {
-          onToolEvent?.({
-            ...toolBase,
+          emitToolLifecycle({
             phase: "succeeded",
             decision,
-            summary: invocation.action,
             detail: result,
           });
           lifecycleTerminalEmitted = true;
@@ -3029,12 +3751,10 @@ async function agentLoop({
           decision.decision !== "deny" &&
           !(toolName === "browser_render" && renderCount > 2)
         ) {
-          onToolEvent?.({
-            ...toolBase,
+          emitToolLifecycle({
             phase: "blocked",
             decision,
             code: "authorization_not_granted",
-            summary: invocation.action,
             detail: result,
           });
           lifecycleTerminalEmitted = true;
@@ -3143,10 +3863,15 @@ async function interactiveChat({
     temperature,
     system,
     skills,
+    skillCatalog,
     displayName,
     title,
     avatar,
     dreamPolicy,
+    contextIndex,
+    contextTokens,
+    memoryStateHash,
+    refreshContext,
     toolResolution,
   } = profile;
   let name = displayName || titleizeId(agentId);
@@ -3166,11 +3891,7 @@ async function interactiveChat({
       if (s.ok && s.messages.length) rHistory.push(...s.messages);
     }
     const { startJsonlBridge } = await import("./tui/jsonl-bridge.mjs");
-    // v0.13 M2：技能名清单进 session.ready——从 SKILL.md 原文提首个 `# ` 标题（无则 skill-N）。
-    // 不动 collectSkills（buildSystemPrompt 依赖其原文形状），只在这里做展示名提取。
-    const skillNames = (skills || []).map((s, i) =>
-      (s.match(/^#\s+(.+)$/m)?.[1] || `skill-${i + 1}`).trim()
-    );
+    const skillNames = (skillCatalog || []).map(skill => skill.name);
     await startJsonlBridge({
       agentLoop,
       agentLoopDeps: {
@@ -3187,6 +3908,7 @@ async function interactiveChat({
         mock,
       },
       agentName: name,
+      refreshAgentContext: refreshContext,
       meta: {
         role: title,
         mode: "Chat",
@@ -3195,6 +3917,9 @@ async function interactiveChat({
         agentId: currentAgentId,
         avatar: avatar || [],
         dreamPolicy,
+        contextIndex,
+        contextTokens,
+        memoryStateHash,
         toolCatalog: toolResolution.sessionCatalog,
         canonicalToolCatalog: TOOL_CATALOG.capabilities,
         toolCatalogVersion: TOOL_CATALOG.version,
@@ -3207,6 +3932,8 @@ async function interactiveChat({
       history: rHistory,
       saveSession: () => saveSession(WORKSPACE_ROOT, currentAgentId, rHistory),
       root: WORKSPACE_ROOT,
+      taskPreflight: taskText =>
+        requiredToolPreflight(toolResolution, { taskText }),
     });
     return;
   }
@@ -3330,6 +4057,7 @@ async function interactiveChat({
     if (raw === null) break; // EOF / closed
     const line = raw.trim();
     if (!line) continue;
+    let userInvokedSkillIds = [];
     if (isCommand(line)) {
       const { text, action } = runCommand(line, {
         agentId: currentAgentId,
@@ -3340,80 +4068,90 @@ async function interactiveChat({
           .filter(Boolean),
         root: WORKSPACE_ROOT,
         color: colorOn,
+        skillCatalog,
       });
-      if (text) console.log("\n" + text + "\n");
-      if (action?.type === "exit") break;
-      if (action?.type === "clear") {
-        history.length = 0;
-        console.log("\n" + dim("  (上下文已清空)") + "\n");
-      }
-      if (action?.type === "switch") {
-        try {
-          const np = await loadProfile(action.agent, {
-            workspaceRoot: WORKSPACE_ROOT,
-            env: process.env,
-            surface: "chat",
-          });
-          const candidatePreflight = requiredToolPreflight(np.toolResolution);
-          if (!candidatePreflight.ok) {
-            throw new Error(candidatePreflight.reason);
-          }
-          // Commit only after the candidate profile and its required tools have both passed. A
-          // failed switch keeps the current employee, tool policy, and conversation untouched.
-          ({
-            model,
-            temperature,
-            system,
-            skills,
-            displayName,
-            title,
-            toolResolution,
-          } = np);
-          name = displayName || titleizeId(action.agent);
-          currentAgentId = action.agent;
+      if (action?.type === "skill") {
+        userInvokedSkillIds = [action.skill];
+      } else {
+        if (text) console.log("\n" + text + "\n");
+        if (action?.type === "exit") break;
+        if (action?.type === "clear") {
           history.length = 0;
-          console.log(
-            "\n" +
-              agentBadge(
-                { name, title, model, skillCount: skills.length },
-                { color: colorOn }
-              ) +
-              "\n"
-          );
-        } catch (e) {
-          console.log("\n  " + dim("切换失败：" + e.message) + "\n");
+          console.log("\n" + dim("  (上下文已清空)") + "\n");
         }
-      }
-      if (action?.type === "topbar") {
-        if (!canTopBar) {
-          console.log(
-            "\n" + GUTTER + dim("顶部条仅在交互式终端(TTY)可用") + "\n"
-          );
-        } else {
-          const want =
-            action.value === "toggle" ? !topBarOn : action.value === "on";
-          if (want && !topBarOn) {
-            bar = installTopBar(topState);
-            topBarOn = true;
-            console.log(
-              "\n" + GUTTER + dim("顶部条已开启 · 再 /topbar off 关闭") + "\n"
-            );
-          } else if (!want && topBarOn) {
-            bar.dispose();
-            bar = NOOP_BAR;
-            topBarOn = false;
-            console.log("\n" + GUTTER + dim("顶部条已关闭") + "\n");
-          } else {
+        if (action?.type === "switch") {
+          try {
+            requireActiveWorkspaceEmployee({
+              root: WORKSPACE_ROOT,
+              employeeId: action.agent,
+            });
+            const np = await loadProfile(action.agent, {
+              workspaceRoot: WORKSPACE_ROOT,
+              env: process.env,
+              surface: "chat",
+            });
+            const candidatePreflight = requiredToolPreflight(np.toolResolution);
+            if (!candidatePreflight.ok) {
+              throw new Error(candidatePreflight.reason);
+            }
+            // Commit only after the candidate profile and its required tools have both passed. A
+            // failed switch keeps the current employee, tool policy, and conversation untouched.
+            ({
+              model,
+              temperature,
+              system,
+              skills,
+              skillCatalog,
+              displayName,
+              title,
+              toolResolution,
+            } = np);
+            name = displayName || titleizeId(action.agent);
+            currentAgentId = action.agent;
+            history.length = 0;
             console.log(
               "\n" +
-                GUTTER +
-                dim(`顶部条已${topBarOn ? "开启" : "关闭"}`) +
+                agentBadge(
+                  { name, title, model, skillCount: skills.length },
+                  { color: colorOn }
+                ) +
                 "\n"
             );
+          } catch (e) {
+            console.log("\n  " + dim("切换失败：" + e.message) + "\n");
           }
         }
+        if (action?.type === "topbar") {
+          if (!canTopBar) {
+            console.log(
+              "\n" + GUTTER + dim("顶部条仅在交互式终端(TTY)可用") + "\n"
+            );
+          } else {
+            const want =
+              action.value === "toggle" ? !topBarOn : action.value === "on";
+            if (want && !topBarOn) {
+              bar = installTopBar(topState);
+              topBarOn = true;
+              console.log(
+                "\n" + GUTTER + dim("顶部条已开启 · 再 /topbar off 关闭") + "\n"
+              );
+            } else if (!want && topBarOn) {
+              bar.dispose();
+              bar = NOOP_BAR;
+              topBarOn = false;
+              console.log("\n" + GUTTER + dim("顶部条已关闭") + "\n");
+            } else {
+              console.log(
+                "\n" +
+                  GUTTER +
+                  dim(`顶部条已${topBarOn ? "开启" : "关闭"}`) +
+                  "\n"
+              );
+            }
+          }
+        }
+        continue;
       }
-      continue;
     }
 
     // Auto-detect local file paths the user pasted/mentioned and eagerly read them
@@ -3489,6 +4227,7 @@ async function interactiveChat({
         renderMd: isTTY || process.env.CREW_MD === "1",
         confirm,
         ...employeeAgentLoopDeps({ toolResolution }, WORKSPACE_ROOT),
+        initialSkillIds: userInvokedSkillIds,
         root: WORKSPACE_ROOT,
         onUsage: u => {
           if (!u) return;
@@ -4942,13 +5681,8 @@ async function runTaskMode({
     }
   }
 
-  // Recall: inject the employee's prior memory (reliable sources, verified SOPs) so
-  // it builds on past work instead of starting cold. (PRD §14 — memory recall.)
-  const mem = loadMemory(WORKSPACE_ROOT, agentId);
-  const memText = mem.ok ? summarizeForPrompt(mem.items) : "";
-  const sys = memText
-    ? system + "\n\n# 你的记忆（过往任务沉淀，可直接复用）\n" + memText
-    : system;
+  // loadProfile already built the same bounded skill + memory index used by Chat/TUI.
+  const sys = system;
 
   const run = newTaskRun({ employeeId: agentId, goal: taskText });
   run.requested_task_id = taskId;
@@ -4962,10 +5696,12 @@ async function runTaskMode({
       status: "degraded",
     });
   }
-  const { gateway, tools: employeeTools } = employeeAgentLoopDeps(
-    { toolResolution },
-    WORKSPACE_ROOT
-  );
+  const {
+    gateway,
+    tools: employeeTools,
+    employeeId: runtimeEmployeeId,
+    skillCatalog: runtimeSkillCatalog,
+  } = employeeAgentLoopDeps({ toolResolution }, WORKSPACE_ROOT);
 
   taskSink?.taskStarted({ id: run.id, title: demo.title || taskText });
   for (const capability of toolResolution.resolved.filter(
@@ -4997,6 +5733,7 @@ async function runTaskMode({
         status: toolPreflight.code,
         reason,
         blocking: toolPreflight.blocking,
+        est_cost: 0,
       });
       actionReader?.close(toolPreflight.code);
     } else {
@@ -5070,12 +5807,13 @@ async function runTaskMode({
         .map(item => `- ${item.capability}: ${item.reason}`)
         .join("\n")}`
     : "";
-  if (demo.research_hints && pickBackend().name === "ddg") {
+  const searchReadiness = runtimeToolReadiness(toolResolution, "web_search");
+  if (demo.research_hints && !searchReadiness.ready) {
     taskSink?.toolPreflightChecked({
       id: "web_search",
       tool: "web_search",
       status: "blocked",
-      reason: "missing search provider",
+      reason: searchReadiness.reason,
     });
     if (!taskSink) {
       console.log(
@@ -5133,7 +5871,15 @@ async function runTaskMode({
         renderMd: !!process.stdout.isTTY || process.env.CREW_MD === "1",
         gateway,
         tools: employeeTools,
+        employeeId: runtimeEmployeeId,
+        skillCatalog: runtimeSkillCatalog,
         root: WORKSPACE_ROOT,
+        onSkillLaunched: skill =>
+          taskSink?.emitRaw("skill.launched", {
+            id: skill.id,
+            taskRunId: run.id,
+            skill: skill.skill,
+          }),
         onInvocation: rec => {
           run.tool_invocations.push(rec);
           addEvent(run, {
@@ -5274,6 +6020,7 @@ async function runTaskMode({
   // legacy_learning flag 走——flag=on 时照跑（真·HEAD 行为，含模型成本），flag=off 时跳过
   // （Reflect 取代其输入采集职责，零模型成本）。commitAcceptedTaskMemory（消费者）同 flag。
   const legacyLearning = legacyLearningEnabled(WORKSPACE_ROOT);
+  const mem = loadMemory(WORKSPACE_ROOT, agentId);
   let review = null;
   if (outputValid && legacyLearning) {
     try {
@@ -5299,7 +6046,8 @@ async function runTaskMode({
                 },
               }),
       });
-    } catch {
+    } catch (error) {
+      const failureDetail = safeDreamFailureDetail(error);
       run.dream = {
         contract: "crewclaw.dream/v1",
         status: "failed",
@@ -5311,11 +6059,13 @@ async function runTaskMode({
         new_memory_candidates: [],
         new_playbook_candidates: [],
         reason: "model_or_contract_failure",
+        failure_detail: failureDetail,
       };
       addEvent(run, {
         type: "dream.failed",
         summary: "model_or_contract_failure",
         status: "failed",
+        detail: failureDetail,
       });
     }
   }
@@ -5667,6 +6417,18 @@ async function main() {
     process.exit(1);
   }
 
+  // A profile being installed is not the same as the employee being hired for this workspace.
+  // Enforce the lifecycle boundary before loading credentials or starting any model/runtime work.
+  try {
+    requireActiveWorkspaceEmployee({
+      root: WORKSPACE_ROOT,
+      employeeId: agentId,
+    });
+  } catch (error) {
+    console.error(`Error: ${error?.message || error}`);
+    process.exit(1);
+  }
+
   try {
     await loadDotEnv();
   } catch (error) {
@@ -5794,6 +6556,7 @@ async function main() {
         ...employeeAgentLoopDeps({ toolResolution }, WORKSPACE_ROOT),
         root: WORKSPACE_ROOT,
         confirm: denyUnavailableApproval,
+        planApproval: "auto_policy",
         onDelta() {},
         onUsage(usage) {
           promptTokens += usage?.prompt_tokens || 0;

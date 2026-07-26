@@ -21,6 +21,7 @@ export function createTaskJsonlEmitter({
 const USER_ACTION_TYPES = new Set([
   "client.ready",
   "user.message",
+  "generation.cancel",
   "pending.run",
   "artifact.preview",
   "artifact.delete",
@@ -32,6 +33,7 @@ const USER_ACTION_TYPES = new Set([
   "dream.approve",
   "dream.reject",
   "dream.rollback",
+  "viewport.resize",
 ]);
 
 const PREFLIGHT_FAILURE_STATUSES = new Set([
@@ -41,7 +43,12 @@ const PREFLIGHT_FAILURE_STATUSES = new Set([
   "unavailable",
   "error",
 ]);
-const APPROVAL_ALLOW_DECISIONS = new Set(["accept", "allow", "yes"]);
+const APPROVAL_ALLOW_DECISIONS = new Set([
+  "accept",
+  "allow",
+  "allow_session",
+  "yes",
+]);
 const APPROVAL_DENY_DECISIONS = new Set(["reject", "deny", "no"]);
 
 export function parseUserActionLine(line) {
@@ -85,6 +92,8 @@ export function applyUserAction(
           ? data.event_families.map(String)
           : [],
       };
+    case "generation.cancel":
+      return { handled: true, generationCancel: true };
     case "dream.run":
     case "dream.inspect":
     case "dream.approve":

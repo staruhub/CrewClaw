@@ -3,6 +3,7 @@
 // web:employees` (drift-guarded by contracts/__tests__/web-employees.test.ts). Never hand-edit
 // employee data here or in employees.generated.json.
 import type { AgentEmployee } from "@contracts/types";
+import type { GeneratedEmployee } from "@contracts/scripts/generate-web-employees";
 
 import generated from "./employees.generated.json";
 
@@ -23,6 +24,10 @@ export type EmployeeIdentity = {
   reports_to?: string;
   location?: string;
 };
+
+export type CertifiedEmployeeEvaluation = NonNullable<
+  GeneratedEmployee["certified_evaluation"]
+>;
 
 export type EmployeeToolNecessity =
   | "required"
@@ -96,6 +101,8 @@ export type Employee = AgentEmployee & {
   mascot?: string;
   version: string;
   certification: string;
+  evidence_state: GeneratedEmployee["evidence_state"];
+  certified_evaluation: CertifiedEmployeeEvaluation | null;
   pricing: string;
   repo: string | null;
   local_source: string | null;
@@ -113,6 +120,42 @@ export type Employee = AgentEmployee & {
   changelog: string[];
   safety_notes: string[];
 };
+
+/**
+ * A formal lab badge is derived from the published credential, never from the
+ * legacy `verified` boolean or the C-level string alone. The generated registry
+ * projection already validates the credential; these checks keep the UI
+ * fail-closed if a stale or hand-edited dataset reaches the browser.
+ */
+export function hasPublishedLabCredential(employee: Employee) {
+  return (
+    employee.evidence_state.lab_status === "certified" &&
+    employee.certified_evaluation?.mock === false &&
+    Boolean(employee.certified_evaluation.signature) &&
+    Boolean(employee.certified_evaluation.source)
+  );
+}
+
+export function employeeEvidenceBadge(employee: Employee) {
+  if (hasPublishedLabCredential(employee)) return "Lab certified · registry";
+  if (employee.evidence_state.package_status === "validated") {
+    return "Package validated · registry";
+  }
+  if (employee.evidence_state.package_status === "invalid") {
+    return "Package invalid · registry";
+  }
+  return "Draft package · registry";
+}
+
+export function employeeEvidenceLevel(employee: Employee) {
+  if (hasPublishedLabCredential(employee)) {
+    return `${employee.certification} · lab · registry`;
+  }
+  if (employee.evidence_state.package_status === "validated") {
+    return `${employee.certification} · package · registry`;
+  }
+  return `${employee.certification} · ${employee.evidence_state.package_status} package · registry`;
+}
 
 // JSON widens literals (status: string), so a cast is needed; the generator Zod-validates every
 // package and the drift guard keeps disk in sync with the sources.

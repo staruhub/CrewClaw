@@ -1,6 +1,6 @@
 {
   "title": "CrewClaw · Multi-Agent Runnability Check",
-  "tagline": "6 ChaoGeek-certified agents verify this codebase in parallel",
+  "tagline": "6 C1 package-validated agents verify this codebase in parallel",
   "agents": [
     {
       "id": "build-shrimp",
@@ -131,7 +131,7 @@
         }
       ],
       "verdict": "pass",
-      "summary": "3/3 experts certified",
+      "summary": "3/3 expert packages validated",
       "advisory": null
     }
   ]

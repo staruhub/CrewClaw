@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isCommand, runCommand } from "../commands.mjs";
+import { commandCatalog, isCommand, runCommand } from "../commands.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "crewclaw-commands-"));
 mkdirSync(join(root, "registry"), { recursive: true });
@@ -34,6 +34,26 @@ const ctx = {
   tools: ["bash", "search", "read_file", "edit_file", "write_file"],
   root,
   color: false,
+  skillCatalog: [
+    {
+      id: "review-pr",
+      description: "Review one pull request.",
+      userInvocable: true,
+      modelInvocable: true,
+    },
+    {
+      id: "manual-deploy",
+      description: "Deploy only when a user asks.",
+      userInvocable: true,
+      modelInvocable: false,
+    },
+    {
+      id: "background-rules",
+      description: "Internal conventions.",
+      userInvocable: false,
+      modelInvocable: true,
+    },
+  ],
 };
 
 assert.equal(isCommand("/help"), true);
@@ -44,6 +64,19 @@ const help = runCommand("/help", ctx);
 assert.equal(help.handled, true);
 assert.match(help.text, /\/help/);
 assert.match(help.text, /\/agent <id>/);
+assert.match(help.text, /\/review-pr/);
+assert.match(help.text, /\/manual-deploy/);
+assert.doesNotMatch(help.text, /\/background-rules/);
+
+const catalog = commandCatalog(ctx.skillCatalog);
+assert.ok(catalog.some(command => command.name === "/review-pr"));
+assert.ok(catalog.some(command => command.name === "/manual-deploy"));
+assert.ok(!catalog.some(command => command.name === "/background-rules"));
+assert.deepEqual(runCommand("/review-pr 42", ctx), {
+  handled: true,
+  action: { type: "skill", skill: "review-pr", arguments: "42" },
+});
+assert.match(runCommand("/background-rules", ctx).text, /Unknown command/);
 
 const tools = runCommand("/tools", ctx);
 assert.equal(tools.handled, true);

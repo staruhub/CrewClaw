@@ -1,15 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 use super::protocol::TaskEvent;
+use crate::OffboardingMode;
 
 pub const SYM_RUNNING: &str = "→";
 pub const SYM_OK: &str = "✓";
 pub const SYM_FAIL: &str = "✗";
 pub const SYM_WARN: &str = "!";
-pub const SYM_WAIT: &str = "?";
+pub const SYM_WAIT: &str = "~";
 /// v0.11 M4：思考块符号（未知符号在 symbol_color 里回退 DIM，正合思考的低调气质）。
 pub const SYM_THINK: &str = "✦";
 
@@ -28,6 +29,9 @@ pub struct AppState {
     pub plan: Option<Plan>,
     pub timeline: Vec<TimelineEntry>,
     pub tools: BTreeMap<String, ToolState>,
+    /// `session.ready.tool_catalog.resolution` 的能力真值。与 `tools`（实际调用）分开，
+    /// 避免把“可用能力”误画成“已经执行”。
+    pub tool_catalog: Vec<ToolCapabilityState>,
     pub artifacts: Vec<Artifact>,
     pub evidence: Vec<Evidence>,
     pub approval: Option<Approval>,
@@ -37,6 +41,9 @@ pub struct AppState {
     pub status: String,
     pub debug: Vec<String>,
     pub pending_actions: Vec<PendingAction>,
+    /// `pending.actions` 携带的 ask_user 问题正文。与 pending_actions 同生命周期：
+    /// 选项到达时置位、清空时归零，供 hint 行渲染“在问什么”。
+    pub pending_question: Option<String>,
     pub focus: FocusPanel,
     pub inspect: InspectState,
     pub ref_picker: Option<RefPicker>,
@@ -51,6 +58,9 @@ pub struct AppState {
     /// 下标存储。渲染层有则用之（定妆富文本），无则回退裸文本。存原始 ANSI 字符串以让 state
     /// 保持与 ratatui 解耦；ANSI→Text 转换在 ui 层做。
     pub rendered_assistant: BTreeMap<usize, Vec<String>>,
+    /// `assistant.rendering_preview` 产生的临时缓存。后续同 part token 到达时立即失效并回退 raw；
+    /// `assistant.rendered` 产生的稳定缓存不在此集合中，不会被晚到 token 误删。
+    provisional_rendered_assistant: BTreeSet<usize>,
     /// 当前 generation 内稳定 part_id → conversation Assistant 下标。工具事件会切分文本，
     /// 但不会改变既有 part 的位置；assistant.rendered 只允许按这个映射精确定妆。
     assistant_parts: BTreeMap<String, usize>,
@@ -108,6 +118,15 @@ pub struct AppState {
     /// v0.16 W3.5：审批终态结论条(真事件驱动)。(accepted, text) ——审批 resolve 后原位显示,
     /// 新任务开始(TaskStarted)时清空,不跨任务累留。
     pub last_verdict: Option<(bool, String)>,
+    /// 以 canonical taskRunId 为键的真实会话快照；顺序单独保存，避免依赖 timeline 推断任务。
+    pub task_sessions: BTreeMap<String, TaskSession>,
+    pub task_session_order: Vec<String>,
+    /// 最近收到 task.started 的运行会话；缺 taskRunId 的 legacy 事件路由到这里。
+    pub active_task_session_id: Option<String>,
+    /// 当前装载到 AppState 顶层字段、供既有 widgets 无改造读取的会话。
+    viewed_task_session_id: Option<String>,
+    /// 用户提交发生在 task.started 之前；暂存并在新 taskRunId 建立时迁入目标会话。
+    pending_user_message: Option<String>,
 }
 
 /// v0.15 P1-2：一条通知（真事件派生）。
@@ -144,10 +163,26 @@ pub enum FocusPanel {
     Inspect,
 }
 
+/// 互斥弹层：同一时刻最多一层。drawer 不是弹层（侧栏），不在此枚举内。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Overlay {
     CommandPalette,
     Help,
+    Preview,
+    Publish {
+        step: usize,
+    },
+    Settings,
+    Notifications,
+    Compare,
+    TaskDetail,
+    Onboarding {
+        step: usize,
+    },
+    FireConfirm {
+        market_index: usize,
+        mode: OffboardingMode,
+    },
 }
 
 /// v0.12：多屏「数字员工操作系统」的 5 个屏（对标设计稿 tab bar）。
@@ -246,7 +281,7 @@ pub struct OnboardingState {
 /// 只保留渲染需要的字段，避免把 main.rs 的 Expert（非 Eq）塞进 UiState。
 // kpi_cumulative.total_cost:f64 → 只能 PartialEq（同 Employee/TaskMeta 的先例），MarketEntry
 // 随之降级，UiState（内含 Vec<MarketEntry>）的 derive 也跟着摘掉 Eq。
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MarketEntry {
     pub name: String,
     pub display_name: String,
@@ -258,10 +293,37 @@ pub struct MarketEntry {
     pub hermes_req: String,
     pub env_reqs: Vec<String>,
     pub first_task: String,
+    /// registry profile 中的 ASCII 头像行；空列表表示上游没有提供，UI 可诚实回退。
+    pub avatar: Vec<String>,
+    /// 当前本地环境与该员工的兼容等级（L0..=L4）；None = 尚未评估。
+    pub compatibility_level: Option<u8>,
+    /// 兼容等级的真实推导原因，不在渲染层造结论。
+    pub compatibility_reason: String,
     /// v0.17 P2 C1：跨会话真累计 KPI——启动时从 `.crewclaw/kpi/<name>.json` 直接读盘
     /// (与 doctor 体检同一"启动时算好"模式；不等引擎 session.ready，因为 MARKET 要列出
     /// **所有**员工，不只是当前上岗的那个)。文件不存在/解析失败 → 全零默认值。
     pub kpi_cumulative: KpiCumulative,
+}
+
+impl Default for MarketEntry {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            display_name: String::new(),
+            status: String::new(),
+            certification: String::new(),
+            category: String::new(),
+            description: String::new(),
+            tags: Vec::new(),
+            hermes_req: String::new(),
+            env_reqs: Vec::new(),
+            first_task: String::new(),
+            avatar: Vec::new(),
+            compatibility_level: None,
+            compatibility_reason: "尚未运行兼容性检查".to_string(),
+            kpi_cumulative: KpiCumulative::default(),
+        }
+    }
 }
 
 /// v0.12 HIRE：某员工的 doctor 体检结论（真实——启动时 doctor::build_report 计算）。
@@ -280,7 +342,8 @@ pub struct UiState {
     pub overlay: Option<Overlay>,
     pub drawer: Option<FocusPanel>,
     pub follow: bool,
-    pub messages_scroll: u16,
+    /// 消息流绝对滚动偏移。渲染路径可能因定妆高度变化而平移，故用 Cell。
+    pub messages_scroll: std::cell::Cell<u16>,
     pub drawer_scroll: ScrollOffsets,
     /// v0.12：当前屏。
     pub screen: Screen,
@@ -301,30 +364,30 @@ pub struct UiState {
     pub scanlines: bool,
     /// v0.12：which-key 快捷键面板开关（Normal 模式 Space 切换）。
     pub which_key: bool,
-    /// v0.12：入职仪式浮层（None=未打开）。
-    pub onboarding: Option<OnboardingState>,
-    /// v0.15 P1-3：TASK DETAIL 全屏浮层（WORKBENCH `o` 开，Esc/q/o 关）。全真:timeline/outcome/
-    /// artifacts/evidence 全读 AppState,不造数据。
-    pub task_detail_open: bool,
-    /// v0.15 P1-5：产物预览浮层（WORKBENCH `[`/`]` 选中产物后 `Enter` 开，Esc/q 关）。
-    /// 内容 = read_artifact_preview 真读文件；无选中/无产物则 Enter 不开。
-    pub preview_open: bool,
-    /// v0.16 W4.1：预览正文滚动偏移(行)——preview_open 置 true 或 `[`/`]` 换产物时归零。
+    /// WORKBENCH 专注模式：只保留 SESSION、输入与必要状态。
+    pub focus_mode: bool,
+    /// WORKBENCH 任务队列是否展开；默认只展示当前任务摘要。
+    pub task_queue_expanded: bool,
+    /// 宽/中屏内联产物阅读器是否持有滚动焦点。
+    pub preview_focused: bool,
+    /// 渲染层回写的最近终端宽度，供键盘层选择内联预览或窄屏浮层。
+    pub terminal_width: std::cell::Cell<u16>,
+    /// Rust SESSION 的真实正文宽度（已扣角色头/gutter/right margin），经 JSONL 协商给 Node。
+    pub render_content_width: std::cell::Cell<u16>,
+    /// 每个用户轮次在当前物理消息流中的起始行，用于精确轮次跳转与位置指示。
+    pub turn_anchors: std::cell::RefCell<Vec<u16>>,
+    /// `{`/`}` 跳转后的短暂目标高亮；绝对物理行 + 到期时间。
+    pub turn_highlight: std::cell::Cell<Option<(u16, Instant)>>,
+    /// v0.16 W4.1：预览正文滚动偏移(行)——打开 Preview 或 `[`/`]` 换产物时归零。
     pub preview_scroll: u16,
-    /// v0.15 P1-2：通知中心浮层开关（`n` 开，Esc/q/n 关）。
-    pub notif_open: bool,
     /// v0.15 P1-2：通知列表游标（j/k 移动）。
     pub notif_cursor: usize,
-    /// v0.15 P1-1：SETTINGS 偏好浮层开关（`,` 开，Esc/q/, 关）。
-    pub settings_open: bool,
     /// v0.15 P1-1：设置项游标（j/k 移动）。
     pub settings_cursor: usize,
     /// v0.15 P1-1：偏好（density + BEHAVIOR 组的选项下标;theme/scanlines 见同名字段）。
     pub prefs: crate::workbench::config::Prefs,
     /// v0.15 P1-1：偏好落盘根（live 循环注入;None=不持久化,如单测态）。
     pub prefs_root: Option<std::path::PathBuf>,
-    /// v0.15 P1-4：PUBLISH 发布浮层（MARKET `p` 开）——None=关，Some(step) step∈0..=3。
-    pub publish_step: Option<usize>,
     /// v0.12 MARKET：真实员工市场（启动时从 registry 读入，非 live 数据）。
     pub market: Vec<MarketEntry>,
     /// v0.12 HIRE：与 market 平行的 doctor 体检结论（启动时计算）。
@@ -338,9 +401,14 @@ pub struct UiState {
     /// v0.13 M1：SESSION 事件选择游标（timeline 下标）。None=跟随流；NORMAL j/k 移动，
     /// EVENT DETAIL 面板跟随（M4 接键位）。
     pub session_cursor: Option<usize>,
+    /// WORKBENCH TASK QUEUE 中的 taskRun 会话游标（0 = 最新）。
+    /// 与 `session_cursor` 分开：前者切换整个任务会话，后者只选当前会话的事件。
+    pub task_session_cursor: usize,
     /// v0.8 M5：上一帧消息区可滚动的最大偏移，供滚轮/翻页判定"是否已到底"以恢复 follow，
     /// 以及新消息徽标计算未见行数。渲染层每帧通过 Cell 回写（保持 render 取 &UiState）。
     pub content_max_scroll: std::cell::Cell<u16>,
+    /// 上一帧消息流物理行数，供 follow=false 时在定妆/高度变化后平移 messages_scroll。
+    pub last_message_line_count: std::cell::Cell<usize>,
     /// v0.8 M5：上一帧消息区正文可视高度（行），供滚轮/徽标计算。渲染层每帧回写。
     pub viewport_height: std::cell::Cell<u16>,
     /// v0.10：Enter 突发启发式开关（tui.json paste_enter_heuristic，默认开）。
@@ -349,15 +417,79 @@ pub struct UiState {
     pub paste_enter_heuristic: bool,
     /// 上一次按键的时刻，供突发判定。每个 key press 都会刷新。
     pub last_key_at: Option<std::time::Instant>,
+    /// busy 时第一次 Ctrl+C 已发出 generation.cancel 的短窗武装状态：
+    /// `(task_session_id, pressed_at)`。同一任务短窗内第二次 Ctrl+C 由键盘层强退，
+    /// 不再依赖可能已经挂起的 runtime 回终态事件。
+    pub busy_cancel_armed: Option<(Option<String>, std::time::Instant)>,
+    /// MARKET/HIRE 本地动作的单次真实反馈；下一次按键清除，避免成功/失败静默。
+    /// `(success, message)` 由既有 hint row 展示，不另造通知事件或持久化状态。
+    pub action_feedback: Option<(bool, String)>,
     /// v0.17 P1-B1：MARKET `/` 搜索的查询文本（复用 fuzzy.rs 排序,不新写一套匹配）。
     pub market_filter: String,
     /// v0.17 P1-B1：MARKET 搜索输入是否处于编辑态（true 时字符键写进 filter,而非切屏/聊天）。
     pub market_filter_active: bool,
     /// v0.17 P1-B2：MARKET `x` 勾选的对比候选——存的是 `self.market` 的**真实下标**(不是
-    /// filtered 下标),最多 2 个,按勾选顺序排列。
+    /// filtered 下标),最多 3 个,按勾选顺序排列。
     pub compare_selection: Vec<usize>,
-    /// v0.17 P1-B2：COMPARE 对比浮层开关（选满 2 个后 `c` 开;Esc/q 关）。
-    pub compare_open: bool,
+}
+
+impl UiState {
+    pub fn open_overlay(&mut self, overlay: Overlay) {
+        self.overlay = Some(overlay);
+    }
+
+    pub fn close_overlay(&mut self) {
+        self.overlay = None;
+    }
+
+    pub fn preview_open(&self) -> bool {
+        matches!(self.overlay, Some(Overlay::Preview))
+    }
+
+    pub fn settings_open(&self) -> bool {
+        matches!(self.overlay, Some(Overlay::Settings))
+    }
+
+    pub fn notif_open(&self) -> bool {
+        matches!(self.overlay, Some(Overlay::Notifications))
+    }
+
+    pub fn compare_open(&self) -> bool {
+        matches!(self.overlay, Some(Overlay::Compare))
+    }
+
+    pub fn task_detail_open(&self) -> bool {
+        matches!(self.overlay, Some(Overlay::TaskDetail))
+    }
+
+    pub fn publish_step(&self) -> Option<usize> {
+        match self.overlay {
+            Some(Overlay::Publish { step }) => Some(step),
+            _ => None,
+        }
+    }
+
+    pub fn onboarding(&self) -> Option<OnboardingState> {
+        match self.overlay {
+            Some(Overlay::Onboarding { step }) => Some(OnboardingState { step }),
+            _ => None,
+        }
+    }
+
+    pub fn fire_confirmation(&self) -> Option<(usize, OffboardingMode)> {
+        match self.overlay {
+            Some(Overlay::FireConfirm { market_index, mode }) => Some((market_index, mode)),
+            _ => None,
+        }
+    }
+
+    pub fn set_publish_step(&mut self, step: Option<usize>) {
+        self.overlay = step.map(|step| Overlay::Publish { step });
+    }
+
+    pub fn set_onboarding(&mut self, onboarding: Option<OnboardingState>) {
+        self.overlay = onboarding.map(|state| Overlay::Onboarding { step: state.step });
+    }
 }
 
 impl UiState {
@@ -400,7 +532,7 @@ impl UiState {
         self.market_index_of(filtered[sel])
     }
 
-    /// v0.17 P1-B2：MARKET `x` 键——把当前选中员工加入/移出对比候选(最多 2 个,已满且非
+    /// v0.17 P1-B2：MARKET `x` 键——把当前选中员工加入/移出对比候选(最多 3 个,已满且非
     /// 候选内成员时按下 x 不做任何事,逼用户先取消一个)。
     pub fn toggle_compare_selection(&mut self) {
         let Some(idx) = self.market_selected_index() else {
@@ -408,7 +540,7 @@ impl UiState {
         };
         if let Some(pos) = self.compare_selection.iter().position(|&i| i == idx) {
             self.compare_selection.remove(pos);
-        } else if self.compare_selection.len() < 2 {
+        } else if self.compare_selection.len() < 3 {
             self.compare_selection.push(idx);
         }
     }
@@ -429,9 +561,10 @@ impl Default for UiState {
             overlay: None,
             drawer: None,
             follow: true,
-            messages_scroll: 0,
+            messages_scroll: std::cell::Cell::new(0),
             drawer_scroll: ScrollOffsets::default(),
             content_max_scroll: std::cell::Cell::new(0),
+            last_message_line_count: std::cell::Cell::new(0),
             viewport_height: std::cell::Cell::new(0),
             screen: Screen::default(),
             mode: InputMode::default(),
@@ -442,36 +575,61 @@ impl Default for UiState {
             dream_mem_cursor: 0,
             scanlines: false,
             which_key: false,
-            onboarding: None,
-            task_detail_open: false,
-            preview_open: false,
+            focus_mode: false,
+            task_queue_expanded: false,
+            preview_focused: false,
+            terminal_width: std::cell::Cell::new(0),
+            render_content_width: std::cell::Cell::new(0),
+            turn_anchors: std::cell::RefCell::new(Vec::new()),
+            turn_highlight: std::cell::Cell::new(None),
             preview_scroll: 0,
-            notif_open: false,
             notif_cursor: 0,
-            settings_open: false,
             settings_cursor: 0,
             prefs: crate::workbench::config::Prefs::default(),
             prefs_root: None,
-            publish_step: None,
             market: Vec::new(),
             hire_reports: Vec::new(),
             persisted_state_active: false,
             persisted_insights: PersistedInsights::default(),
             persisted_refresh_requested: false,
             session_cursor: None,
+            task_session_cursor: 0,
             // 默认关：单测以 μs 级间隔灌按键，若默认开会把测试里的 Enter 误判成粘贴。
             // live loop 启动时按 tui.json 显式置开（配置默认 true）。
             paste_enter_heuristic: false,
             last_key_at: None,
+            busy_cancel_armed: None,
+            action_feedback: None,
             market_filter: String::new(),
             market_filter_active: false,
             compare_selection: Vec::new(),
-            compare_open: false,
         }
     }
 }
 
 impl UiState {
+    /// 在 TASK QUEUE 中移动 taskRun 游标（0 = 最新），边界钳制且空队列安全。
+    pub fn move_task_session_cursor(&mut self, delta: i32, session_count: usize) {
+        if session_count == 0 {
+            self.task_session_cursor = 0;
+            return;
+        }
+        let last = session_count.saturating_sub(1) as i32;
+        self.task_session_cursor =
+            (self.task_session_cursor as i32 + delta).clamp(0, last) as usize;
+    }
+
+    /// 装载 TASK QUEUE 当前行的完整会话，并恢复消息跟随。
+    pub fn activate_task_session(&mut self, state: &mut AppState) -> bool {
+        let switched = state.switch_task_session_by_index(self.task_session_cursor);
+        if switched {
+            self.session_cursor = None;
+            self.messages_scroll.set(0);
+            self.follow = true;
+        }
+        switched
+    }
+
     pub fn toggle_drawer(&mut self) {
         self.drawer = if self.drawer.is_some() {
             None
@@ -549,6 +707,33 @@ impl UiState {
         }
     }
 
+    /// 消息流物理行数变化时，在 follow=false 下平移绝对滚动偏移，避免定妆换肤导致视口跳动。
+    /// 用 Cell 实现，渲染路径可在 &UiState 下调用。
+    pub fn reanchor_messages_scroll(&self, new_line_count: usize, body_height: usize) -> u16 {
+        let previous = self.last_message_line_count.get();
+        self.last_message_line_count.set(new_line_count);
+        let max_scroll = new_line_count.saturating_sub(body_height) as u16;
+        self.content_max_scroll.set(max_scroll);
+        self.viewport_height.set(body_height as u16);
+        if self.follow || previous == 0 {
+            let scroll = if self.follow {
+                max_scroll
+            } else {
+                self.messages_scroll.get().min(max_scroll)
+            };
+            self.messages_scroll.set(scroll);
+            return scroll;
+        }
+        let delta = new_line_count as i64 - previous as i64;
+        let next = if delta == 0 {
+            self.messages_scroll.get().min(max_scroll)
+        } else {
+            (self.messages_scroll.get() as i64 + delta).clamp(0, max_scroll as i64) as u16
+        };
+        self.messages_scroll.set(next);
+        next
+    }
+
     /// v0.8 M5：滚动消息流。负 delta 向上（脱离 follow），正 delta 向下；滚到底自动恢复 follow。
     /// 使用上一帧回写的 content_max_scroll 作为边界与"到底"判定。
     pub fn scroll_messages(&mut self, delta: i16) {
@@ -557,7 +742,7 @@ impl UiState {
         let current = if self.follow {
             max
         } else {
-            self.messages_scroll.min(max)
+            self.messages_scroll.get().min(max)
         };
         let next = if delta < 0 {
             current.saturating_sub(delta.unsigned_abs())
@@ -567,17 +752,81 @@ impl UiState {
         if next >= max {
             // Reached the bottom → re-pin to newest content.
             self.follow = true;
-            self.messages_scroll = max;
+            self.messages_scroll.set(max);
         } else {
             self.follow = false;
-            self.messages_scroll = next;
+            self.messages_scroll.set(next);
         }
     }
 
     /// End：回到底部并恢复粘底跟随。
     pub fn scroll_to_bottom(&mut self) {
         self.follow = true;
-        self.messages_scroll = self.content_max_scroll.get();
+        self.messages_scroll.set(self.content_max_scroll.get());
+        self.turn_highlight.set(None);
+    }
+
+    /// 跳到相邻用户轮次的真实物理行；负数向上，正数向下。
+    pub fn jump_turn(&mut self, direction: i8) {
+        let anchors = self.turn_anchors.borrow();
+        if anchors.is_empty() || direction == 0 {
+            return;
+        }
+        let current = if self.follow {
+            self.content_max_scroll.get()
+        } else {
+            self.messages_scroll.get()
+        };
+        let target = if direction < 0 {
+            anchors
+                .iter()
+                .copied()
+                .rev()
+                .find(|anchor| *anchor < current)
+                .unwrap_or(anchors[0])
+        } else {
+            anchors
+                .iter()
+                .copied()
+                .find(|anchor| *anchor > current)
+                .unwrap_or(*anchors.last().unwrap_or(&0))
+        };
+        drop(anchors);
+        self.follow = false;
+        self.session_cursor = None;
+        self.messages_scroll
+            .set(target.min(self.content_max_scroll.get()));
+        self.turn_highlight
+            .set(Some((target, Instant::now() + Duration::from_millis(700))));
+    }
+
+    /// 当前仍有效的轮次跳转高亮目标；过期时顺手清理，不需要额外计时器。
+    pub fn active_turn_highlight(&self) -> Option<u16> {
+        let (line, until) = self.turn_highlight.get()?;
+        if Instant::now() <= until {
+            Some(line)
+        } else {
+            self.turn_highlight.set(None);
+            None
+        }
+    }
+
+    pub fn turn_position(&self) -> (usize, usize) {
+        let anchors = self.turn_anchors.borrow();
+        let total = anchors.len();
+        if total == 0 {
+            return (0, 0);
+        }
+        let scroll = if self.follow {
+            self.content_max_scroll.get()
+        } else {
+            self.messages_scroll.get()
+        };
+        let current = anchors
+            .iter()
+            .take_while(|anchor| **anchor <= scroll)
+            .count();
+        (current.max(1).min(total), total)
     }
 
     /// v0.8 M5：follow=false 时下方尚未看到的行数（新消息徽标计数）。
@@ -587,7 +836,7 @@ impl UiState {
         } else {
             self.content_max_scroll
                 .get()
-                .saturating_sub(self.messages_scroll)
+                .saturating_sub(self.messages_scroll.get())
         }
     }
 
@@ -631,13 +880,29 @@ pub struct Employee {
     /// `.crewclaw/kpi/<agentId>.json` 读入本次会话开始前的历史；旧引擎/无 agentId → 全零)。
     pub kpi_cumulative: KpiCumulative,
     /// v0.18 B2：由 Node `readEvalResult` 完整校验后通过 session.ready 下发的评测结果。
-    /// None = 当前 subject contract 下没有可验证评测 → EVAL 屏不显示认证分。
+    /// None = 当前 subject contract 下没有可验证评测 → EVAL 屏不显示真实评测分。
     pub eval: Option<EvalReport>,
+    /// M5 Growth Card projection from the engine (honest next-step + provider state).
+    /// None = older engines / no growth_card key.
+    pub growth_card: Option<GrowthCard>,
 }
 
-/// 员工评测报告。`mock=false` 不是认证的充分条件：只有经 Node `readEvalResult` 绑定当前
+/// M5 Growth Card — presentation-only projection of eval provider health + next step.
+/// Never fabricates a verified evaluation; Rust only mirrors what Node already classified.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GrowthCard {
+    pub provider_status: String,
+    pub provider_code: String,
+    pub provider_message: String,
+    pub next_step: String,
+    pub certified: bool,
+    pub mock: bool,
+    pub score: Option<u32>,
+}
+
+/// 员工评测报告。`mock=false` 不是 C2 的充分条件：只有经 Node `readEvalResult` 绑定当前
 /// subject/spec/dependency/runtime/execution context 后从 session.ready 下发的记录才会设置
-/// `certified=true`。Rust 直接读到的磁盘记录始终是待验证、不可认证。
+/// legacy `certified=true`，其含义仅为“评测已验证”。Rust 直接读到的磁盘记录始终待验证。
 #[derive(Clone, Debug, PartialEq)]
 pub struct EvalReport {
     pub score: u32,
@@ -664,9 +929,58 @@ pub struct ExamEntry {
 pub struct KpiCumulative {
     pub tasks: u64,
     pub accepted: u64,
+    /// Policy-provenance acceptance; never folded into explicit user acceptance.
+    pub auto_accepted: u64,
     pub total_cost: f64,
     /// epoch ms；None = 这个员工在本 root 下从未有过验收终态(真"新人")。
     pub first_hired_ts: Option<u64>,
+}
+
+pub const TRUST_AUTO_THRESHOLD: u64 = 3;
+pub const SENIOR_AUTO_ACCEPTED_THRESHOLD: u64 = 3;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AutonomyLevel {
+    Apprentice,
+    Regular,
+    Senior,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AutonomyProjection {
+    pub level: AutonomyLevel,
+    pub label: &'static str,
+    pub progress: String,
+}
+
+/// Presentation-only growth narrative over existing KPI truth. It never changes tool grants,
+/// Gateway policy, or the approval preference; P0-P4 remains the sole permission model.
+pub fn autonomy_projection(kpi: KpiCumulative) -> AutonomyProjection {
+    if kpi.accepted < TRUST_AUTO_THRESHOLD {
+        return AutonomyProjection {
+            level: AutonomyLevel::Apprentice,
+            label: "见习",
+            progress: format!(
+                "再 {} 次人工验收解锁信任自动",
+                TRUST_AUTO_THRESHOLD - kpi.accepted
+            ),
+        };
+    }
+    if kpi.auto_accepted < SENIOR_AUTO_ACCEPTED_THRESHOLD {
+        return AutonomyProjection {
+            level: AutonomyLevel::Regular,
+            label: "转正",
+            progress: format!(
+                "信任自动已解锁 · 策略验收 {}/{}",
+                kpi.auto_accepted, SENIOR_AUTO_ACCEPTED_THRESHOLD
+            ),
+        };
+    }
+    AutonomyProjection {
+        level: AutonomyLevel::Senior,
+        label: "资深",
+        progress: format!("策略验收 {} 次", kpi.auto_accepted),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -684,6 +998,8 @@ pub struct PersistedMemory {
     pub text: String,
     pub confidence: String,
     pub saved_at: Option<String>,
+    pub source_task_ids: Vec<String>,
+    pub dream_run_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -715,12 +1031,35 @@ impl DreamSnapshot {
     }
 }
 
+/// 一条经验收的 TaskRun 声誉记录。聚合层只能从已验证运行写入，
+/// UI 不根据任务文案或普通 terminal 事件推测声誉。
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ReputationEntry {
+    pub task_id: String,
+    pub status: String,
+    pub goal: String,
+    pub updated_at: u64,
+}
+
+/// 从已验证 TaskRun 投影出的最小声誉快照。验收率使用 basis points，
+/// 避免浮点误差；无样本时保持 0，不伪造默认分。
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ReputationSnapshot {
+    pub verified_tasks: u32,
+    pub accepted: u32,
+    pub rejected: u32,
+    pub revision_needed: u32,
+    pub acceptance_rate_bps: u32,
+    pub history: Vec<ReputationEntry>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PersistedInsights {
     pub eval: Option<EvalReport>,
     pub kpi: KpiCumulative,
     pub monthly: Vec<MonthlyMetric>,
     pub dream: DreamSnapshot,
+    pub reputation: ReputationSnapshot,
     pub errors: Vec<String>,
     pub refreshed_at: u64,
 }
@@ -732,9 +1071,194 @@ pub struct Task {
     pub status: String,
 }
 
+/// 一次 taskRun 的完整可切换工作台快照。公开字段是 UI/测试需要的真值；其余 reducer
+/// 相关字段保存在同一结构中，确保后台任务交错到达时不会污染当前查看的会话。
+#[derive(Clone, Debug, PartialEq)]
+pub struct TaskSession {
+    pub id: String,
+    pub task: Option<Task>,
+    pub timeline: Vec<TimelineEntry>,
+    pub conversation: Vec<ConversationItem>,
+    pub artifacts: Vec<Artifact>,
+    pub evidence: Vec<Evidence>,
+    pub usage: Usage,
+    pub terminal: Option<&'static str>,
+    pub status: String,
+    pub busy_since: Option<Instant>,
+    pub activity: ActivityCounts,
+    plan: Option<Plan>,
+    tools: BTreeMap<String, ToolState>,
+    approval: Option<Approval>,
+    answer: String,
+    pending_actions: Vec<PendingAction>,
+    pending_question: Option<String>,
+    inspect: InspectState,
+    selected_artifact: Option<String>,
+    preview: Option<ArtifactPreview>,
+    quick_utility: Option<QuickUtility>,
+    rendered_assistant: BTreeMap<usize, Vec<String>>,
+    provisional_rendered_assistant: BTreeSet<usize>,
+    assistant_parts: BTreeMap<String, usize>,
+    active_assistant_part: Option<usize>,
+    task_artifact_start: usize,
+    current_task_outcome: Option<Option<bool>>,
+    approval_kind: Option<String>,
+    approval_task_id: Option<String>,
+    settled_approval_ids: BTreeSet<String>,
+    current_turn_id: Option<String>,
+    last_turn_seq: Option<u64>,
+    generation_phase: Option<&'static str>,
+    task_stream_terminal: bool,
+    budget_refusal_pending: bool,
+    task_started_at: Option<Instant>,
+    task_header_line: Option<usize>,
+    thinking_line: Option<usize>,
+    usage_at_task_start: Usage,
+    last_verdict: Option<(bool, String)>,
+    mode: String,
+}
+
+impl TaskSession {
+    fn empty(id: String) -> Self {
+        Self {
+            id,
+            task: None,
+            timeline: Vec::new(),
+            conversation: Vec::new(),
+            artifacts: Vec::new(),
+            evidence: Vec::new(),
+            usage: Usage::default(),
+            terminal: None,
+            status: "idle".to_string(),
+            busy_since: None,
+            activity: ActivityCounts::default(),
+            plan: None,
+            tools: BTreeMap::new(),
+            approval: None,
+            answer: String::new(),
+            pending_actions: Vec::new(),
+            pending_question: None,
+            inspect: InspectState::default(),
+            selected_artifact: None,
+            preview: None,
+            quick_utility: None,
+            rendered_assistant: BTreeMap::new(),
+            provisional_rendered_assistant: BTreeSet::new(),
+            assistant_parts: BTreeMap::new(),
+            active_assistant_part: None,
+            task_artifact_start: 0,
+            current_task_outcome: None,
+            approval_kind: None,
+            approval_task_id: None,
+            settled_approval_ids: BTreeSet::new(),
+            current_turn_id: None,
+            last_turn_seq: None,
+            generation_phase: None,
+            task_stream_terminal: false,
+            budget_refusal_pending: false,
+            task_started_at: None,
+            task_header_line: None,
+            thinking_line: None,
+            usage_at_task_start: Usage::default(),
+            last_verdict: None,
+            mode: "Task".to_string(),
+        }
+    }
+
+    fn capture(state: &AppState, id: String) -> Self {
+        Self {
+            id,
+            task: state.task.clone(),
+            timeline: state.timeline.clone(),
+            conversation: state.conversation.clone(),
+            artifacts: state.artifacts.clone(),
+            evidence: state.evidence.clone(),
+            usage: state.usage.clone(),
+            terminal: state.current_task_terminal,
+            status: state.status.clone(),
+            busy_since: state.busy_since,
+            activity: state.task_activity,
+            plan: state.plan.clone(),
+            tools: state.tools.clone(),
+            approval: state.approval.clone(),
+            answer: state.answer.clone(),
+            pending_actions: state.pending_actions.clone(),
+            pending_question: state.pending_question.clone(),
+            inspect: state.inspect.clone(),
+            selected_artifact: state.selected_artifact.clone(),
+            preview: state.preview.clone(),
+            quick_utility: state.quick_utility.clone(),
+            rendered_assistant: state.rendered_assistant.clone(),
+            provisional_rendered_assistant: state.provisional_rendered_assistant.clone(),
+            assistant_parts: state.assistant_parts.clone(),
+            active_assistant_part: state.active_assistant_part,
+            task_artifact_start: state.task_artifact_start,
+            current_task_outcome: state.current_task_outcome,
+            approval_kind: state.approval_kind.clone(),
+            approval_task_id: state.approval_task_id.clone(),
+            settled_approval_ids: state.settled_approval_ids.clone(),
+            current_turn_id: state.current_turn_id.clone(),
+            last_turn_seq: state.last_turn_seq,
+            generation_phase: state.generation_phase,
+            task_stream_terminal: state.task_stream_terminal,
+            budget_refusal_pending: state.budget_refusal_pending,
+            task_started_at: state.task_started_at,
+            task_header_line: state.task_header_line,
+            thinking_line: state.thinking_line,
+            usage_at_task_start: state.usage_at_task_start.clone(),
+            last_verdict: state.last_verdict.clone(),
+            mode: state.mode.clone(),
+        }
+    }
+
+    fn restore_into(&self, state: &mut AppState) {
+        state.task = self.task.clone();
+        state.timeline = self.timeline.clone();
+        state.conversation = self.conversation.clone();
+        state.artifacts = self.artifacts.clone();
+        state.evidence = self.evidence.clone();
+        state.usage = self.usage.clone();
+        state.current_task_terminal = self.terminal;
+        state.status = self.status.clone();
+        state.busy_since = self.busy_since;
+        state.task_activity = self.activity;
+        state.plan = self.plan.clone();
+        state.tools = self.tools.clone();
+        state.approval = self.approval.clone();
+        state.answer = self.answer.clone();
+        state.pending_actions = self.pending_actions.clone();
+        state.pending_question = self.pending_question.clone();
+        state.inspect = self.inspect.clone();
+        state.selected_artifact = self.selected_artifact.clone();
+        state.preview = self.preview.clone();
+        state.quick_utility = self.quick_utility.clone();
+        state.rendered_assistant = self.rendered_assistant.clone();
+        state.provisional_rendered_assistant = self.provisional_rendered_assistant.clone();
+        state.assistant_parts = self.assistant_parts.clone();
+        state.active_assistant_part = self.active_assistant_part;
+        state.task_artifact_start = self.task_artifact_start;
+        state.current_task_outcome = self.current_task_outcome;
+        state.approval_kind = self.approval_kind.clone();
+        state.approval_task_id = self.approval_task_id.clone();
+        state.settled_approval_ids = self.settled_approval_ids.clone();
+        state.current_turn_id = self.current_turn_id.clone();
+        state.last_turn_seq = self.last_turn_seq;
+        state.generation_phase = self.generation_phase;
+        state.task_stream_terminal = self.task_stream_terminal;
+        state.budget_refusal_pending = self.budget_refusal_pending;
+        state.task_started_at = self.task_started_at;
+        state.task_header_line = self.task_header_line;
+        state.thinking_line = self.thinking_line;
+        state.usage_at_task_start = self.usage_at_task_start.clone();
+        state.last_verdict = self.last_verdict.clone();
+        state.mode = self.mode.clone();
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Plan {
     pub steps: Vec<String>,
+    pub statuses: Vec<String>,
     pub status: String,
 }
 
@@ -904,6 +1428,7 @@ pub struct Approval {
     pub tool: Option<String>,
     pub reason: Option<String>,
     pub scope: Option<Value>,
+    pub session_lease: Option<Value>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -929,6 +1454,14 @@ pub struct QuickUtility {
     pub status: Option<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolCapabilityState {
+    pub capability: String,
+    pub runtime_tool: Option<String>,
+    pub availability: String,
+    pub reason: Option<String>,
+}
+
 impl Default for AppState {
     fn default() -> Self {
         Self {
@@ -938,6 +1471,7 @@ impl Default for AppState {
             plan: None,
             timeline: Vec::new(),
             tools: BTreeMap::new(),
+            tool_catalog: Vec::new(),
             artifacts: Vec::new(),
             evidence: Vec::new(),
             approval: None,
@@ -947,6 +1481,7 @@ impl Default for AppState {
             status: "idle".to_string(),
             debug: Vec::new(),
             pending_actions: Vec::new(),
+            pending_question: None,
             focus: FocusPanel::Tasks,
             inspect: InspectState::default(),
             ref_picker: None,
@@ -961,6 +1496,7 @@ impl Default for AppState {
             quick_utility: None,
             busy_since: None,
             rendered_assistant: BTreeMap::new(),
+            provisional_rendered_assistant: BTreeSet::new(),
             assistant_parts: BTreeMap::new(),
             active_assistant_part: None,
             commands: Vec::new(),
@@ -988,6 +1524,11 @@ impl Default for AppState {
             accepted_count: 0,
             notices: Vec::new(),
             last_verdict: None,
+            task_sessions: BTreeMap::new(),
+            task_session_order: Vec::new(),
+            active_task_session_id: None,
+            viewed_task_session_id: None,
+            pending_user_message: None,
         }
     }
 }
@@ -1006,7 +1547,205 @@ impl NoticeKind {
 }
 
 impl AppState {
+    /// 按 canonical taskRunId 路由事件，使并行任务的对话、产物与证据不会串台。
+    /// 无 taskRunId 的 v1 事件仍路由到最近的 active session，保持协议兼容。
     pub fn reduce(&mut self, ev: &TaskEvent) {
+        let target = self.event_task_session_id(ev);
+        if let Some(task_id) = target {
+            let is_start = matches!(ev, TaskEvent::TaskStarted { .. });
+            // 不同 id 的 task.started 只有在本地确实提交了新消息时才能与当前
+            // 未终态任务并行。否则仍交给旧相关性守卫判为晚到/伪造 start，避免
+            // 过期事件将工作台焦点劫持到新会话。
+            if is_start
+                && self.pending_user_message.is_none()
+                && let Some(active_id) = self.active_task_session_id.clone()
+                && active_id != task_id
+                && self
+                    .task_sessions
+                    .get(&active_id)
+                    .is_some_and(|session| !session.task_stream_terminal)
+            {
+                self.reduce_task_session_event(active_id, ev, false);
+                return;
+            }
+            if is_start || self.task_sessions.contains_key(&task_id) {
+                self.reduce_task_session_event(task_id, ev, is_start);
+                return;
+            }
+        } else if !Self::event_is_global(ev)
+            && let Some(task_id) = self.active_task_session_id.clone()
+            && self.task_sessions.contains_key(&task_id)
+        {
+            self.reduce_task_session_event(task_id, ev, false);
+            return;
+        }
+
+        self.reduce_inner(ev);
+        self.save_viewed_task_session();
+    }
+
+    fn event_is_global(ev: &TaskEvent) -> bool {
+        matches!(
+            ev,
+            TaskEvent::ProtocolReady { .. }
+                | TaskEvent::SessionReady { .. }
+                | TaskEvent::MemoryState { .. }
+                | TaskEvent::MemoryRequested { .. }
+                | TaskEvent::MemorySaved { .. }
+                | TaskEvent::WorkspaceRevealed { .. }
+                | TaskEvent::DreamRecommended { .. }
+                | TaskEvent::DreamMorningReport { .. }
+                | TaskEvent::DreamStarted { .. }
+                | TaskEvent::DreamCandidateReady { .. }
+                | TaskEvent::DreamValidationFailed { .. }
+                | TaskEvent::DreamBlocked { .. }
+                | TaskEvent::DreamApproved { .. }
+                | TaskEvent::DreamRejected { .. }
+                | TaskEvent::DreamActivated { .. }
+                | TaskEvent::DreamRolledBack { .. }
+                | TaskEvent::DebugLine { .. }
+                | TaskEvent::Unknown
+        )
+    }
+
+    fn event_task_session_id(&self, ev: &TaskEvent) -> Option<String> {
+        let data = ev.data();
+        if matches!(ev, TaskEvent::TaskStarted { .. }) {
+            return string_field(data, "id").filter(|id| !id.trim().is_empty());
+        }
+        if let Some(id) = string_field(data, "taskRunId").filter(|id| !id.trim().is_empty()) {
+            return Some(id);
+        }
+        if matches!(
+            ev,
+            TaskEvent::TaskCompleted { .. }
+                | TaskEvent::TaskRejected { .. }
+                | TaskEvent::TaskBlocked { .. }
+                | TaskEvent::TaskFailed { .. }
+                | TaskEvent::TaskRevisionNeeded { .. }
+        ) {
+            return string_field(data, "id").filter(|id| !id.trim().is_empty());
+        }
+        None
+    }
+
+    fn reduce_task_session_event(&mut self, task_id: String, ev: &TaskEvent, is_start: bool) {
+        let previous_active = self.active_task_session_id.clone();
+        let was_following_active = self.viewed_task_session_id.is_none()
+            || self.viewed_task_session_id.as_deref() == previous_active.as_deref();
+        let is_new = !self.task_sessions.contains_key(&task_id);
+        let started_from_local_submission = is_start && self.pending_user_message.is_some();
+        let usage_baseline = previous_active
+            .as_deref()
+            .and_then(|id| self.task_sessions.get(id))
+            .map(|session| session.usage.clone())
+            .unwrap_or_else(|| self.usage.clone());
+
+        if is_start && is_new {
+            let pending = self.pending_user_message.take();
+            if let Some(text) = pending.as_deref()
+                && matches!(self.conversation.last(), Some(ConversationItem::User(last)) if last == text)
+            {
+                self.conversation.pop();
+            }
+            self.save_viewed_task_session();
+
+            let mut session = TaskSession::empty(task_id.clone());
+            // usage 是引擎会话累计值；新 taskRun 继承当前基线，才能在终态
+            // 求得该任务的真实增量，而不是把历史 token 全算给新任务。
+            session.usage = usage_baseline.clone();
+            session.usage_at_task_start = usage_baseline;
+            if let Some(text) = pending {
+                session.conversation.push(ConversationItem::User(text));
+            }
+            self.task_sessions.insert(task_id.clone(), session);
+            self.task_session_order.push(task_id.clone());
+        }
+
+        if is_start {
+            self.active_task_session_id = Some(task_id.clone());
+        }
+
+        let original_view = self.viewed_task_session_id.clone();
+        let show_target = is_start && (was_following_active || started_from_local_submission)
+            || original_view.as_deref() == Some(task_id.as_str())
+            || original_view.is_none();
+
+        if original_view.as_deref() == Some(task_id.as_str()) {
+            self.reduce_inner(ev);
+            self.save_viewed_task_session();
+            return;
+        }
+
+        if show_target {
+            self.load_task_session(&task_id);
+            self.reduce_inner(ev);
+            self.save_viewed_task_session();
+            return;
+        }
+
+        self.save_viewed_task_session();
+        if !self.load_task_session(&task_id) {
+            return;
+        }
+        self.reduce_inner(ev);
+        self.save_viewed_task_session();
+        if let Some(original_id) = original_view {
+            self.load_task_session(&original_id);
+        }
+    }
+
+    fn save_viewed_task_session(&mut self) {
+        let Some(id) = self.viewed_task_session_id.clone() else {
+            return;
+        };
+        let snapshot = TaskSession::capture(self, id.clone());
+        self.task_sessions.insert(id, snapshot);
+    }
+
+    fn load_task_session(&mut self, task_id: &str) -> bool {
+        let Some(session) = self.task_sessions.get(task_id).cloned() else {
+            return false;
+        };
+        session.restore_into(self);
+        self.viewed_task_session_id = Some(task_id.to_string());
+        true
+    }
+
+    /// 当前正在 WORKBENCH 中查看的 taskRunId。
+    #[cfg(test)]
+    pub fn viewed_task_session_id(&self) -> Option<&str> {
+        self.viewed_task_session_id.as_deref()
+    }
+
+    /// TASK QUEUE 的显示顺序为最新在前，这里统一完成游标→id 翻译。
+    pub fn task_session_id_at(&self, newest_first_index: usize) -> Option<&str> {
+        self.task_session_order
+            .iter()
+            .rev()
+            .nth(newest_first_index)
+            .map(String::as_str)
+    }
+
+    pub fn switch_task_session_by_index(&mut self, newest_first_index: usize) -> bool {
+        let Some(id) = self
+            .task_session_id_at(newest_first_index)
+            .map(str::to_string)
+        else {
+            return false;
+        };
+        self.switch_task_session(&id)
+    }
+
+    pub fn switch_task_session(&mut self, task_id: &str) -> bool {
+        if self.viewed_task_session_id.as_deref() == Some(task_id) {
+            return true;
+        }
+        self.save_viewed_task_session();
+        self.load_task_session(task_id)
+    }
+
+    fn reduce_inner(&mut self, ev: &TaskEvent) {
         let data = ev.data();
         self.debug.push(format!("{} {}", ev.event_type(), data));
 
@@ -1030,6 +1769,7 @@ impl AppState {
                 self.clear_busy();
                 self.reduce_session_ready(data);
             }
+            TaskEvent::DreamMorningReport { .. } => {}
             TaskEvent::DreamRecommended { .. }
             | TaskEvent::DreamStarted { .. }
             | TaskEvent::DreamCandidateReady { .. }
@@ -1047,11 +1787,14 @@ impl AppState {
                         | TaskEvent::DreamBlocked { .. }
                         | TaskEvent::DreamRejected { .. }
                 );
+                let detail = dream_context_refresh_detail(data)
+                    .or_else(|| string_field(data, "reason"))
+                    .unwrap_or_default();
                 self.push(
                     id,
                     if blocked { SYM_WARN } else { SYM_OK },
                     event_type.to_string(),
-                    string_field(data, "reason").unwrap_or_default(),
+                    detail,
                 );
             }
             TaskEvent::TaskModeChanged { .. } => {
@@ -1124,6 +1867,7 @@ impl AppState {
                 let steps = string_array_field(data, "steps");
                 self.plan = Some(Plan {
                     steps: steps.clone(),
+                    statuses: vec!["pending".to_string(); steps.len()],
                     status: "proposed".to_string(),
                 });
                 let line_id = self.id_for(data);
@@ -1132,6 +1876,56 @@ impl AppState {
             TaskEvent::PlanApproved { .. } => {
                 if let Some(plan) = &mut self.plan {
                     plan.status = "approved".to_string();
+                }
+            }
+            TaskEvent::TodoUpdated { .. } => {
+                let todos = data
+                    .get("todos")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let steps = todos
+                    .iter()
+                    .filter_map(|todo| string_field(todo, "content"))
+                    .collect::<Vec<_>>();
+                let statuses = todos
+                    .iter()
+                    .map(|todo| {
+                        string_field(todo, "status").unwrap_or_else(|| "pending".to_string())
+                    })
+                    .collect::<Vec<_>>();
+                if !steps.is_empty() {
+                    let phase =
+                        string_field(data, "phase").unwrap_or_else(|| "updated".to_string());
+                    self.plan = Some(Plan {
+                        steps: steps.clone(),
+                        statuses,
+                        status: if phase == "approved" {
+                            "approved".to_string()
+                        } else {
+                            self.plan
+                                .as_ref()
+                                .map(|plan| plan.status.clone())
+                                .unwrap_or_else(|| "proposed".to_string())
+                        },
+                    });
+                    let completed = self
+                        .plan
+                        .as_ref()
+                        .map(|plan| {
+                            plan.statuses
+                                .iter()
+                                .filter(|status| status.as_str() == "completed")
+                                .count()
+                        })
+                        .unwrap_or_default();
+                    let line_id = self.id_for(data);
+                    self.push(
+                        line_id,
+                        SYM_RUNNING,
+                        "更新任务清单".to_string(),
+                        format!("{completed}/{} 完成", steps.len()),
+                    );
                 }
             }
             TaskEvent::StepStarted { .. } => {
@@ -1157,12 +1951,14 @@ impl AppState {
             TaskEvent::GenerationCompleted { .. } => {
                 self.generation_phase = Some("completed");
                 self.active_assistant_part = None;
+                self.collapse_active_thinking();
                 self.clear_busy();
             }
             TaskEvent::GenerationFailed { .. } | TaskEvent::GenerationCancelled { .. } => {
                 let cancelled = matches!(ev, TaskEvent::GenerationCancelled { .. });
                 self.generation_phase = Some(if cancelled { "cancelled" } else { "failed" });
                 self.active_assistant_part = None;
+                self.collapse_active_thinking();
                 self.clear_busy();
                 self.status = if cancelled { "cancelled" } else { "failed" }.to_string();
                 let reason = string_field(data, "reason")
@@ -1228,6 +2024,7 @@ impl AppState {
                 let kind = string_field(data, "kind").or_else(|| string_field(data, "type"));
                 let artifact_type =
                     string_field(data, "type").or_else(|| string_field(data, "kind"));
+                let new_artifact_id = id.clone();
                 let artifact = Artifact {
                     id: Some(id),
                     task_id: self.task.as_ref().and_then(|task| task.id.clone()),
@@ -1245,6 +2042,8 @@ impl AppState {
                 let label = format!("交付物：{}", artifact.name.clone().unwrap_or_default());
                 let detail = artifact.path.clone().unwrap_or_default();
                 self.artifacts.push(artifact);
+                // 新产物到达后只更新选择和内联预览，不抢输入焦点、不弹浮层。
+                self.select_artifact(&new_artifact_id);
                 let line_id = self.id_for(data);
                 self.push(line_id, SYM_OK, label, detail);
             }
@@ -1448,11 +2247,31 @@ impl AppState {
                     ));
                     return;
                 }
+                if matches!(ev, TaskEvent::ApprovalRequired { .. })
+                    && bool_field(data, "auto") == Some(true)
+                    && string_field(data, "decision_source").as_deref()
+                        == Some("session_permission_lease")
+                {
+                    // Keep the auto-hit event pair auditable without flashing an approval modal,
+                    // pausing busy state, or creating a stale "waiting" notification.
+                    // 留一条 timeline 记录，让用户知道权限被租约自动放行了。
+                    self.push(
+                        self.id_for(data),
+                        SYM_OK,
+                        "权限租约自动放行".to_string(),
+                        format!(
+                            "{} · 本会话内不再询问",
+                            string_field(data, "tool").unwrap_or_default()
+                        ),
+                    );
+                    return;
+                }
                 self.approval = Some(Approval {
                     id: Some(id),
                     tool: string_field(data, "tool"),
                     reason: string_field(data, "reason"),
                     scope: data.get("scope").cloned(),
+                    session_lease: data.get("session_lease").cloned(),
                 });
                 self.approval_kind = Some(kind.to_string());
                 self.approval_task_id = task_id;
@@ -1475,24 +2294,35 @@ impl AppState {
                         .push("ignored approval.resolved after task terminal".to_string());
                     return;
                 }
-                if !self.pending_approval_matches(data, "tool_authorization")
-                    || !matches!(
-                        string_field(data, "decision").as_deref(),
-                        Some("allow" | "deny")
-                    )
-                {
+                let valid_decision = matches!(
+                    string_field(data, "decision").as_deref(),
+                    Some("allow" | "allow_session" | "deny")
+                );
+                let pending_matches = self.pending_approval_matches(data, "tool_authorization");
+                let trusted_auto = bool_field(data, "auto") == Some(true)
+                    && string_field(data, "decision_source").as_deref()
+                        == Some("session_permission_lease")
+                    && self.approval.is_none()
+                    && self.approval_event_correlation_matches(data, "tool_authorization");
+                if (!pending_matches && !trusted_auto) || !valid_decision {
                     self.debug.push(format!(
                         "ignored mismatched approval.resolved {}",
                         string_field(data, "id").unwrap_or_else(|| "<missing>".to_string())
                     ));
                     return;
                 }
-                let id = self
-                    .approval
-                    .as_ref()
-                    .and_then(|approval| approval.id.clone())
-                    .expect("pending approval id");
+                let id = if trusted_auto {
+                    string_field(data, "id").expect("validated auto approval id")
+                } else {
+                    self.approval
+                        .as_ref()
+                        .and_then(|approval| approval.id.clone())
+                        .expect("pending approval id")
+                };
                 if !self.settled_approval_ids.insert(id) {
+                    return;
+                }
+                if trusted_auto {
                     return;
                 }
                 self.approval = None;
@@ -1577,7 +2407,10 @@ impl AppState {
                 self.clear_busy();
             }
             TaskEvent::AssistantRendered { .. } => {
-                self.reduce_assistant_rendered(data);
+                self.reduce_assistant_rendered(data, false);
+            }
+            TaskEvent::AssistantRenderingPreview { .. } => {
+                self.reduce_assistant_rendered(data, true);
             }
             TaskEvent::CommandOutput { .. } => {
                 self.reduce_command_output(data);
@@ -1585,7 +2418,10 @@ impl AppState {
             TaskEvent::TokenDelta { .. } => {
                 let text = string_field(data, "text").unwrap_or_default();
                 self.answer.push_str(&text);
-                self.append_assistant(data, &text);
+                let assistant_index = self.append_assistant(data, &text);
+                if self.provisional_rendered_assistant.remove(&assistant_index) {
+                    self.rendered_assistant.remove(&assistant_index);
+                }
                 self.generation_phase = Some("streaming");
                 self.mark_busy();
                 if self.status == "idle" {
@@ -1600,7 +2436,8 @@ impl AppState {
                 }
             }
             TaskEvent::ThinkingDelta { .. } => {
-                // v0.11 M4：真·思考增量 → 本轮一个可折叠「思考」块（默认折叠，展开看推理）。
+                // v0.11 M4：真·思考增量 → 本轮一个可折叠「思考」块。
+                // 生成中展开，终态自动折叠：过程可见，但不会长期挤占正文。
                 // 与 append_assistant 分离：思考不进交付正文，只进独立块。
                 let text = string_field(data, "text").unwrap_or_default();
                 if text.is_empty() {
@@ -1620,7 +2457,7 @@ impl AppState {
                         let idx = self.timeline.len() - 1;
                         if let Some(entry) = self.timeline.get_mut(idx) {
                             entry.collapsible = true; // 折叠块，复用 v0.8 M4 折叠渲染
-                            entry.expanded = false; // 默认折叠（思考是过程，不抢正文）
+                            entry.expanded = true;
                         }
                         self.thinking_line = Some(idx);
                     }
@@ -1637,6 +2474,7 @@ impl AppState {
                 self.task_stream_terminal = true;
                 self.generation_phase = Some("completed");
                 self.active_assistant_part = None;
+                self.collapse_active_thinking();
                 self.clear_busy();
                 // v0.9 M2：自由聊天轮（Chat 模式）不受 artifact 门禁约束——每轮 chat 天然无交付物，
                 // 若照 formal-task 规则会每轮把状态刷成 needs_artifact 并 spam「缺少交付物」timeline 行。
@@ -1882,6 +2720,13 @@ impl AppState {
             }
             TaskEvent::PendingActions { .. } => {
                 self.pending_actions = pending_actions_from_data(data);
+                self.pending_question = string_field(data, "question");
+                if self.pending_actions.is_empty() {
+                    self.pending_question = None;
+                } else {
+                    // 等待用户回答 ≠ 模型在忙：清除忙态，让 hint 行的选项提示可见。
+                    self.clear_busy();
+                }
             }
             TaskEvent::InputQueued { .. } => {
                 let detail = string_field(data, "text")
@@ -2024,7 +2869,9 @@ impl AppState {
     }
 
     pub fn push_user_message(&mut self, text: String) {
+        self.pending_user_message = Some(text.clone());
         self.conversation.push(ConversationItem::User(text));
+        self.save_viewed_task_session();
     }
 
     /// 标记模型开始生成（仅在尚未置位时记录起点，保持已用时长连续）。
@@ -2044,6 +2891,55 @@ impl AppState {
         self.busy_since.is_some()
     }
 
+    pub fn generation_phase_label(&self) -> &'static str {
+        match self.generation_phase {
+            Some("started") => "正在理解需求",
+            Some("thinking") => "正在梳理思路",
+            Some("tool_requested" | "tool_running") => self.active_tool_activity_label(),
+            Some("tool_done" | "streaming") => "正在起草答复",
+            _ => "正在处理任务",
+        }
+    }
+
+    fn active_tool_activity_label(&self) -> &'static str {
+        let name = self
+            .tools
+            .values()
+            .find(|tool| matches!(tool.status.as_str(), "requested" | "running"))
+            .and_then(|tool| tool.tool.as_deref())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if ["todo", "ask", "coordinate"]
+            .iter()
+            .any(|token| name.contains(token))
+        {
+            "正在协调任务"
+        } else if ["test", "verify", "check", "diff", "status", "lint"]
+            .iter()
+            .any(|token| name.contains(token))
+        {
+            "正在核对结果"
+        } else if ["write", "edit", "artifact", "docx", "memory", "note"]
+            .iter()
+            .any(|token| name.contains(token))
+        {
+            "正在起草交付物"
+        } else if ["read", "list", "search", "fetch", "recall", "browser"]
+            .iter()
+            .any(|token| name.contains(token))
+        {
+            "正在查阅资料"
+        } else {
+            "正在使用工具"
+        }
+    }
+
+    /// 当前任务已实际观察到的工具调用数。渲染层只用这个真事件计数驱动 10 格进度，
+    /// 不把 elapsed time 或随机数伪装成业务完成百分比。
+    pub fn active_task_event_ticks(&self) -> u32 {
+        self.task_activity.total()
+    }
+
     /// The exact Assistant conversation item which currently owns the streaming caret.
     pub fn active_streaming_assistant_index(&self) -> Option<usize> {
         // A tool row may be the newest conversation item while the same generation is still live.
@@ -2056,7 +2952,7 @@ impl AppState {
         self.active_assistant_part
     }
 
-    fn append_assistant(&mut self, data: &Value, text: &str) {
+    fn append_assistant(&mut self, data: &Value, text: &str) -> usize {
         let part_id = string_field(data, "part_id");
         let index = if let Some(part_id) = part_id {
             if let Some(index) = self.assistant_parts.get(&part_id).copied() {
@@ -2088,6 +2984,7 @@ impl AppState {
             index
         };
         self.active_assistant_part = Some(index);
+        index
     }
 
     fn accept_correlated_event(&mut self, ev: &TaskEvent, data: &Value) -> bool {
@@ -2101,6 +2998,7 @@ impl AppState {
                 | TaskEvent::ThinkingDelta { .. }
                 | TaskEvent::AssistantMessage { .. }
                 | TaskEvent::AssistantRendered { .. }
+                | TaskEvent::AssistantRenderingPreview { .. }
                 | TaskEvent::ToolRequested { .. }
                 | TaskEvent::ToolCalled { .. }
                 | TaskEvent::ToolRunning { .. }
@@ -2325,15 +3223,25 @@ impl AppState {
         self.task.is_some() && !self.mode.eq_ignore_ascii_case("chat")
     }
 
+    // Task-plan review ("plan_approval") rides the same approval events as tool grants;
+    // a tool_authorization slot accepts either kind (engines may or may not flatten).
+    fn approval_kind_matches(expected_kind: &str, actual: &str) -> bool {
+        actual == expected_kind
+            || (expected_kind == "tool_authorization" && actual == "plan_approval")
+    }
+
     fn approval_event_correlation_matches(&self, data: &Value, expected_kind: &str) -> bool {
         if string_field(data, "id").is_none_or(|id| id.trim().is_empty()) {
             return false;
         }
         if self.is_formal_task() {
-            return string_field(data, "kind").as_deref() == Some(expected_kind)
+            return string_field(data, "kind")
+                .is_some_and(|kind| Self::approval_kind_matches(expected_kind, &kind))
                 && self.task_correlation_matches(data, "taskRunId");
         }
-        if string_field(data, "kind").is_some_and(|kind| kind != expected_kind) {
+        if string_field(data, "kind")
+            .is_some_and(|kind| !Self::approval_kind_matches(expected_kind, &kind))
+        {
             return false;
         }
         if data.get("taskRunId").is_some()
@@ -2349,7 +3257,11 @@ impl AppState {
         let Some(approval) = self.approval.as_ref() else {
             return false;
         };
-        if self.approval_kind.as_deref() != Some(expected_kind) {
+        if !self
+            .approval_kind
+            .as_deref()
+            .is_some_and(|kind| Self::approval_kind_matches(expected_kind, kind))
+        {
             return false;
         }
         let event_id = string_field(data, "id").or_else(|| {
@@ -2357,8 +3269,13 @@ impl AppState {
                 .then(|| approval.id.clone())
                 .flatten()
         });
-        let event_kind = string_field(data, "kind")
-            .or_else(|| (!self.is_formal_task()).then(|| expected_kind.to_string()));
+        let event_kind = string_field(data, "kind").or_else(|| {
+            (!self.is_formal_task()).then(|| {
+                self.approval_kind
+                    .clone()
+                    .unwrap_or_else(|| expected_kind.to_string())
+            })
+        });
         let event_task_id = string_field(data, "taskRunId").or_else(|| {
             (!self.is_formal_task())
                 .then(|| self.approval_task_id.clone())
@@ -2556,7 +3473,7 @@ impl AppState {
     /// original text → tool → text chronology and prevents a whole-turn snapshot from moving
     /// pre-tool prose below the tool row. Legacy v1 (without part_id) falls back to the latest
     /// assistant part, but never supersedes earlier parts.
-    fn reduce_assistant_rendered(&mut self, data: &Value) {
+    fn reduce_assistant_rendered(&mut self, data: &Value, provisional: bool) {
         let ansi_lines = string_array_field(data, "ansi_lines");
         if ansi_lines.is_empty() {
             return;
@@ -2574,6 +3491,11 @@ impl AppState {
         };
         if let Some(index) = index {
             self.rendered_assistant.insert(index, ansi_lines);
+            if provisional {
+                self.provisional_rendered_assistant.insert(index);
+            } else {
+                self.provisional_rendered_assistant.remove(&index);
+            }
         }
     }
 
@@ -2609,6 +3531,7 @@ impl AppState {
         self.timeline.clear();
         self.answer.clear();
         self.rendered_assistant.clear();
+        self.provisional_rendered_assistant.clear();
         self.assistant_parts.clear();
         self.active_assistant_part = None;
         self.current_turn_id = None;
@@ -2618,6 +3541,7 @@ impl AppState {
         self.budget_refusal_pending = false;
         self.thinking_line = None;
         self.pending_actions.clear();
+        self.pending_question = None;
         self.task = None;
         self.plan = None;
         self.clear_busy();
@@ -2633,6 +3557,7 @@ impl AppState {
                 avatar: string_array_field(employee, "avatar"),
                 kpi_cumulative: kpi_cumulative_field(employee),
                 eval: eval_report_field(employee),
+                growth_card: growth_card_field(employee),
             });
             if let Some(mode) = string_field(employee, "mode") {
                 self.mode = mode;
@@ -2661,6 +3586,26 @@ impl AppState {
                 })
                 .collect();
         }
+        self.tool_catalog = data
+            .get("tool_catalog")
+            .and_then(|catalog| catalog.get("resolution"))
+            .and_then(Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|entry| {
+                        let capability = string_field(entry, "capability")?;
+                        Some(ToolCapabilityState {
+                            capability,
+                            runtime_tool: string_field(entry, "runtime_tool"),
+                            availability: string_field(entry, "availability")
+                                .unwrap_or_else(|| "unknown".to_string()),
+                            reason: string_field(entry, "reason"),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
     }
 
     fn reduce_tool_requested(&mut self, data: &Value, running: bool) {
@@ -2702,8 +3647,13 @@ impl AppState {
                 tool: tool.clone(),
                 reason: string_field(data, "reason"),
                 scope: data.get("scope").cloned(),
+                session_lease: data.get("session_lease").cloned(),
             });
-            self.approval_kind = Some("tool_authorization".to_string());
+            // Keep the event's real kind (plan_approval vs tool_authorization) so the
+            // resolve echo and UI copy can tell a plan review from a tool grant.
+            self.approval_kind = Some(
+                string_field(data, "kind").unwrap_or_else(|| "tool_authorization".to_string()),
+            );
             self.approval_task_id = self.task.as_ref().and_then(|task| task.id.clone());
             self.status = "awaiting_approval".to_string();
             self.generation_phase = Some("awaiting_approval");
@@ -2716,7 +3666,10 @@ impl AppState {
                 "tool_requested"
             });
         }
-        let label = string_field(data, "label").or(tool).unwrap_or_default();
+        let label = string_field(data, "label")
+            .or_else(|| structured_tool_label(data))
+            .or(tool)
+            .unwrap_or_default();
         let symbol = if needs_approval {
             SYM_WAIT
         } else {
@@ -2751,7 +3704,8 @@ impl AppState {
             ));
             return;
         }
-        let summary = string_field(data, "summary")
+        let summary = string_field(data, "result_summary")
+            .or_else(|| string_field(data, "summary"))
             .or_else(|| string_field(data, "code"))
             .or_else(|| string_field(data, "error"))
             .or_else(|| string_field(data, "reason"));
@@ -2772,6 +3726,7 @@ impl AppState {
                 id.clone(),
                 symbol,
                 string_field(data, "label")
+                    .or_else(|| structured_tool_label(data))
                     .or(tool)
                     .unwrap_or_else(|| "tool".to_string()),
                 summary.clone().unwrap_or_default(),
@@ -2920,6 +3875,26 @@ impl AppState {
         }
     }
 
+    /// Enter：切换当前选中的可折叠时间线行（工具或思考）。
+    pub fn toggle_timeline_entry(&mut self, index: usize) -> bool {
+        let Some(entry) = self.timeline.get_mut(index) else {
+            return false;
+        };
+        if !entry.collapsible {
+            return false;
+        }
+        entry.expanded = !entry.expanded;
+        true
+    }
+
+    fn collapse_active_thinking(&mut self) {
+        if let Some(index) = self.thinking_line.take()
+            && let Some(entry) = self.timeline.get_mut(index)
+        {
+            entry.expanded = false;
+        }
+    }
+
     fn set_tool(&mut self, id: &str, patch: ToolPatch) {
         let tool = self
             .tools
@@ -2973,6 +3948,47 @@ fn string_field(data: &Value, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn structured_tool_label(data: &Value) -> Option<String> {
+    let name = string_field(data, "name").or_else(|| string_field(data, "tool"))?;
+    let args = string_field(data, "args_summary").unwrap_or_default();
+    Some(if args.is_empty() {
+        name
+    } else {
+        format!("{name} · {args}")
+    })
+}
+
+fn dream_context_refresh_detail(data: &Value) -> Option<String> {
+    let refresh = data.get("context_refresh")?.as_object()?;
+    let status = refresh.get("status")?.as_str()?;
+    let epoch = refresh
+        .get("epoch")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    if status == "applied" {
+        let hash = refresh
+            .get("memory_state_hash")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .strip_prefix("sha256:")
+            .unwrap_or_else(|| {
+                refresh
+                    .get("memory_state_hash")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+            });
+        let short_hash: String = hash.chars().take(12).collect();
+        return Some(format!(
+            "上下文已刷新 · epoch {epoch} · memory {short_hash}"
+        ));
+    }
+    let error = refresh
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or(status);
+    Some(format!("上下文刷新 {status} · epoch {epoch} · {error}"))
+}
+
 /// v0.13 M1：事件 data 的一层摊平——对象顶层键 → 显示字符串（嵌套/数组紧凑序列化），
 /// 值超 120 显示宽截断加 …。供 EVENT DETAIL 面板做 key:value 着色渲染（不存 Value，保 Eq）。
 fn flatten_event_kv(data: &Value) -> Vec<(String, String)> {
@@ -3016,9 +4032,51 @@ fn kpi_cumulative_field(employee: &Value) -> KpiCumulative {
     KpiCumulative {
         tasks: kpi.get("tasks").and_then(Value::as_u64).unwrap_or(0),
         accepted: kpi.get("accepted").and_then(Value::as_u64).unwrap_or(0),
+        auto_accepted: kpi
+            .get("auto_accepted")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
         total_cost: kpi.get("total_cost").and_then(Value::as_f64).unwrap_or(0.0),
         first_hired_ts: kpi.get("first_hired_ts").and_then(Value::as_u64),
     }
+}
+
+/// M5：解析 session.ready 的 `employee.growth_card`（eval-provider 五态 + next_step）。
+/// 缺键/形状不全 → None，EVAL 屏不伪造成长卡。
+fn growth_card_field(employee: &Value) -> Option<GrowthCard> {
+    let card = employee.get("growth_card")?;
+    if card.is_null() {
+        return None;
+    }
+    let provider = card.get("provider")?;
+    let provider_status = string_field(provider, "status")?;
+    let provider_code = string_field(provider, "code").unwrap_or_else(|| provider_status.clone());
+    let provider_message = string_field(provider, "message")
+        .unwrap_or_else(|| "Eval provider status unknown.".to_string());
+    let next_step = string_field(card, "next_step")
+        .unwrap_or_else(|| "Run crew eval to produce a verified baseline.".to_string());
+    let eval = card.get("eval");
+    let certified = eval
+        .and_then(|value| value.get("certified"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mock = eval
+        .and_then(|value| value.get("mock"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let score = eval
+        .and_then(|value| value.get("score"))
+        .and_then(Value::as_u64)
+        .map(|value| value as u32);
+    Some(GrowthCard {
+        provider_status,
+        provider_code,
+        provider_message,
+        next_step,
+        certified,
+        mock,
+        score,
+    })
 }
 
 /// v0.18 B2：解析 session.ready 的 `employee.eval`（eval-runner 落盘、bridge readEvalResult 下发）。
@@ -3117,6 +4175,150 @@ mod tests {
             state.reduce(&event);
         }
         state
+    }
+
+    #[test]
+    fn dream_activation_surfaces_context_refresh_epoch_and_hash() {
+        let state = reduce_all(vec![ev(
+            "dream.activated",
+            serde_json::json!({
+                "dream_id": "dream-refresh",
+                "employee_id": "product-prd-crab",
+                "context_refresh": {
+                    "status": "applied",
+                    "epoch": 2,
+                    "memory_state_hash": "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+                }
+            }),
+        )]);
+        let line = state.timeline.last().expect("dream timeline line");
+        assert_eq!(line.detail, "上下文已刷新 · epoch 2 · memory abcdef123456");
+        assert!(line.detail_kv.iter().any(|(key, value)| {
+            key == "context_refresh" && value.contains("memory_state_hash")
+        }));
+    }
+
+    #[test]
+    fn interleaved_task_runs_keep_conversations_and_artifacts_isolated() {
+        let mut state = AppState::default();
+        state.push_user_message("任务 A".to_string());
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"task-a","title":"A 任务","mode":"Chat"}),
+        ));
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"taskRunId":"task-a","text":"A-1"}),
+        ));
+        state.reduce(&ev(
+            "artifact.created",
+            serde_json::json!({"id":"artifact-a","taskRunId":"task-a","name":"a.md","path":"a.md","status":"ready"}),
+        ));
+
+        // 用户在 A 仍运行时派发 B；pending user message 是新 start 的本地真值门禁。
+        state.push_user_message("任务 B".to_string());
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"task-b","title":"B 任务","mode":"Chat"}),
+        ));
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"taskRunId":"task-b","text":"B-1"}),
+        ));
+        state.reduce(&ev(
+            "artifact.created",
+            serde_json::json!({"id":"artifact-b","taskRunId":"task-b","name":"b.md","path":"b.md","status":"ready"}),
+        ));
+
+        // A 的晚到增量应在后台更新 A，不改变正在查看的 B。
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"taskRunId":"task-a","text":"+A-2"}),
+        ));
+        assert_eq!(state.viewed_task_session_id(), Some("task-b"));
+        assert_eq!(state.answer, "B-1");
+        assert_eq!(state.active_task_session_id.as_deref(), Some("task-b"));
+        assert_eq!(state.task_session_order, ["task-a", "task-b"]);
+
+        let a = state.task_sessions.get("task-a").expect("A session");
+        assert!(
+            a.conversation
+                .iter()
+                .any(|item| matches!(item, ConversationItem::User(user) if user == "任务 A"))
+        );
+        let a_answer: String = a
+            .conversation
+            .iter()
+            .filter_map(|item| match item {
+                ConversationItem::Assistant(answer) => Some(answer.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(a_answer, "A-1+A-2");
+        assert_eq!(a.artifacts.len(), 1);
+        assert_eq!(a.artifacts[0].id.as_deref(), Some("artifact-a"));
+
+        let b = state.task_sessions.get("task-b").expect("B session");
+        assert!(
+            b.conversation
+                .iter()
+                .any(|item| matches!(item, ConversationItem::User(user) if user == "任务 B"))
+        );
+        assert!(
+            b.conversation
+                .iter()
+                .any(|item| matches!(item, ConversationItem::Assistant(answer) if answer == "B-1"))
+        );
+        assert_eq!(b.artifacts.len(), 1);
+        assert_eq!(b.artifacts[0].id.as_deref(), Some("artifact-b"));
+
+        assert!(state.switch_task_session("task-a"));
+        assert_eq!(state.answer, "A-1+A-2");
+        assert_eq!(state.artifacts[0].id.as_deref(), Some("artifact-a"));
+        assert!(state.switch_task_session_by_index(0));
+        assert_eq!(state.viewed_task_session_id(), Some("task-b"));
+        assert_eq!(state.answer, "B-1");
+
+        // 即使用户正在回看历史 A，他主动提交的新 C 仍应自动进入视野。
+        assert!(state.switch_task_session("task-a"));
+        state.push_user_message("任务 C".to_string());
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"task-c","title":"C 任务","mode":"Chat"}),
+        ));
+        assert_eq!(state.viewed_task_session_id(), Some("task-c"));
+        assert!(
+            state
+                .conversation
+                .iter()
+                .any(|item| matches!(item, ConversationItem::User(user) if user == "任务 C"))
+        );
+    }
+
+    #[test]
+    fn task_session_cursor_is_newest_first_and_clamped() {
+        let mut state = AppState::default();
+        state.push_user_message("A".to_string());
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"a","mode":"Chat"}),
+        ));
+        state.reduce(&ev("task.completed", serde_json::json!({"id":"a"})));
+        state.push_user_message("B".to_string());
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"b","mode":"Chat"}),
+        ));
+
+        let mut ui = UiState::default();
+        ui.move_task_session_cursor(9, state.task_sessions.len());
+        assert_eq!(ui.task_session_cursor, 1);
+        assert!(ui.activate_task_session(&mut state));
+        assert_eq!(state.viewed_task_session_id(), Some("a"));
+        ui.move_task_session_cursor(-9, state.task_sessions.len());
+        assert_eq!(ui.task_session_cursor, 0);
+        assert!(ui.activate_task_session(&mut state));
+        assert_eq!(state.viewed_task_session_id(), Some("b"));
     }
 
     #[test]
@@ -3581,6 +4783,48 @@ mod tests {
     }
 
     #[test]
+    fn rendering_preview_falls_back_to_raw_when_the_same_part_grows() {
+        let mut state = AppState::default();
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"task1","taskRunId":"task1","title":"stream"}),
+        ));
+        state.reduce(&ev(
+            "generation.started",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":1}),
+        ));
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":2,"part_id":"part-a","text":"A"}),
+        ));
+        state.reduce(&ev(
+            "assistant.rendering_preview",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":3,"part_id":"part-a","ansi_lines":["styled A"]}),
+        ));
+        let index = state.assistant_parts["part-a"];
+        assert_eq!(state.rendered_assistant[&index], vec!["styled A"]);
+        assert!(state.provisional_rendered_assistant.contains(&index));
+
+        state.reduce(&ev(
+            "token.delta",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":4,"part_id":"part-a","text":"B"}),
+        ));
+        assert_eq!(
+            state.conversation[index],
+            ConversationItem::Assistant("AB".to_string())
+        );
+        assert!(!state.rendered_assistant.contains_key(&index));
+        assert!(!state.provisional_rendered_assistant.contains(&index));
+
+        state.reduce(&ev(
+            "assistant.rendered",
+            serde_json::json!({"turn_id":"turn1","taskRunId":"task1","seq":5,"part_id":"part-a","ansi_lines":["styled AB"]}),
+        ));
+        assert_eq!(state.rendered_assistant[&index], vec!["styled AB"]);
+        assert!(!state.provisional_rendered_assistant.contains(&index));
+    }
+
+    #[test]
     fn rendered_parts_preserve_text_tool_text_chronology() {
         let mut state = AppState::default();
         state.reduce(&ev(
@@ -3773,6 +5017,43 @@ mod tests {
                 .unwrap()
                 .status,
             SYM_WARN
+        );
+    }
+
+    #[test]
+    fn structured_tool_presentation_drives_label_and_result_summary() {
+        let mut state = AppState::default();
+        state.reduce(&ev("task.started", serde_json::json!({"id":"task1"})));
+        state.reduce(&ev(
+            "tool.requested",
+            serde_json::json!({
+                "id":"tool-structured",
+                "tool":"read_file",
+                "name":"read_file",
+                "args_summary":"api/boot.ts"
+            }),
+        ));
+        assert_eq!(
+            state
+                .timeline
+                .iter()
+                .find(|entry| entry.id == "tool-structured")
+                .unwrap()
+                .label,
+            "read_file · api/boot.ts"
+        );
+        state.reduce(&ev(
+            "tool.succeeded",
+            serde_json::json!({
+                "id":"tool-structured",
+                "tool":"read_file",
+                "result_summary":"123 行",
+                "detail":"raw file detail"
+            }),
+        ));
+        assert_eq!(
+            state.tools["tool-structured"].summary.as_deref(),
+            Some("123 行")
         );
     }
 
@@ -4380,7 +5661,7 @@ mod tests {
             .timeline
             .iter()
             .filter_map(|e| e.task_meta)
-            .nth(1)
+            .next()
             .expect("task2 meta");
         assert_eq!(
             meta2.tokens,
@@ -4411,11 +5692,12 @@ mod tests {
         let state = reduce_all(vec![ev(
             "session.ready",
             serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m",
-                "kpi_cumulative":{"tasks":7,"accepted":5,"total_cost":12.5,"first_hired_ts":1700000000000_u64}}}),
+                "kpi_cumulative":{"tasks":7,"accepted":5,"auto_accepted":2,"total_cost":12.5,"first_hired_ts":1700000000000_u64}}}),
         )]);
         let emp = state.employee.expect("employee");
         assert_eq!(emp.kpi_cumulative.tasks, 7);
         assert_eq!(emp.kpi_cumulative.accepted, 5);
+        assert_eq!(emp.kpi_cumulative.auto_accepted, 2);
         assert_eq!(emp.kpi_cumulative.total_cost, 12.5);
         assert_eq!(emp.kpi_cumulative.first_hired_ts, Some(1700000000000));
     }
@@ -4428,6 +5710,107 @@ mod tests {
         )]);
         let emp = state.employee.expect("employee");
         assert_eq!(emp.kpi_cumulative, KpiCumulative::default());
+    }
+
+    #[test]
+    fn autonomy_projection_uses_separate_manual_and_policy_acceptance_thresholds() {
+        let apprentice = autonomy_projection(KpiCumulative {
+            tasks: 2,
+            accepted: 2,
+            ..KpiCumulative::default()
+        });
+        assert_eq!(apprentice.level, AutonomyLevel::Apprentice);
+        assert_eq!(apprentice.label, "见习");
+        assert!(apprentice.progress.contains("再 1 次人工验收"));
+
+        let regular = autonomy_projection(KpiCumulative {
+            tasks: 5,
+            accepted: 3,
+            auto_accepted: 2,
+            ..KpiCumulative::default()
+        });
+        assert_eq!(regular.level, AutonomyLevel::Regular);
+        assert_eq!(regular.label, "转正");
+        assert!(regular.progress.contains("策略验收 2/3"));
+
+        let senior = autonomy_projection(KpiCumulative {
+            tasks: 6,
+            accepted: 3,
+            auto_accepted: 3,
+            ..KpiCumulative::default()
+        });
+        assert_eq!(senior.level, AutonomyLevel::Senior);
+        assert_eq!(senior.label, "资深");
+        assert!(senior.progress.contains("策略验收 3 次"));
+    }
+
+    #[test]
+    fn generation_phase_uses_job_semantic_verbs_from_real_tool_names() {
+        let label_for = |tool: &str| {
+            let state = reduce_all(vec![
+                ev(
+                    "task.started",
+                    serde_json::json!({"id":"task-semantic","title":"x","mode":"Task"}),
+                ),
+                ev(
+                    "tool.requested",
+                    serde_json::json!({"id":format!("call-{tool}"),"tool":tool,"label":tool}),
+                ),
+            ]);
+            state.generation_phase_label()
+        };
+
+        assert_eq!(label_for("web_search"), "正在查阅资料");
+        assert_eq!(label_for("edit_file"), "正在起草交付物");
+        assert_eq!(label_for("test_run"), "正在核对结果");
+        assert_eq!(label_for("todo_write"), "正在协调任务");
+        assert_eq!(label_for("custom_tool"), "正在使用工具");
+
+        let started = reduce_all(vec![ev(
+            "generation.started",
+            serde_json::json!({"id":"generation-semantic"}),
+        )]);
+        assert_eq!(started.generation_phase_label(), "正在理解需求");
+
+        let thinking = reduce_all(vec![ev(
+            "thinking.delta",
+            serde_json::json!({"text":"分析"}),
+        )]);
+        assert_eq!(thinking.generation_phase_label(), "正在梳理思路");
+    }
+
+    /// M5：session.ready 的 employee.growth_card 落进 Employee.growth_card；缺键 → None。
+    #[test]
+    fn session_ready_parses_growth_card_and_defaults_none_when_absent() {
+        let with = reduce_all(vec![ev(
+            "session.ready",
+            serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m",
+            "growth_card":{
+                "provider":{"status":"missing_credentials","code":"missing_key","message":"no key"},
+                "next_step":"Set ZENMUX_API_KEY and run crew eval",
+                "eval":null
+            }}}),
+        )]);
+        let card = with
+            .employee
+            .expect("employee")
+            .growth_card
+            .expect("growth card");
+        assert_eq!(card.provider_status, "missing_credentials");
+        assert_eq!(card.provider_code, "missing_key");
+        assert!(card.next_step.contains("ZENMUX_API_KEY"));
+        assert!(!card.certified);
+        assert!(card.mock);
+        assert_eq!(card.score, None);
+
+        let without = reduce_all(vec![ev(
+            "session.ready",
+            serde_json::json!({"employee":{"name":"鲸","role":"顾问","model":"m"}}),
+        )]);
+        assert!(
+            without.employee.expect("employee").growth_card.is_none(),
+            "no growth_card key → None, not fabricated"
+        );
     }
 
     /// v0.18 B2：session.ready 的 employee.eval（eval-runner 落盘、bridge 下发）落进 Employee.eval；
@@ -4748,6 +6131,87 @@ mod tests {
             1
         );
         assert!(state.debug.iter().any(|line| line.contains("wrong")));
+    }
+
+    #[test]
+    fn tool_session_lease_is_displayed_then_allow_session_clears_approval() {
+        let mut state = AppState::default();
+        state.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"t","mode":"Task"}),
+        ));
+        state.reduce(&ev(
+            "approval.required",
+            serde_json::json!({
+                "id":"tool-ap1",
+                "taskRunId":"t",
+                "kind":"tool_authorization",
+                "tool":"write_file",
+                "session_lease":{
+                    "kind":"session",
+                    "allowlist":[{"tool":"write_file","pattern":"docs/**"}]
+                }
+            }),
+        ));
+        assert_eq!(
+            state
+                .approval
+                .as_ref()
+                .and_then(|approval| approval.session_lease.as_ref())
+                .and_then(|lease| lease.get("kind"))
+                .and_then(Value::as_str),
+            Some("session")
+        );
+
+        state.reduce(&ev(
+            "approval.resolved",
+            serde_json::json!({
+                "id":"tool-ap1",
+                "taskRunId":"t",
+                "kind":"tool_authorization",
+                "decision":"allow_session"
+            }),
+        ));
+        assert_eq!(state.approval, None);
+        assert_eq!(state.status, "running");
+
+        let mut automatic = AppState::default();
+        automatic.reduce(&ev(
+            "task.started",
+            serde_json::json!({"id":"auto-task","mode":"Task"}),
+        ));
+        automatic.reduce(&ev(
+            "approval.required",
+            serde_json::json!({
+                "id":"tool-auto-1",
+                "taskRunId":"auto-task",
+                "kind":"tool_authorization",
+                "tool":"write_file",
+                "auto":true,
+                "decision_source":"session_permission_lease",
+                "session_lease":{
+                    "kind":"session",
+                    "allowlist":[{"tool":"write_file","pattern":"docs/**"}]
+                }
+            }),
+        ));
+        assert_eq!(automatic.approval, None);
+        assert_eq!(automatic.status, "running");
+        assert!(automatic.notices.is_empty());
+        automatic.reduce(&ev(
+            "approval.resolved",
+            serde_json::json!({
+                "id":"tool-auto-1",
+                "taskRunId":"auto-task",
+                "kind":"tool_authorization",
+                "decision":"allow_session",
+                "auto":true,
+                "decision_source":"session_permission_lease"
+            }),
+        ));
+        assert_eq!(automatic.approval, None);
+        assert_eq!(automatic.status, "running");
+        assert!(automatic.settled_approval_ids.contains("tool-auto-1"));
     }
 
     #[test]

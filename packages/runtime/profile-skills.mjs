@@ -16,6 +16,7 @@ const PROFILE_FILE_LIMITS = Object.freeze({
   "hire.yaml": 512 * 1024,
   "avatar.txt": 128 * 1024,
   "crewclaw.employee.yaml": 1024 * 1024,
+  "mcp.json": 512 * 1024,
 });
 
 function unsafeProfile(reason, path) {
@@ -207,21 +208,25 @@ export async function loadProfileSources(installRoot, agentId) {
       profilesRoot: collection.path,
     });
     if (!soul) continue;
-    const [config, hire, avatar, employeeSpec, skillFiles] = await Promise.all([
-      readProfileFile(profile.path, "config.yaml", {
-        profilesRoot: collection.path,
-      }),
-      readProfileFile(profile.path, "hire.yaml", {
-        profilesRoot: collection.path,
-      }),
-      readProfileFile(profile.path, "avatar.txt", {
-        profilesRoot: collection.path,
-      }),
-      readProfileFile(profile.path, "crewclaw.employee.yaml", {
-        profilesRoot: collection.path,
-      }),
-      collectSkillFiles(profile.path, { profilesRoot: collection.path }),
-    ]);
+    const [config, hire, avatar, employeeSpec, mcp, skillFiles] =
+      await Promise.all([
+        readProfileFile(profile.path, "config.yaml", {
+          profilesRoot: collection.path,
+        }),
+        readProfileFile(profile.path, "hire.yaml", {
+          profilesRoot: collection.path,
+        }),
+        readProfileFile(profile.path, "avatar.txt", {
+          profilesRoot: collection.path,
+        }),
+        readProfileFile(profile.path, "crewclaw.employee.yaml", {
+          profilesRoot: collection.path,
+        }),
+        readProfileFile(profile.path, "mcp.json", {
+          profilesRoot: collection.path,
+        }),
+        collectSkillFiles(profile.path, { profilesRoot: collection.path }),
+      ]);
     return {
       profileDir: profile.path,
       collectionRoot: collection.path,
@@ -230,6 +235,7 @@ export async function loadProfileSources(installRoot, agentId) {
       hire,
       avatar,
       employeeSpec,
+      mcp,
       skillFiles,
     };
   }

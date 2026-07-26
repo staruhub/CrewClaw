@@ -256,6 +256,8 @@ mod tests {
             display_name: "Macao Networking Agent".to_string(),
             status: "available".to_string(),
             certification: "C2".to_string(),
+            evidence_state: crate::RegistryEvidenceState::default(),
+            evaluation: None,
             category: "local-expert".to_string(),
             description: "Networking".to_string(),
             local_source: Some("experts/macao-networking-agent".to_string()),
@@ -310,6 +312,8 @@ mod tests {
             hired_at: "2026-06-22T00:00:00Z".to_string(),
             fired_at: None,
             permissions_granted: vec!["public_web:read".to_string()],
+            package_sha256: None,
+            hire_source: Some("cli".to_string()),
         }];
 
         let report = build_report(&expert, Ok(manifest()), &team);
@@ -344,6 +348,8 @@ mod tests {
             hired_at: "2026-06-22T00:00:00Z".to_string(),
             fired_at: None,
             permissions_granted: vec!["public_web:read".to_string()],
+            package_sha256: None,
+            hire_source: Some("cli".to_string()),
         }];
 
         let report = build_report(&expert, Ok(manifest), &team);
@@ -373,6 +379,8 @@ mod tests {
             hired_at: "2026-06-22T00:00:00Z".to_string(),
             fired_at: None,
             permissions_granted: vec!["public_web:read".to_string()],
+            package_sha256: None,
+            hire_source: Some("cli".to_string()),
         }];
 
         let report = build_report(&expert, Ok(manifest()), &team);

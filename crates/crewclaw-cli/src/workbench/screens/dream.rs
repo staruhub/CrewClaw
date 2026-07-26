@@ -1,5 +1,5 @@
-//! DREAM is a read-only projection of persisted TaskRun review, committed memory, and playbook
-//! state. It never fabricates examples; missing or unsafe state is rendered explicitly.
+//! DREAM combines the persisted review projection with the live candidate transaction state.
+//! Candidates remain isolated from recall until a verified approval + activation succeeds.
 
 use ratatui::{
     Frame,
@@ -10,15 +10,25 @@ use ratatui::{
 };
 
 use super::super::config;
+use super::super::flow_state::{self, DreamMorningReport, DreamUiSnapshot};
 use super::super::state::{DreamSnapshot, PersistedMemory, UiState};
 use super::{pad_left, screen_block};
 
 fn memory_tab_label(tab: usize) -> &'static str {
     match tab {
-        1 => "K",
-        2 => "P",
-        3 => "E",
+        1 => "知识",
+        2 => "剧本",
+        3 => "复盘",
         _ => "全部",
+    }
+}
+
+fn memory_kind_symbol(kind: &str) -> (&'static str, ratatui::style::Color) {
+    match kind {
+        "K" => ("◆", config::yellow()),
+        "P" => ("▣", config::aqua()),
+        "E" => ("◈", config::purple()),
+        _ => ("·", config::dim()),
     }
 }
 
@@ -42,6 +52,8 @@ pub fn render(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
     frame.render_widget(block, area);
 
     let dream = &ui_state.persisted_insights.dream;
+    let candidate = flow_state::dream_snapshot();
+    let morning_report = flow_state::dream_morning_report();
     let dream_errors = ui_state
         .persisted_insights
         .errors
@@ -62,18 +74,48 @@ pub fn render(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
         render_memory_panel(frame, ui_state, dream, dream_errors > 0, memory_area);
     }
 
-    let diff_rows = dream.playbook_add.len() + dream.playbook_remove.len();
-    let diff_height = (diff_rows + 4).clamp(5, 20) as u16;
+    let compact_height = main_area.height < 18;
+    let diff_rows = candidate
+        .as_ref()
+        .map(|value| value.diff.len() + value.blockers.len())
+        .unwrap_or_else(|| dream.playbook_add.len() + dream.playbook_remove.len());
+    let diff_height = (diff_rows + 4).clamp(if compact_height { 3 } else { 5 }, 20) as u16;
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),
-            Constraint::Min(6),
+            Constraint::Length(if compact_height { 1 } else { 2 }),
+            Constraint::Length(if compact_height { 2 } else { 4 }),
+            Constraint::Min(if compact_height { 3 } else { 6 }),
             Constraint::Length(diff_height),
         ])
         .split(main_area);
 
-    let status = if dream_errors > 0 {
+    let status = if let Some(candidate) = candidate.as_ref() {
+        let color = match candidate.state.as_str() {
+            "ACTIVE" => config::green(),
+            "ROLLED_BACK" => config::orange(),
+            "FAILED" | "BLOCKED" | "REJECTED" => config::red(),
+            _ => config::yellow(),
+        };
+        let label = if candidate.state == "ACTIVE" {
+            "COMMITTED TO MEMORY"
+        } else {
+            candidate.state.as_str()
+        };
+        Line::from(vec![
+            Span::styled(
+                format!(" {label} "),
+                Style::default()
+                    .fg(config::bg())
+                    .bg(color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  {}", candidate.dream_id),
+                Style::default().fg(config::dim()),
+            ),
+        ])
+    } else if dream_errors > 0 {
         Line::from(Span::styled(
             format!(" 复盘状态不可验证 · {dream_errors} 项持久化状态被安全拒绝"),
             Style::default()
@@ -97,6 +139,7 @@ pub fn render(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
         ))
     };
     frame.render_widget(Paragraph::new(status), pad_left(rows[0]));
+    render_morning_report(frame, morning_report.as_ref(), rows[1]);
 
     if main_area.width >= 90 {
         let cols = Layout::default()
@@ -106,7 +149,7 @@ pub fn render(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
                 Constraint::Percentage(33),
                 Constraint::Percentage(34),
             ])
-            .split(rows[1]);
+            .split(rows[2]);
         render_column(
             frame,
             cols[0],
@@ -127,8 +170,8 @@ pub fn render(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
             frame,
             cols[2],
             "KNOWLEDGE",
-            config::blue(),
-            "•",
+            config::yellow(),
+            "◆",
             &dream.knowledge,
         );
     } else {
@@ -136,7 +179,7 @@ pub fn render(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
         for (title, symbol, color, items) in [
             ("WORKED", "✓", config::green(), &dream.worked),
             ("FAILED", "✗", config::red(), &dream.failed),
-            ("KNOWLEDGE", "•", config::blue(), &dream.knowledge),
+            ("KNOWLEDGE", "◆", config::yellow(), &dream.knowledge),
         ] {
             lines.push(Line::from(Span::styled(
                 title,
@@ -156,10 +199,75 @@ pub fn render(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
                 }
             }
         }
-        frame.render_widget(Paragraph::new(Text::from(lines)), pad_left(rows[1]));
+        frame.render_widget(Paragraph::new(Text::from(lines)), pad_left(rows[2]));
     }
 
-    render_playbook_diff(frame, dream, rows[2]);
+    render_playbook_diff(frame, dream, candidate.as_ref(), rows[3]);
+}
+
+fn render_morning_report(frame: &mut Frame<'_>, report: Option<&DreamMorningReport>, area: Rect) {
+    let mut lines = vec![Line::from(Span::styled(
+        "昨夜 DREAM 晨报",
+        Style::default()
+            .fg(config::purple())
+            .add_modifier(Modifier::BOLD),
+    ))];
+    if let Some(report) = report {
+        let date = report.source_created_at.get(..10).unwrap_or("--");
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(" {date} · {} · ", report.state),
+                Style::default().fg(config::dim()),
+            ),
+            Span::styled(
+                format!(
+                    "复核 {}  新增 {}  合并 {}  替换 {}  清理 {}  消解 {}",
+                    report.reviewed_count,
+                    report.added_count,
+                    report.merged_count,
+                    report.replaced_count,
+                    report.dropped_count,
+                    report.resolved_memory_count,
+                ),
+                Style::default().fg(config::fg()),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(
+                    " Eval {} · 审批 {} · 激活 {}",
+                    if report.candidate_eval_passed {
+                        "✓"
+                    } else {
+                        "—"
+                    },
+                    if report.approved { "✓" } else { "—" },
+                    if report.activated { "✓" } else { "—" },
+                ),
+                Style::default().fg(if report.activated {
+                    config::green()
+                } else {
+                    config::yellow()
+                }),
+            ),
+            Span::styled(
+                format!(
+                    " · 阻塞 {} · 技能淘汰预警 {}",
+                    report.validation_blocker_count, report.skill_retirement_candidate_count,
+                ),
+                Style::default().fg(config::dim()),
+            ),
+        ]));
+    } else {
+        lines.push(Line::from(Span::styled(
+            " 昨夜无已持久化 Dream 产物",
+            Style::default().fg(config::dim()),
+        )));
+    }
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }),
+        pad_left(area),
+    );
 }
 
 fn render_column(
@@ -198,46 +306,95 @@ fn render_column(
     );
 }
 
-fn render_playbook_diff(frame: &mut Frame<'_>, dream: &DreamSnapshot, area: Rect) {
+fn render_playbook_diff(
+    frame: &mut Frame<'_>,
+    dream: &DreamSnapshot,
+    candidate: Option<&DreamUiSnapshot>,
+    area: Rect,
+) {
+    let title = candidate
+        .map(|value| format!("CANDIDATE DIFF · {}", value.state))
+        .unwrap_or_else(|| "PLAYBOOK DIFF · 已提交".to_string());
     let mut lines: Vec<Line> = vec![Line::from(Span::styled(
-        "PLAYBOOK DIFF · 已提交",
+        title,
         Style::default()
             .fg(config::dim())
             .add_modifier(Modifier::BOLD),
     ))];
-    for (index, (item, color)) in dream
-        .playbook_add
-        .iter()
-        .map(|item| (item, config::green()))
-        .chain(
-            dream
-                .playbook_remove
-                .iter()
-                .map(|item| (item, config::red())),
-        )
-        .enumerate()
-    {
-        lines.push(
-            Line::from(vec![
-                Span::styled(
-                    format!("{:>3} ", index + 1),
-                    Style::default().fg(config::dim()),
-                ),
-                Span::styled(item.clone(), Style::default().fg(color)),
-            ])
-            .style(Style::default().bg(config::bg1())),
-        );
-    }
-    if dream.playbook_add.is_empty() && dream.playbook_remove.is_empty() {
+    if let Some(candidate) = candidate {
+        for (index, entry) in candidate.diff.iter().enumerate() {
+            let (symbol, color) = match entry.op.as_str() {
+                "add" | "merge" => ("+", config::green()),
+                "replace" => ("~", config::yellow()),
+                "drop" => ("-", config::red()),
+                _ => ("·", config::blue()),
+            };
+            lines.push(
+                Line::from(vec![
+                    Span::styled(
+                        format!("{:>3} {symbol} ", index + 1),
+                        Style::default().fg(color),
+                    ),
+                    Span::styled(entry.text.clone(), Style::default().fg(color)),
+                    Span::styled(
+                        format!("  {}", entry.reason),
+                        Style::default().fg(config::dim()),
+                    ),
+                ])
+                .style(Style::default().bg(config::bg1())),
+            );
+        }
+        for blocker in &candidate.blockers {
+            lines.push(Line::from(vec![
+                Span::styled(" ! ", Style::default().fg(config::red())),
+                Span::styled(blocker.clone(), Style::default().fg(config::red())),
+            ]));
+        }
+        if !candidate.next_step.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!(" 下一步：{}", candidate.next_step),
+                Style::default().fg(config::orange()),
+            )));
+        }
         lines.push(Line::from(Span::styled(
-            " 暂无已提交 playbook 变更",
+            " [Enter] 审批并尝试激活  [x] 拒绝  [u] 回滚  [v] 检查",
+            Style::default().fg(config::dim()),
+        )));
+    } else {
+        for (index, (item, color)) in dream
+            .playbook_add
+            .iter()
+            .map(|item| (item, config::green()))
+            .chain(
+                dream
+                    .playbook_remove
+                    .iter()
+                    .map(|item| (item, config::red())),
+            )
+            .enumerate()
+        {
+            lines.push(
+                Line::from(vec![
+                    Span::styled(
+                        format!("{:>3} ", index + 1),
+                        Style::default().fg(config::dim()),
+                    ),
+                    Span::styled(item.clone(), Style::default().fg(color)),
+                ])
+                .style(Style::default().bg(config::bg1())),
+            );
+        }
+        if dream.playbook_add.is_empty() && dream.playbook_remove.is_empty() {
+            lines.push(Line::from(Span::styled(
+                " 暂无已提交 playbook 变更",
+                Style::default().fg(config::dim()),
+            )));
+        }
+        lines.push(Line::from(Span::styled(
+            " 只读投影 · 仅展示已持久化且 committed=true 的变更",
             Style::default().fg(config::dim()),
         )));
     }
-    lines.push(Line::from(Span::styled(
-        " 只读投影 · 仅展示已持久化且 committed=true 的变更",
-        Style::default().fg(config::dim()),
-    )));
     let block = Block::default()
         .borders(Borders::TOP)
         .border_style(Style::default().fg(config::border()));
@@ -330,6 +487,7 @@ fn render_memory_panel(
     }
     for (index, memory) in items.iter().enumerate() {
         let selected = index == selected_index;
+        let (kind_symbol, kind_color) = memory_kind_symbol(&memory.kind);
         let date = memory
             .saved_at
             .as_deref()
@@ -344,10 +502,7 @@ fn render_memory_panel(
                     config::bg()
                 }),
             ),
-            Span::styled(
-                format!("[{}] ", memory.kind),
-                Style::default().fg(config::aqua()),
-            ),
+            Span::styled(format!("{kind_symbol} "), Style::default().fg(kind_color)),
             Span::styled(
                 crate::workbench::ui::truncate_display_width(&memory.text, 22),
                 Style::default().fg(if selected {
@@ -377,7 +532,7 @@ fn render_memory_panel(
         rows[2],
     );
     let detail = items.get(selected_index).map(|memory| {
-        vec![
+        let mut lines = vec![
             Line::from(Span::styled(
                 memory.text.clone(),
                 Style::default().fg(config::fg()),
@@ -386,7 +541,20 @@ fn render_memory_panel(
                 format!("{} · confidence {}", memory.category, memory.confidence),
                 Style::default().fg(config::dim()),
             )),
-        ]
+        ];
+        if !memory.source_task_ids.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!("来源任务 · {}", memory.source_task_ids.join(", ")),
+                Style::default().fg(config::aqua()),
+            )));
+        }
+        if let Some(dream_run_id) = memory.dream_run_id.as_deref() {
+            lines.push(Line::from(Span::styled(
+                format!("Dream run · {dream_run_id}"),
+                Style::default().fg(config::purple()),
+            )));
+        }
+        lines
     });
     frame.render_widget(
         Paragraph::new(Text::from(detail.unwrap_or_default())).wrap(Wrap { trim: true }),

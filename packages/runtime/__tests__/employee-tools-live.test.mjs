@@ -23,11 +23,64 @@ import {
 import { startJsonlBridge } from "../tui/jsonl-bridge.mjs";
 
 const expectedVisible = {
-  "ai-adoption-whale": ["web_fetch", "web_search"],
-  "code-review-shrimp": ["git_diff", "git_status", "read_file", "search"],
-  "product-prd-crab": ["read_file"],
-  "macao-networking-agent": ["web_fetch", "web_search"],
-  zeneth: ["read_file"],
+  "ai-adoption-whale": [
+    "artifact_write",
+    "ask_user",
+    "docx_write",
+    "note_memory",
+    "recall_memory",
+    "todo_write",
+    "use_skill",
+    "web_fetch",
+    "web_search",
+  ],
+  "code-review-shrimp": [
+    "artifact_write",
+    "ask_user",
+    "docx_write",
+    "git_diff",
+    "git_status",
+    "list_files",
+    "note_memory",
+    "read_file",
+    "recall_memory",
+    "search",
+    "todo_write",
+    "use_skill",
+  ],
+  "product-prd-crab": [
+    "artifact_write",
+    "ask_user",
+    "docx_write",
+    "list_files",
+    "note_memory",
+    "read_file",
+    "recall_memory",
+    "todo_write",
+    "use_skill",
+  ],
+  "macao-networking-agent": [
+    "artifact_write",
+    "ask_user",
+    "docx_write",
+    "note_memory",
+    "recall_memory",
+    "todo_write",
+    "use_skill",
+    "web_fetch",
+    "web_search",
+  ],
+  zeneth: [
+    "artifact_write",
+    "ask_user",
+    "docx_write",
+    "list_files",
+    "note_memory",
+    "read_file",
+    "recall_memory",
+    "todo_write",
+    "use_skill",
+  ],
 };
 const forbidden = ["bash", "edit_file", "write_file"];
 const loadedProfiles = new Map();
@@ -98,8 +151,8 @@ for (const [employeeId, expected] of Object.entries(expectedVisible)) {
     profile.toolResolution.sessionCatalog.find(
       item => item.capability === "artifact.report"
     )?.availability,
-    "not_applicable",
-    `${employeeId} does not advertise Task-only artifact persistence as ready in Chat`
+    "ready",
+    `${employeeId} advertises managed artifact persistence in Chat`
   );
   if (employeeId === "ai-adoption-whale") {
     assert.match(requestSystem, /HTTP 200 只证明页面可读取/);

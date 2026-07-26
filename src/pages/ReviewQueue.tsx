@@ -60,7 +60,7 @@ function formatDate(value: string | null) {
 function submissionStatus(submission: CreatorSubmission) {
   if (submission.disabled) return "Disabled";
   if (submission.status === "submitted") return "Pending";
-  if (submission.status === "published") return "Verified Employee";
+  if (submission.status === "published") return "Published";
   if (submission.status === "rejected") return "Rejected";
   return "Draft";
 }
@@ -380,7 +380,7 @@ export default function ReviewQueue() {
           <AlertTitle>Safety policy</AlertTitle>
           <AlertDescription className="text-crew-body">
             Mail sending, contacts write, payment, and delete permissions must
-            be reviewed before an employee receives Verified Employee status.
+            be reviewed before an employee can be published.
           </AlertDescription>
         </Alert>
 
@@ -396,7 +396,7 @@ export default function ReviewQueue() {
                 </h2>
                 <p className="mt-3 max-w-xl text-sm leading-6 text-crew-body">
                   Submitted employees from Creator Console will appear here
-                  before they can become public Verified Employees.
+                  before they can become public employees.
                 </p>
               </div>
             ) : (
@@ -527,8 +527,7 @@ export default function ReviewQueue() {
                                   </AlertDialogTitle>
                                   <AlertDialogDescription className="leading-6 text-crew-body">
                                     This employee will be taken off the public
-                                    bench and will lose Verified Employee
-                                    status.
+                                    bench and will lose published status.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>

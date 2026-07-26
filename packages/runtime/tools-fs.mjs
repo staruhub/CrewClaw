@@ -9,6 +9,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -20,6 +21,40 @@ import { resolvePathInsideRoot } from "./tool-gateway.mjs";
 const MAX_READ_BYTES = 200 * 1024;
 
 export const fsToolSchemas = [
+  {
+    type: "function",
+    function: {
+      name: "list_files",
+      description:
+        "List files and directories inside the configured workspace root. Supports a glob pattern, bounded recursive traversal, and never follows symbolic links.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description:
+              "Directory inside the configured workspace root; defaults to the workspace root.",
+          },
+          pattern: {
+            type: "string",
+            description:
+              "Optional glob matched against relative paths, for example *.md or docs/**/*.md.",
+          },
+          recursive: {
+            type: "boolean",
+            description: "Whether to recursively traverse subdirectories.",
+          },
+          max_results: {
+            type: "integer",
+            minimum: 1,
+            maximum: 500,
+            description:
+              "Maximum number of entries to return; defaults to 200.",
+          },
+        },
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -200,6 +235,106 @@ function writeTempSibling(targetPath, content, mode) {
       /* best-effort cleanup */
     }
     throw error;
+  }
+}
+
+function globRegex(pattern) {
+  const input = String(pattern || "*").replaceAll("\\", "/");
+  let source = "^";
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    if (char === "*") {
+      if (input[index + 1] === "*") {
+        index += 1;
+        if (input[index + 1] === "/") {
+          index += 1;
+          source += "(?:.*/)?";
+        } else {
+          // Only the explicit globstar segment `**/` crosses directories.
+          // A doubled star embedded in a segment behaves like `*`, so patterns
+          // such as `**.md` cannot silently expand into nested paths.
+          source += "[^/]*";
+        }
+      } else {
+        source += "[^/]*";
+      }
+    } else if (char === "?") {
+      source += "[^/]";
+    } else {
+      source += char.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+    }
+  }
+  return new RegExp(`${source}$`, process.platform === "win32" ? "i" : "");
+}
+
+export function listFiles(
+  directory = ".",
+  { root, pattern = "*", recursive = false, maxResults = 200 } = {}
+) {
+  try {
+    const target = resolveTarget(directory || ".", root, { mustExist: true });
+    const baseInfo = lstatSync(target.path);
+    if (baseInfo.isSymbolicLink()) {
+      throw new Error(
+        "symbolic links are not allowed in workspace file operations"
+      );
+    }
+    if (!baseInfo.isDirectory())
+      throw new Error(`not a directory: ${target.path}`);
+
+    const normalizedPattern = String(pattern || "*").replaceAll("\\", "/");
+    const match = globRegex(normalizedPattern);
+    const matchBasename =
+      !normalizedPattern.includes("/") && !normalizedPattern.includes("**");
+    const limit = Math.min(500, Math.max(1, Number(maxResults) || 200));
+    const shouldRecurse =
+      Boolean(recursive) ||
+      normalizedPattern.includes("/") ||
+      normalizedPattern.includes("**");
+    const entries = [];
+    let truncated = false;
+
+    const walk = (currentPath, prefix, depth) => {
+      if (truncated) return;
+      const children = readdirSync(currentPath, { withFileTypes: true }).sort(
+        (left, right) => left.name.localeCompare(right.name)
+      );
+      for (const child of children) {
+        const childPath = join(currentPath, child.name);
+        const childInfo = lstatSync(childPath);
+        if (childInfo.isSymbolicLink()) continue;
+        const relativePath = prefix ? `${prefix}/${child.name}` : child.name;
+        const displayPath = childInfo.isDirectory()
+          ? `${relativePath}/`
+          : relativePath;
+        if (
+          match.test(relativePath) ||
+          (matchBasename && match.test(child.name))
+        ) {
+          entries.push(displayPath);
+          if (entries.length >= limit) {
+            truncated = true;
+            return;
+          }
+        }
+        if (childInfo.isDirectory() && shouldRecurse && depth < 8) {
+          walk(childPath, relativePath, depth + 1);
+          if (truncated) return;
+        }
+      }
+    };
+
+    walk(target.path, "", 0);
+    const text = entries.length > 0 ? entries.join("\n") : "（没有匹配的文件）";
+    return {
+      ok: true,
+      path: target.path,
+      entries,
+      truncated,
+      text: truncated ? `${text}\n…（结果已截断至 ${limit} 项）` : text,
+    };
+  } catch (error) {
+    return errorResult(error);
   }
 }
 

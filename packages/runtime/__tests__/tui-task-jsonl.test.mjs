@@ -114,6 +114,10 @@ test("parses structured UserAction lines and preserves plain text fallback", () 
     data: { text: "hello task", refs: [] },
   });
   assert.deepEqual(
+    parseUserActionLine('{"type":"generation.cancel","data":{}}'),
+    { type: "generation.cancel", data: {} }
+  );
+  assert.deepEqual(
     parseUserActionLine(
       '{"type":"pending.run","data":{"key":"1","command":"run_roi_demo"}}'
     ),

@@ -110,17 +110,29 @@ async function toolAuthorizationCorrelatesById() {
     "wrong id must not resolve the pending tool"
   );
   assert.ok(
-    !h.events.some(
-      event => event.type === "token.delta" && /已执行/.test(event.data.text)
-    )
+    !h.events
+      .filter(event => event.type === "token.delta")
+      .map(event => event.data.text || "")
+      .join("")
+      .includes("已执行")
+  );
+
+  resolveApproval(h, required.data.id, "allow_session");
+  await pause(50);
+  assert.equal(
+    h.ofType("approval.resolved").length,
+    0,
+    "an unscoped tool must reject session authorization and stay pending"
   );
 
   resolveApproval(h, required.data.id, "allow");
   await waitFor(
     () =>
-      h.events.some(
-        event => event.type === "token.delta" && /已执行/.test(event.data.text)
-      ),
+      h.events
+        .filter(event => event.type === "token.delta")
+        .map(event => event.data.text || "")
+        .join("")
+        .includes("已执行"),
     "matching tool approval did not resume the agent"
   );
   const resolved = h.ofType("approval.resolved")[0];
@@ -147,6 +159,93 @@ async function toolAuthorizationCorrelatesById() {
     h.ofType("approval.resolved").length,
     1,
     "stale tool action must not settle twice"
+  );
+  await closeHarness(h);
+}
+
+async function sessionPermissionLeaseScopesAuditsAndRevokes() {
+  let call = 0;
+  const paths = [
+    "docs/spec/first.md",
+    "docs/spec/second.md",
+    "docs/spec/third.md",
+  ];
+  const h = harness(async deps => {
+    const path = paths[call++];
+    const allowed = await deps.confirm(`写入 ${path} ?`, {
+      tool: "write_file",
+      args: { path },
+      scope: "workspace",
+      level: "L2",
+    });
+    return allowed ? "ok" : "denied";
+  }, "session-permission-agent");
+
+  h.input.push("第一次写入\n");
+  await waitFor(
+    () => h.ofType("approval.required").length === 1,
+    "first scoped approval was not requested"
+  );
+  const first = h.ofType("approval.required")[0];
+  assert.deepEqual(first.data.choices, ["allow", "allow_session", "deny"]);
+  assert.deepEqual(first.data.session_lease?.allowlist, [
+    { tool: "write_file", pattern: "docs/spec/**" },
+  ]);
+  resolveApproval(h, first.data.id, "allow_session");
+  await waitFor(
+    () => h.ofType("task.completed").length === 1,
+    "session-granted first task did not complete"
+  );
+  assert.equal(h.ofType("approval.resolved")[0].data.decision, "allow_session");
+  assert.equal(
+    h.ofType("approval.resolved")[0].data.decision_source,
+    "user_session_grant"
+  );
+
+  h.input.push("同目录第二次写入\n");
+  await waitFor(
+    () => h.ofType("task.completed").length === 2,
+    "matching session lease did not resume the repeated tool call"
+  );
+  const autoRequired = h.ofType("approval.required")[1];
+  const autoResolved = h.ofType("approval.resolved")[1];
+  assert.equal(autoRequired.data.auto, true);
+  assert.equal(autoResolved.data.auto, true);
+  assert.equal(autoResolved.data.decision, "allow_session");
+  assert.equal(autoResolved.data.decision_source, "session_permission_lease");
+
+  h.input.push("/permissions\n");
+  await waitFor(
+    () => h.ofType("command.output").length === 1,
+    "session permission list command did not respond"
+  );
+  assert.match(
+    h.ofType("command.output")[0].data.text,
+    /write_file .* docs\/spec\/\*\*/
+  );
+  h.input.push("/permissions clear\n");
+  await waitFor(
+    () => h.ofType("command.output").length === 2,
+    "session permission revoke command did not respond"
+  );
+  assert.match(h.ofType("command.output")[1].data.text, /已撤销 1 条/);
+
+  h.input.push("撤销后第三次写入\n");
+  await waitFor(
+    () => h.ofType("approval.required").length === 3,
+    "revoked lease must require approval again"
+  );
+  const third = h.ofType("approval.required")[2];
+  assert.notEqual(third.data.auto, true);
+  assert.equal(
+    h.ofType("approval.resolved").length,
+    2,
+    "revoked lease must not auto-resolve"
+  );
+  resolveApproval(h, third.data.id, "deny");
+  await waitFor(
+    () => h.ofType("approval.resolved").length === 3,
+    "final denial did not settle"
   );
   await closeHarness(h);
 }
@@ -189,6 +288,19 @@ async function structuredDeliverableAcceptSettlesOnce() {
     h.ofType("approval.accepted").length,
     0,
     "wrong id must not accept a deliverable"
+  );
+
+  resolveApproval(h, requested.data.id, "allow_session");
+  await pause(50);
+  assert.equal(
+    h.ofType("approval.accepted").length,
+    0,
+    "a tool-only session decision must not accept a deliverable"
+  );
+  assert.equal(
+    h.ofType("approval.rejected").length,
+    0,
+    "a tool-only session decision must leave deliverable approval pending"
   );
 
   resolveApproval(h, requested.data.id, "banana");
@@ -235,6 +347,50 @@ async function structuredDeliverableAcceptSettlesOnce() {
     1,
     "duplicate accept must not increment KPI twice"
   );
+  await closeHarness(h);
+}
+
+async function acceptedSkillUsageFlowsToKpi() {
+  const agentId = "skill-kpi-agent";
+  const h = harness(async deps => {
+    deps.onSkillLaunched({ id: "skill-call-1", skill: "cleanup-guide" });
+    deps.onSkillLaunched({ id: "skill-call-2", skill: "cleanup-guide" });
+    return LONG_REPORT;
+  }, agentId);
+  h.input.push("给我一份服务器清理报告\n");
+  await waitFor(
+    () => h.ofType("approval.requested").length === 1,
+    "skill-attributed deliverable did not reach approval"
+  );
+  const requested = h.ofType("approval.requested")[0];
+  const pending = JSON.parse(
+    readFileSync(
+      join(
+        h.root,
+        ".crewclaw",
+        "runs",
+        `${requested.data.taskRunId}.pending-approval.json`
+      ),
+      "utf8"
+    )
+  );
+  assert.deepEqual(pending.skillUsage, [
+    { skill_id: "cleanup-guide", calls: 2 },
+  ]);
+
+  resolveApproval(h, requested.data.id, "accept");
+  await waitFor(
+    () => h.ofType("task.completed").length === 1,
+    "skill-attributed acceptance did not settle"
+  );
+  const skill = readKpi(h.root, agentId).skills.find(
+    item => item.skill_id === "cleanup-guide"
+  );
+  assert.equal(skill.calls, 2);
+  assert.equal(skill.settled_tasks, 1);
+  assert.equal(skill.accepted_tasks, 1);
+  assert.equal(skill.success_rate, 1);
+  assert.equal(skill.retirement_candidate, false);
   await closeHarness(h);
 }
 
@@ -864,7 +1020,9 @@ async function malformedUserActionDoesNotCrashBridge() {
 
 async function main() {
   await toolAuthorizationCorrelatesById();
+  await sessionPermissionLeaseScopesAuditsAndRevokes();
   await structuredDeliverableAcceptSettlesOnce();
+  await acceptedSkillUsageFlowsToKpi();
   await structuredDeliverableRejectIsAnHonestTerminal();
   await digitPendingActionRemainsCompatible();
   await changedOrMissingArtifactCannotBeAccepted();

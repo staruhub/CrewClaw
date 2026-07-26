@@ -16,9 +16,10 @@
 - **网站 = 本地优先橱窗**：registry 的漂亮投影 + 真下载包；雇佣打通走本地 API 桥
   （`localStorage` ↔ `.crewclaw/team.json`）。托管市场（真账号 / 后端 / 云评分）= 远期里程碑，不提前。
 - **TaskEvent additive-only**：协议只增不改；新事件加枚举变体，旧前端忽略未知事件即降级，不破坏 replay。
-- **认证语义**：真评测分绑定 `spec_version` + 完整行为主体哈希 + 被测模型 + 判官模型 +
+- **评测语义**：真评测分绑定 `spec_version` + 完整行为主体哈希 + 被测模型 + 判官模型 +
   provider endpoint 的不透明标识 + Node/依赖锁身份 + 时间戳；mock 分永不覆盖真分（落盘守卫）。
-  任一被测行为、执行模型、依赖、运行时或判官身份变化 → 旧分作废需重评。
+  任一被测行为、执行模型、依赖、运行时或判官身份变化 → 旧分作废需重评。单次 `mock:false`
+  结果只是已验证评测，不是 C2；正式认证遵循 Good Employee Standard v1 与签名 Credential。
 - **Feature 三问准入闸**：① 为什么"数字员工"需要它？② 解决哪个真实用户问题？③ 为什么不是普通 ChatGPT？
   三问答不齐的 Feature 不进本产品。
 
@@ -48,8 +49,8 @@
 
 `packages/runtime/eval-runner.mjs`：复用 conformance spawn 骨架真跑 smoke_tests → 读产物 → rubric
 加权 0-100。两种诚实模式：`--mock`/CREW_MOCK = 机械 harness 检查（`graded_by:mechanical`，`mock:true`，
-非认证分）；真模式 = 判官模型逐维度打真分（`mock:false`）。mock 不覆盖真分；无 key 无 --mock 报错退出。
-`pnpm eval:expert <slug>`。EVAL 屏"上岗考试"三态：真分（model+日期）/ MOCK 跑（橙色非认证）/ 从未评测占位。
+非 C2 分）；真模式 = 判官模型逐维度打真实评测分（`mock:false`）。mock 不覆盖真分；无 key 无 --mock 报错退出。
+`pnpm eval:expert <slug>`。EVAL 屏"上岗考试"三态：已验证评测（model+日期、非 C2）/ MOCK 跑（橙色、非 C2）/ 从未评测占位。
 
 ### 2a · 真实分发 — `1aae048`
 
@@ -86,7 +87,7 @@ unknown/coming-soon → 404）；详情页真"Download package"按钮（gate 在
   AgentEmployeeSchema 源头删除；真值排序（推荐/版本/名称/更新时间）；drift-guard + e2e 断言
   5/5 详情页可达（鲸/Zeneth 首次上架）。顺带揪出 runtime yaml.mjs fallback 真 bug：带冒号的
   引号数组项被误切成对象（changelog 全军覆没），已修 + 回归测试。
-- ⛔ **第一个真认证分 — blocked（诚实记录，不造分）**：eval-runner 缺 .env.local 加载已修
+- ⛔ **第一个真实评测分 — blocked（诚实记录，不造分）**：eval-runner 缺 .env.local 加载已修
   （`1ef6700`），但 ZENMUX_API_KEY 对所有 chat 模型返回 HTTP 403（直接探针验证：opus/sonnet/
   gpt-4o-mini/deepseek 全 403，/models 公开端点正常）= key 被撤销或余额耗尽。恢复 key 后一条命令
   出分：`pnpm eval:expert product-prd-crab`（crab 纯文本无搜索依赖；鲸另需搜索 provider key）。
@@ -113,11 +114,11 @@ unknown/coming-soon → 404）；详情页真"Download package"按钮（gate 在
   crash recovery 幂等，拒绝/修订/EOF 不污染长期记忆。
 - 所有核心状态读写统一 canonical containment、junction/symlink/hardlink 拒绝、所有权锁、8 MiB 上限、
   `0600` 同目录临时文件 + fsync + 原子替换；Windows delete-pending `nlink=0` 作为瞬态竞争重试。
-- eval acceptance 变成逐条 hard gate，非 `task.completed` 生命周期记 0；认证结果绑定 subject contract v2、
+- eval acceptance 变成逐条 hard gate，非 `task.completed` 生命周期记 0；评测结果绑定 subject contract v2、
   profile/spec/skills/runtime/contracts、package+pnpm lock、Node ABI、worker/judge model 与 endpoint hash。
 - 员工包拒绝路径穿越、非便携 tar 名、链接、秘密内容与超限输入；Docker 构建先校验全部专家；
   生产服务使用构建期预生成包、单飞缓存、ETag/304，不再逐请求同步压缩。
-- **外部阻塞仍诚实保留**：ZENMUX key 当前 403，尚无 `mock:false` 真认证分；公共 npm
+- **外部阻塞仍诚实保留**：ZENMUX key 当前 403，尚无 `mock:false` 真实评测分；公共 npm
   `@chaogeek/hermes` 仍未发布，因此生产页面只展示源码/本地安装路径。
 
 ---

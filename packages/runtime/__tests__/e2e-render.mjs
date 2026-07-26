@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { startMockModel } from "./mock-model.mjs";
+import { createRuntimeTestRoot } from "./test-paths.mjs";
 
 const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 const RUNTIME_LABEL_RE = /^.*?› ?/u;
@@ -102,6 +104,7 @@ function assertRendered(output) {
 async function run() {
   const scenario = chunkText(assistantText);
   const { url, close } = await startMockModel(scenario);
+  const root = createRuntimeTestRoot("crew-e2e-render-");
 
   try {
     const child = spawn(
@@ -115,7 +118,7 @@ async function run() {
           ZENMUX_BASE_URL: url,
           HERMES_MODEL: "anthropic/claude-opus-4.8",
           CREW_MD: "1",
-          CREWCLAW_ROOT: cwd,
+          CREWCLAW_ROOT: root,
         },
         stdio: ["ignore", "pipe", "pipe"],
       }
@@ -149,6 +152,7 @@ async function run() {
     process.exitCode = 1;
   } finally {
     await close();
+    rmSync(root, { recursive: true, force: true });
   }
 }
 

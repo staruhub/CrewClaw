@@ -6,8 +6,10 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
+  rmdirSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -310,7 +312,11 @@ export function withStateLock(
   const owner = {
     token: randomUUID(),
     pid: process.pid,
-    createdAt: Date.now(),
+    // Keep the owner record readable by the Rust and website owner-lock
+    // implementations. Older runtime locks used `createdAt`; reclaiming is
+    // based on the guarded file mtime, so changing the serialized field is
+    // backwards compatible while making new locks cross-process recoverable.
+    created_at_ms: Date.now(),
   };
 
   while (fd === undefined) {
@@ -447,4 +453,100 @@ export function writeJsonAtomic(
 ) {
   const data = stateJsonBuffer(value, maxBytes);
   return writeStateFileAtomic(path, data, { root, maxBytes, mode: 0o600 });
+}
+
+/** Remove one regular, single-link state file after a final identity check. */
+export function removeStateFileGuarded(path, { root, missingOk = true } = {}) {
+  try {
+    path = resolveStatePath(path, root, { mustExist: true });
+  } catch (error) {
+    if (missingOk && /file does not exist/.test(String(error?.message || ""))) {
+      return false;
+    }
+    throw error;
+  }
+  const before = lstatSync(path);
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
+    throw new Error(
+      `unsafe state delete: final entry is not a safe file (${path})`
+    );
+  }
+  const noFollow = constants.O_NOFOLLOW || 0;
+  const fd = openSync(path, constants.O_RDONLY | noFollow);
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || opened.nlink !== 1 || !sameInode(before, opened)) {
+      throw new Error(
+        `unsafe state delete: file changed before open (${path})`
+      );
+    }
+  } finally {
+    closeSync(fd);
+  }
+  const after = lstatSync(path);
+  if (
+    !after.isFile() ||
+    after.isSymbolicLink() ||
+    after.nlink !== 1 ||
+    !sameInode(before, after)
+  ) {
+    throw new Error(
+      `unsafe state delete: file changed before unlink (${path})`
+    );
+  }
+  unlinkSync(path);
+  return true;
+}
+
+/**
+ * Recursively remove a state subtree without following links or accepting hard-linked files.
+ * Callers must hold the owner lock that excludes writers for the logical scope being purged.
+ */
+export function removeStateTreeGuarded(path, { root, missingOk = true } = {}) {
+  try {
+    path = resolveStateDirectory(path, root, { mustExist: true });
+  } catch (error) {
+    if (
+      missingOk &&
+      /does not exist|path component/i.test(String(error?.message || ""))
+    ) {
+      return false;
+    }
+    throw error;
+  }
+
+  function removeDirectory(directory) {
+    directory = resolveStateDirectory(directory, root, { mustExist: true });
+    const metadata = lstatSync(directory);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+      throw new Error(
+        `unsafe state delete: entry is not a safe directory (${directory})`
+      );
+    }
+    for (const name of readdirSync(directory)) {
+      const child = join(directory, name);
+      if (name.endsWith(".lock")) {
+        throw new Error(
+          `unsafe state delete: active or stale lock rejected (${child})`
+        );
+      }
+      const entry = lstatSync(child);
+      if (entry.isSymbolicLink()) {
+        throw new Error(
+          `unsafe state delete: linked entry rejected (${child})`
+        );
+      }
+      if (entry.isDirectory()) removeDirectory(child);
+      else if (entry.isFile())
+        removeStateFileGuarded(child, { root, missingOk: false });
+      else
+        throw new Error(
+          `unsafe state delete: special entry rejected (${child})`
+        );
+    }
+    rmdirSync(directory);
+  }
+
+  removeDirectory(path);
+  return true;
 }

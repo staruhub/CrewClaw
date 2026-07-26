@@ -27,7 +27,9 @@ Each installable expert profile must include:
 
 ## Certification Levels
 
-- `C0`: Draft.
-- `C1`: ChaoGeek Reviewed.
-- `C2`: ChaoGeek Certified and ready for MVP use.
-- `C3`: ChaoGeek Verified with real usage feedback.
+- `C0`: Draft package; no validation claim.
+- `C1`: Package Validated; structure and safety rules pass, but the employee is not certified.
+- `C2`: Lab Certified by a current signed, non-MOCK Credential bound to the package and active memory.
+- `C3`: Field Proven by independently verifiable real-usage evidence in addition to C2.
+
+See [`good-employee-standard-v1.md`](good-employee-standard-v1.md). A package's own self-tests or text cannot promote its level.

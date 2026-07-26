@@ -66,8 +66,8 @@ export function AgentPackage({ onJoinWaitlist }: AgentPackageProps) {
       <div className="site-container">
         <SectionHeader
           label="EXPERT CREW"
-          title="Certified Expert Crew"
-          description="Available profiles can be explored now. Local development can install from this checkout; production links to the source until public package distribution is verified."
+          title="Validated Expert Packages"
+          description="Available packages can be explored now. Package validation and signed lab certification are shown as separate evidence levels."
           centered
         />
 
@@ -82,7 +82,9 @@ export function AgentPackage({ onJoinWaitlist }: AgentPackageProps) {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-white/38">
-                        {expert.category} / {expert.certification}
+                        {expert.category} / {expert.certification} ·{" "}
+                        {expert.evidence_state.package_status} package ·
+                        registry
                       </p>
                       <h3 className="mt-3 font-sans text-[24px] leading-tight text-crew-heading">
                         {expert.display_name}

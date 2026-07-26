@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { toast } from "sonner";
-import { X } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface WaitlistModalProps {
   open: boolean;
@@ -28,10 +34,8 @@ export function WaitlistModal({
     },
   });
 
-  if (!open) return null;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
     if (!email.trim()) return;
     subscribe.mutate({
       email: email.trim(),
@@ -41,68 +45,71 @@ export function WaitlistModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[900] flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="waitlist-title"
-        className="relative bg-crew-card border border-crew-border rounded-xl p-8 w-full max-w-md"
-      >
-        <button
-          onClick={onClose}
-          aria-label="Close waitlist"
-          className="absolute top-4 right-4 text-crew-muted hover:text-crew-heading transition-colors"
+    <Dialog open={open} onOpenChange={nextOpen => !nextOpen && onClose()}>
+      <DialogContent className="w-full max-w-md gap-0 border-crew-border bg-crew-card p-8">
+        <DialogHeader className="gap-2 text-left">
+          <DialogTitle className="font-mono text-xl font-bold text-crew-heading">
+            Join the Waitlist
+          </DialogTitle>
+          <DialogDescription className="text-sm text-crew-body">
+            Be the first to hire AI agents for your team.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          onSubmit={handleSubmit}
+          aria-busy={subscribe.isPending}
+          className="mt-6 space-y-4"
         >
-          <X size={20} />
-        </button>
-        <h3
-          id="waitlist-title"
-          className="font-mono text-xl font-bold text-crew-heading mb-2"
-        >
-          Join the Waitlist
-        </h3>
-        <p className="text-crew-body text-sm mb-6">
-          Be the first to hire AI agents for your team.
-        </p>
-        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">
+            <label
+              htmlFor="waitlist-name"
+              className="mb-1.5 block font-mono text-xs uppercase tracking-wider text-crew-muted"
+            >
               Name
             </label>
             <input
+              id="waitlist-name"
+              name="name"
+              autoComplete="name"
               type="text"
               value={name}
-              onChange={e => setName(e.target.value)}
-              className="w-full bg-crew-bg border border-crew-border rounded-lg px-4 py-3 text-crew-heading text-sm focus:outline-none focus:border-crew-copper transition-colors"
+              onChange={event => setName(event.target.value)}
+              className="w-full rounded-lg border border-crew-border bg-crew-bg px-4 py-3 text-sm text-crew-heading transition-colors focus:border-crew-copper focus:outline-none"
               placeholder="Your name"
             />
           </div>
           <div>
-            <label className="block text-xs font-mono uppercase tracking-wider text-crew-muted mb-1.5">
+            <label
+              htmlFor="waitlist-email"
+              className="mb-1.5 block font-mono text-xs uppercase tracking-wider text-crew-muted"
+            >
               Email *
             </label>
             <input
+              id="waitlist-email"
+              name="email"
+              autoComplete="email"
+              spellCheck={false}
               type="email"
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={event => setEmail(event.target.value)}
               required
-              className="w-full bg-crew-bg border border-crew-border rounded-lg px-4 py-3 text-crew-heading text-sm focus:outline-none focus:border-crew-copper transition-colors"
+              className="w-full rounded-lg border border-crew-border bg-crew-bg px-4 py-3 text-sm text-crew-heading transition-colors focus:border-crew-copper focus:outline-none"
               placeholder="you@company.com"
             />
           </div>
+          <p className="sr-only" role="status" aria-live="polite">
+            {subscribe.isPending ? "Joining waitlist…" : ""}
+          </p>
           <button
             type="submit"
             disabled={subscribe.isPending}
-            className="w-full bg-gradient-to-r from-crew-copper to-crew-bronze text-white font-mono font-semibold py-3 rounded-lg hover:brightness-110 transition-all disabled:opacity-50"
+            className="w-full rounded-lg bg-gradient-to-r from-crew-copper to-crew-bronze py-3 font-mono font-semibold text-white transition-[filter,opacity] hover:brightness-110 disabled:opacity-50"
           >
-            {subscribe.isPending ? "Submitting..." : "Get Started — Free"}
+            {subscribe.isPending ? "Submitting…" : "Get Started — Free"}
           </button>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

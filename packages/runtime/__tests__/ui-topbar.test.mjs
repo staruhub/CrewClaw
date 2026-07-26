@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { formatTokens, costFor, topBar, installTopBar } from "../ui-topbar.mjs";
+import {
+  formatTokens,
+  costFor,
+  contextTokensForModel,
+  ctxPercent,
+  topBar,
+  installTopBar,
+} from "../ui-topbar.mjs";
 import { visibleLen } from "../ui.mjs";
 
 const ESC = "\x1b";
@@ -14,6 +21,10 @@ const ESC = "\x1b";
 }
 
 assert.equal(formatTokens(39413), "39,413");
+assert.equal(contextTokensForModel("x-ai/grok-4.5"), 500_000);
+assert.equal(contextTokensForModel("grok-4.5-latest"), 500_000);
+assert.equal(contextTokensForModel("unknown/model"), 200_000);
+assert.equal(ctxPercent(50_000, "x-ai/grok-4.5"), 10);
 
 {
   const cost = costFor("anthropic/claude-opus-4.8", 1000, 1000);

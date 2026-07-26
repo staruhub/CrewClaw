@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   resolveEmployeeTools,
+  runtimeToolReadiness,
   validateEmployeeToolNeeds,
 } from "../employee-tools.mjs";
 
@@ -27,7 +28,8 @@ const catalog = {
     },
     {
       id: "artifact.report",
-      invocation: "engine",
+      invocation: "model",
+      runtime_tool: "artifact_write",
       provider_bindings: ["builtin:artifact_store"],
     },
     {
@@ -45,6 +47,7 @@ const result = resolveEmployeeTools({
     schema("browser_render"),
     schema("read_file"),
     schema("write_file"),
+    schema("artifact_write"),
   ],
   toolNeeds: {
     "web.search": {
@@ -76,7 +79,7 @@ const result = resolveEmployeeTools({
 assert.equal(result.ok, true);
 assert.deepEqual(
   result.visibleTools.map(tool => tool.function.name).sort(),
-  ["web_search"],
+  ["artifact_write", "web_search"],
   "the model only sees declared, bound, executable model tools"
 );
 assert.equal(
@@ -96,6 +99,24 @@ assert.equal(
   false,
   "global write tools are not leaked"
 );
+assert.deepEqual(runtimeToolReadiness(result, "web_search"), {
+  runtime_tool: "web_search",
+  ready: true,
+  availability: "ready",
+  code: "ready",
+  reason: "tavily Search Provider 已配置",
+  provider: "tavily",
+  capabilities: ["web.search"],
+});
+assert.deepEqual(runtimeToolReadiness(result, "unknown_tool"), {
+  runtime_tool: "unknown_tool",
+  ready: false,
+  availability: "unresolved",
+  code: "tool_unresolved",
+  reason: "当前员工解析结果未声明 runtime tool unknown_tool",
+  provider: null,
+  capabilities: [],
+});
 
 const missing = resolveEmployeeTools({
   catalog,
@@ -175,6 +196,11 @@ assert.equal(
   sharedRuntimeTool.employeePolicy.tools.web_fetch.capability,
   undefined,
   "a merged runtime tool does not misattribute the call to the first capability"
+);
+assert.deepEqual(
+  runtimeToolReadiness(sharedRuntimeTool, "web_fetch").capabilities,
+  ["web.fetch", "web.fetch_extract"],
+  "readiness projects every declared alias of one runtime tool"
 );
 
 const unimplementedEngine = resolveEmployeeTools({

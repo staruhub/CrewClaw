@@ -9,7 +9,7 @@
       "source": "ClawHub",
       "manifest_path": "experts/ai-adoption-whale/hire.yaml",
       "sla": "落地方案 24 小时内交付",
-      "certification": "C2",
+      "certification": "C1",
       "skills": [
         "model-selector",
         "agent-workflow-designer",
@@ -32,7 +32,7 @@
       "source": "ClawHub",
       "manifest_path": "experts/zeneth/hire.yaml",
       "sla": "社群周报 / 活动方案 24h",
-      "certification": "C2",
+      "certification": "C1",
       "skills": [
         "content-calendar",
         "engagement-playbook",
@@ -55,7 +55,7 @@
       "source": "ClawHub",
       "manifest_path": "experts/code-review-shrimp/distribution.yaml",
       "sla": "review within one PR",
-      "certification": "C2",
+      "certification": "C1",
       "skills": [
         "code-review-checklist",
         "pr-summary-writer",
@@ -73,7 +73,7 @@
       "source": "ClawHub",
       "manifest_path": "experts/product-prd-crab/distribution.yaml",
       "sla": "PRD review within 24h",
-      "certification": "C2",
+      "certification": "C1",
       "skills": [
         "prd-review-framework",
         "edge-case-mapper",
@@ -91,7 +91,7 @@
       "source": "ClawHub",
       "manifest_path": "experts/macao-networking-agent/hire.yaml",
       "sla": "networking report within 24h",
-      "certification": "C2",
+      "certification": "C1",
       "skills": [
         "icebreaker",
         "lead-matcher",

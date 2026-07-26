@@ -41,6 +41,9 @@ import {
 } from "@/data/employees";
 import { track } from "@/hooks/use-analytics";
 import { useTeam } from "@/hooks/use-team";
+import { HireCliHandoff } from "@/components/HireCliHandoff";
+
+const HIRE_INTENT_STORAGE_KEY = "crewclaw.hire-intent.v1";
 
 type PermissionSummary = {
   permission: string;
@@ -288,8 +291,11 @@ export default function HireConfirm() {
     employee ? defaultPlanForPricing(employee.pricing) : "free"
   );
   const [mockCheckoutConfirmed, setMockCheckoutConfirmed] = useState(false);
-  const [resultMessage, setResultMessage] = useState<string | null>(null);
-  const [hasJoined, setHasJoined] = useState(false);
+  const [handoffPrepared, setHandoffPrepared] = useState(false);
+  const [localHireState, setLocalHireState] = useState<
+    "idle" | "loading" | "hired" | "error"
+  >("idle");
+  const [localHireMessage, setLocalHireMessage] = useState<string | null>(null);
 
   // 换员工时重置整套雇佣流程状态。用 React 官方的"渲染期对比上一个 key 调整 state"模式替代
   // setState-in-effect（后者多渲染一帧旧员工的状态且触发级联渲染警告）。
@@ -301,8 +307,9 @@ export default function HireConfirm() {
       employee ? defaultPlanForPricing(employee.pricing) : "free"
     );
     setMockCheckoutConfirmed(false);
-    setResultMessage(null);
-    setHasJoined(false);
+    setHandoffPrepared(false);
+    setLocalHireState("idle");
+    setLocalHireMessage(null);
   }
 
   useEffect(() => {
@@ -318,7 +325,6 @@ export default function HireConfirm() {
 
   if (!employee) return <NotFound />;
 
-  const alreadyHired = team.isHired(employee.employee_id);
   const selectedCheckoutPlan =
     CHECKOUT_PLANS.find(plan => plan.id === selectedPlan) ?? CHECKOUT_PLANS[0];
   const toolContractOverview = summarizeToolContract(
@@ -339,36 +345,119 @@ export default function HireConfirm() {
     );
   };
 
-  if (hasJoined) {
+  if (handoffPrepared) {
+    const grantedToolCapabilities = toolCapabilitiesForHire(
+      employee.tool_capabilities,
+      toolCapabilities
+    );
+    const localHired =
+      localHireState === "hired" || team.isHired(employee.employee_id);
     return (
       <main className="min-h-screen bg-crew-bg px-4 py-10 text-crew-heading sm:px-6">
         <section className="mx-auto max-w-3xl">
-          <Badge className="border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
-            Onboarding complete
+          <Badge
+            className={
+              localHired
+                ? "border-emerald-400/40 bg-emerald-400/12 text-emerald-300"
+                : "border-crew-copper/40 bg-crew-copper/12 text-crew-copper"
+            }
+          >
+            {localHired ? "Hired on this machine" : "Local hire options ready"}
           </Badge>
           <h1 className="mt-5 text-4xl font-light leading-tight md:text-5xl">
-            Your new AI employee has joined the crew.
+            {localHired
+              ? `${employee.name} is on your local roster.`
+              : "Finish hiring on this machine."}
           </h1>
           <p className="mt-4 text-base leading-7 text-crew-body">
-            {employee.name} is active in your team with the{" "}
-            {selectedCheckoutPlan.name}
-            package and the capabilities you authorized.
+            {localHired
+              ? "This browser wrote the durable local roster through the local CrewClaw API. You can still use the CLI commands below on another machine."
+              : `This browser saved your ${employee.name} selection and the ${selectedCheckoutPlan.name} package. On this machine you can hire through the local API, or copy a CLI command for another machine.`}
           </p>
+          {!localHired && (
+            <div className="mt-6 rounded-[8px] border border-white/10 bg-white/[0.03] p-5">
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#ec9552]">
+                Option 0 / this machine
+              </p>
+              <p className="mt-2 text-sm leading-6 text-crew-body">
+                When the local CrewClaw site is running against this workspace,
+                hire writes <code>.crewclaw/team.json</code> the same way fire
+                does — no clipboard step required.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button
+                  className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
+                  disabled={localHireState === "loading"}
+                  onClick={async () => {
+                    setLocalHireState("loading");
+                    setLocalHireMessage(null);
+                    const result = await team.hire(
+                      employee.employee_id,
+                      grantedToolCapabilities
+                    );
+                    if (result.ok) {
+                      setLocalHireState("hired");
+                      setLocalHireMessage(result.message);
+                      track("hire_local_api_succeeded", {
+                        employee_id: employee.employee_id,
+                        employee_name: employee.name,
+                        tool_capability_count: grantedToolCapabilities.length,
+                      });
+                    } else {
+                      setLocalHireState("error");
+                      setLocalHireMessage(result.message);
+                      track("hire_local_api_failed", {
+                        employee_id: employee.employee_id,
+                        employee_name: employee.name,
+                        message: result.message,
+                      });
+                    }
+                  }}
+                >
+                  {localHireState === "loading"
+                    ? "Hiring on this machine…"
+                    : "Hire on this machine"}
+                </Button>
+                {localHireMessage && (
+                  <p
+                    className={
+                      localHireState === "error"
+                        ? "text-sm text-red-300"
+                        : "text-sm text-crew-muted"
+                    }
+                  >
+                    {localHireMessage}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          {localHired && localHireMessage && (
+            <p className="mt-4 text-sm leading-6 text-emerald-300">
+              {localHireMessage}
+            </p>
+          )}
+          <HireCliHandoff
+            slug={employee.employee_id}
+            capabilities={grantedToolCapabilities}
+          />
           <div className="mt-8 flex flex-wrap gap-3">
             <Button
               asChild
               className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
             >
-              <Link to="/team">View team</Link>
+              <Link
+                to={localHired ? "/team" : `/employee/${employee.employee_id}`}
+              >
+                {localHired ? "Open team" : "Back to resume"}
+              </Link>
             </Button>
             <Button
               asChild
               className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
               variant="outline"
             >
-              <Link to={`/employee/${employee.employee_id}`}>
-                Back to resume
-              </Link>
+              <Link to="/marketplace">Keep browsing</Link>
             </Button>
           </div>
         </section>
@@ -399,45 +488,33 @@ export default function HireConfirm() {
               Review capabilities before hiring {employee.name}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              This employee can join your local demo team after you choose a
-              package, confirm the simulated checkout, and authorize the
-              declared capabilities. No real payment is processed in this
-              prototype.
+              This employee can join your durable local roster after you choose
+              a package and authorize the declared capabilities. When the local
+              CrewClaw API is available the site can write that roster on this
+              machine; otherwise the CLI handoff performs the same validation.
+              No real payment is processed in this prototype.
             </p>
-
-            {alreadyHired ? (
-              <Alert className="mt-6 rounded-[8px] border-crew-copper/35 bg-crew-copper/10 text-crew-heading">
-                <CheckCircle2 className="size-4 text-crew-copper" />
-                <AlertTitle>
-                  This employee has already joined your crew.
-                </AlertTitle>
-                <AlertDescription className="text-crew-body">
-                  Go to the team dashboard to inspect health, permissions, or
-                  fire the employee when they leave your crew.
-                </AlertDescription>
-              </Alert>
-            ) : null}
           </div>
 
           <Card className="h-fit rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <CardHeader>
               <CardTitle className="text-base font-semibold">
-                How to revoke
+                What the website stores
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm leading-6 text-crew-body">
               <div className="flex gap-3">
                 <Undo2 className="mt-1 size-4 shrink-0 text-crew-copper" />
                 <p>
-                  Fire the employee from the team dashboard. History will be
-                  kept.
+                  Only this hiring selection is stored in the browser. It is not
+                  an employee record and does not grant runtime access.
                 </p>
               </div>
               <div className="flex gap-3">
                 <KeyRound className="mt-1 size-4 shrink-0 text-crew-copper" />
                 <p>
-                  Optional capabilities stay off until you enable them.
-                  Policy-disabled capabilities can never be selected.
+                  The CLI revalidates every capability before it atomically
+                  updates your local team file.
                 </p>
               </div>
             </CardContent>
@@ -545,7 +622,7 @@ export default function HireConfirm() {
                 </div>
                 <Button
                   className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
-                  disabled={alreadyHired || mockCheckoutConfirmed}
+                  disabled={mockCheckoutConfirmed}
                   onClick={() => {
                     setMockCheckoutConfirmed(true);
                     track("hire_confirmed", {
@@ -568,8 +645,8 @@ export default function HireConfirm() {
                   <CheckCircle2 className="size-4 text-emerald-200" />
                   <AlertTitle>Simulated checkout confirmed.</AlertTitle>
                   <AlertDescription className="text-crew-body">
-                    Continue reviewing permissions before this employee joins
-                    your crew.
+                    Continue reviewing permissions before preparing the local
+                    CLI handoff.
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -678,21 +755,20 @@ export default function HireConfirm() {
           </CardContent>
         </Card>
 
-        {resultMessage ? (
-          <Alert className="mt-6 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
-            <AlertTitle>Hire status</AlertTitle>
-            <AlertDescription className="text-crew-body">
-              {resultMessage}
-            </AlertDescription>
-          </Alert>
-        ) : null}
+        <HireCliHandoff
+          slug={employee.employee_id}
+          capabilities={toolCapabilitiesForHire(
+            employee.tool_capabilities,
+            toolCapabilities
+          )}
+        />
 
         <Separator className="mt-8 bg-white/10" />
 
         <div className="mt-6 flex flex-wrap gap-3">
           <Button
             className="rounded-[8px] bg-crew-copper px-6 text-white hover:bg-crew-bronze"
-            disabled={alreadyHired || !mockCheckoutConfirmed}
+            disabled={!mockCheckoutConfirmed}
             onClick={() => {
               const grantedToolCapabilities = toolCapabilitiesForHire(
                 employee.tool_capabilities,
@@ -707,34 +783,28 @@ export default function HireConfirm() {
                 checkout_plan: selectedPlan,
                 simulated_checkout: true,
               });
-              const result = team.hire(
-                employee.employee_id,
-                grantedToolCapabilities.map(
-                  capability => `capability:${capability}`
-                )
+              window.localStorage.setItem(
+                HIRE_INTENT_STORAGE_KEY,
+                JSON.stringify({
+                  schema_version: "hire-intent/v1",
+                  employee_id: employee.employee_id,
+                  checkout_plan: selectedPlan,
+                  capabilities: grantedToolCapabilities,
+                  created_at: new Date().toISOString(),
+                })
               );
-              setResultMessage(result.message);
-              track(result.ok ? "hire_succeeded" : "hire_failed", {
+              track("hire_handoff_prepared", {
                 employee_id: employee.employee_id,
                 employee_name: employee.name,
-                message: result.message,
                 tool_capability_count: grantedToolCapabilities.length,
                 checkout_plan: selectedPlan,
-                simulated_checkout: true,
               });
-              if (result.ok) setHasJoined(true);
+              setHandoffPrepared(true);
             }}
           >
             {mockCheckoutConfirmed
-              ? "Confirm and hire"
+              ? "Prepare local hire"
               : "Confirm simulated checkout first"}
-          </Button>
-          <Button
-            asChild
-            className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
-            variant="outline"
-          >
-            <Link to="/team">View team</Link>
           </Button>
           <Button
             asChild

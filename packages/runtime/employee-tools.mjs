@@ -21,11 +21,7 @@ const APPROVAL_RANK = { never: 0, when_needed: 1, always: 2 };
 const UNAVAILABLE_RANK = { skip: 0, degrade: 1, ask_user: 2, fail: 3 };
 const CAPABILITY_GRANT_PREFIX = "capability:";
 const CAPABILITY_ID = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/;
-const TASK_ENGINE_CAPABILITIES = new Set([
-  "source.verify",
-  "evidence.create",
-  "artifact.report",
-]);
+const TASK_ENGINE_CAPABILITIES = new Set(["source.verify", "evidence.create"]);
 
 /**
  * Resolve the immutable workspace capability grant snapshot without conflating it with legacy
@@ -37,12 +33,25 @@ const TASK_ENGINE_CAPABILITIES = new Set([
  */
 export function loadWorkspaceCapabilityGrants({ root, employeeId } = {}) {
   if (!root || !employeeId) {
-    return { grants: [], source: "none", warning: null };
+    return {
+      active: false,
+      employee: null,
+      grants: [],
+      source: "none",
+      warning: null,
+    };
   }
 
   const path = join(root, ".crewclaw", "team.json");
   if (!existsSync(path)) {
-    return { grants: [], source: "team_absent", warning: null, path };
+    return {
+      active: false,
+      employee: null,
+      grants: [],
+      source: "team_absent",
+      warning: null,
+      path,
+    };
   }
   try {
     const value = JSON.parse(
@@ -62,7 +71,14 @@ export function loadWorkspaceCapabilityGrants({ root, employeeId } = {}) {
       throw new Error(`multiple active team records for ${employeeId}`);
     }
     if (active.length === 0) {
-      return { grants: [], source: "team", warning: null, path };
+      return {
+        active: false,
+        employee: null,
+        grants: [],
+        source: "team",
+        warning: null,
+        path,
+      };
     }
     if (!Array.isArray(active[0].permissions_granted)) {
       throw new Error("permissions_granted must be an array");
@@ -73,19 +89,65 @@ export function loadWorkspaceCapabilityGrants({ root, employeeId } = {}) {
       .map(value => value.slice(CAPABILITY_GRANT_PREFIX.length))
       .filter(value => CAPABILITY_ID.test(value));
     return {
+      active: true,
+      employee: {
+        workspace_employee_id:
+          typeof active[0].workspace_employee_id === "string"
+            ? active[0].workspace_employee_id
+            : null,
+        employee_id: active[0].employee_id,
+        version:
+          typeof active[0].version === "string" ? active[0].version : null,
+        hired_at:
+          typeof active[0].hired_at === "string" ? active[0].hired_at : null,
+        package_sha256:
+          typeof active[0].package_sha256 === "string"
+            ? active[0].package_sha256
+            : null,
+        hire_source:
+          typeof active[0].hire_source === "string"
+            ? active[0].hire_source
+            : null,
+      },
       grants: [...new Set(grants)].sort(),
       source: "team",
-      warning: null,
+      warning:
+        typeof active[0].package_sha256 === "string" ||
+        active[0].hire_source === "cli" ||
+        active[0].hire_source === "eval_harness"
+          ? null
+          : "active hire is a legacy record without package_sha256; re-hire to bind package integrity",
       path,
     };
   } catch (error) {
     return {
+      active: false,
+      employee: null,
       grants: [],
       source: "team_invalid",
       warning: `workspace capability grants ignored: ${error?.message || error}`,
       path,
     };
   }
+}
+
+/**
+ * Runtime lifecycle gate. Loading an immutable profile is useful to Doctor and certification,
+ * but executing an employee in a user workspace is only valid after a durable active hire.
+ */
+export function requireActiveWorkspaceEmployee({ root, employeeId } = {}) {
+  const snapshot = loadWorkspaceCapabilityGrants({ root, employeeId });
+  if (snapshot.active) return snapshot;
+
+  const error = new Error(
+    snapshot.source === "team_invalid"
+      ? `cannot start "${employeeId}": .crewclaw/team.json is invalid (${snapshot.warning})`
+      : `cannot start "${employeeId}": employee is not hired and active in this workspace; run crew hire ${employeeId}`
+  );
+  error.code =
+    snapshot.source === "team_invalid" ? "team_invalid" : "employee_not_hired";
+  error.teamSnapshot = snapshot;
+  throw error;
 }
 
 function catalogEntries(catalog) {
@@ -469,11 +531,44 @@ export function loadToolCatalog(installRoot) {
   };
 }
 
-export function configuredProvidersFromEnv(_env = process.env) {
-  // Credentials and provider-name environment variables are not executable adapters. The
-  // reference runtime has no places/contacts/calendar handlers today; only an explicitly injected
-  // handler registry passed as `configuredProviders` may make an adapter ready.
-  return new Set();
+export function configuredProvidersFromEnv(
+  _env = process.env,
+  executableProviders = []
+) {
+  // Environment variables alone never create capability. The profile loader passes only
+  // providers backed by a validated executable adapter (for v0.20, a ready mcp.json server).
+  return new Set(
+    [...executableProviders].filter(value =>
+      /^mcp\.[a-z][a-z0-9_-]*$/.test(value)
+    )
+  );
+}
+
+export function runtimeToolReadiness(toolResolution, runtimeTool) {
+  const name = String(runtimeTool || "").trim();
+  const entries = Array.isArray(toolResolution?.sessionCatalog)
+    ? toolResolution.sessionCatalog.filter(item => item?.runtime_tool === name)
+    : [];
+  const selected =
+    entries.find(item => item.availability === "ready") ||
+    entries.find(item => item.applicable !== false) ||
+    entries[0];
+  const ready = selected?.availability === "ready";
+  return {
+    runtime_tool: name,
+    ready,
+    availability: selected?.availability || "unresolved",
+    code: selected?.code || (ready ? "ready" : "tool_unresolved"),
+    reason:
+      selected?.reason ||
+      (ready
+        ? "运行时 handler 已注册"
+        : name
+          ? `当前员工解析结果未声明 runtime tool ${name}`
+          : "runtime tool 名称为空"),
+    provider: selected?.provider || null,
+    capabilities: entries.map(item => item.capability).filter(Boolean),
+  };
 }
 
 export function resolveEmployeeTools({
@@ -702,6 +797,26 @@ export function resolveEmployeeTools({
         ...(maxCalls ? { max_calls_per_task: maxCalls } : {}),
         ...(timeoutMs ? { timeout_ms: timeoutMs } : {}),
       },
+    };
+  }
+
+  // Directory discovery is the read-only companion to read_file. Employee packages keep
+  // declaring the stable files.read/document.read capability, while the runtime exposes both
+  // schemas under the exact same frozen authorization policy. This avoids silently granting a
+  // broader capability and keeps old employee manifests forward-compatible.
+  const readPolicy = policyTools.read_file;
+  const listSchema = schemasByName.get("list_files");
+  if (
+    readPolicy &&
+    listSchema &&
+    !visibleTools.some(tool => tool?.function?.name === "list_files")
+  ) {
+    visibleTools.push(listSchema);
+    policyTools.list_files = {
+      ...readPolicy,
+      capabilities: [...(readPolicy.capabilities || [])],
+      scopes: [...(readPolicy.scopes || [])],
+      limits: { ...(readPolicy.limits || {}) },
     };
   }
 

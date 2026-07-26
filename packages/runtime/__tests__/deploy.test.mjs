@@ -34,13 +34,24 @@ assert.ok(
 const manifestPath = path.join(r.dir, "deploy.manifest.json");
 assert.ok(fs.existsSync(manifestPath), "writes a deploy manifest");
 assert.match(r.level, /^L[0-4]$/, "computes a compatibility level (L0–L4)");
-assert.equal(r.level, "L4", "the whale package targets OpenWork L4");
+assert.equal(
+  r.level,
+  "L0",
+  "an offline blueprint build does not claim observed OpenWork capability"
+);
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 assert.equal(
   manifest.id,
   "ai-adoption-whale",
   "manifest carries the employee id (from identity)"
 );
+assert.equal(
+  manifest.target_level,
+  "L4",
+  "L4 remains an explicit design target"
+);
+assert.equal(manifest.runtime_probe_status, "unprobed");
+assert.equal(manifest.deployment_mode, "blueprint_only");
 assert.ok(
   Array.isArray(manifest.blueprint_keys) && manifest.blueprint_keys.length > 0,
   "blueprint has keys"

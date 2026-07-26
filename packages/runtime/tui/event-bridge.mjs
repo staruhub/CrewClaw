@@ -8,6 +8,8 @@
 import { EVENTS, makeEvent } from "./protocol.mjs";
 import { reduce, initialAppState } from "./app-state.mjs";
 import { randomUUID } from "node:crypto";
+import { truncateToolDetail } from "../event-summary.mjs";
+import { toolEventPresentation } from "../ui-tools.mjs";
 
 export function createTaskRun(meta = {}, onChange = () => {}) {
   let state = initialAppState(meta);
@@ -49,6 +51,7 @@ export function createTaskRun(meta = {}, onChange = () => {}) {
         ...common,
         id,
         summary: "工具已取消",
+        result_summary: "已取消",
         code: "generation_cancelled",
         detail: String(reason || "generation cancelled"),
       });
@@ -111,8 +114,12 @@ export function createTaskRun(meta = {}, onChange = () => {}) {
     const common = {
       id,
       tool,
+      name: toolEvent.name || tool,
       args: toolEvent.args || {},
-      label: toolEvent.action || toolEvent.summary || tool,
+      args_summary: toolEvent.args_summary,
+      result_summary: toolEvent.result_summary,
+      label: toolEvent.label || toolEvent.action || toolEvent.summary || tool,
+      debug_ref: toolEvent.debug_ref,
       decision: toolEvent.decision?.decision,
       decision_source: toolEvent.decision?.decision_source,
       permission_level: toolEvent.decision?.level,
@@ -139,13 +146,24 @@ export function createTaskRun(meta = {}, onChange = () => {}) {
     terminalToolLifecycles.add(id);
     activeToolLifecycles.delete(id);
     seenToolLifecycles.add(id);
+    const detailResult = truncateToolDetail(
+      toolEvent.detail ?? toolEvent.output ?? toolEvent.error ?? ""
+    );
     apply(terminalType, {
       ...common,
-      summary: toolEvent.summary || toolEvent.action || tool,
+      summary:
+        toolEvent.result_summary ||
+        toolEvent.summary ||
+        toolEvent.action ||
+        tool,
       code: toolEvent.code,
-      detail: String(
-        toolEvent.detail ?? toolEvent.output ?? toolEvent.error ?? ""
-      ).slice(0, 4096),
+      detail: detailResult.detail,
+      ...(detailResult.truncated
+        ? {
+            truncated: true,
+            detail_original_chars: detailResult.originalChars,
+          }
+        : {}),
     });
   };
 
@@ -245,30 +263,63 @@ export function createTaskRun(meta = {}, onChange = () => {}) {
       onThinking: text => {
         if (generationActive && text) apply(EVENTS.THINKING_DELTA, { text });
       },
+      onSkillLaunched: skill => {
+        if (generationActive)
+          apply(EVENTS.SKILL_LAUNCHED, {
+            id: skill?.id,
+            skill: skill?.skill || skill?.name,
+          });
+      },
       onToolEvent,
       onInvocation: (inv = {}) => {
         const knownId = inv.call_id || inv.id;
         if (knownId && seenToolLifecycles.has(knownId)) return;
         const id = knownId || `tool${++toolSeq}`;
+        const tool = inv.toolName || inv.tool_name || "unknown";
+        const args = inv.args || {};
+        const detail =
+          inv.output ??
+          inv.result ??
+          inv.detail ??
+          inv.output_summary ??
+          inv.error ??
+          "";
+        const phase =
+          inv.status === "blocked"
+            ? "blocked"
+            : inv.status === "error"
+              ? "failed"
+              : inv.status === "cancelled"
+                ? "cancelled"
+                : "succeeded";
+        const requestedPresentation = toolEventPresentation({
+          name: tool,
+          args,
+          phase: "requested",
+        });
+        if (!requestedPresentation.args_summary && (inv.line || inv.action)) {
+          requestedPresentation.label = inv.line || inv.action;
+        }
         const requested = {
           id,
-          toolName: inv.toolName || inv.tool_name || "unknown",
-          args: inv.args || {},
+          toolName: tool,
+          args,
           phase: "requested",
-          action: inv.line || inv.action || inv.toolName,
+          ...requestedPresentation,
         };
         onToolEvent(requested);
         onToolEvent({
           ...requested,
-          phase:
-            inv.status === "blocked"
-              ? "blocked"
-              : inv.status === "error"
-                ? "failed"
-                : inv.status === "cancelled"
-                  ? "cancelled"
-                  : "succeeded",
-          action: inv.action,
+          phase,
+          ...toolEventPresentation({
+            name: tool,
+            args,
+            output: detail,
+            confirmed: phase === "blocked" ? false : undefined,
+            phase,
+            decision: inv.decision,
+          }),
+          detail,
           code: inv.code,
         });
       },

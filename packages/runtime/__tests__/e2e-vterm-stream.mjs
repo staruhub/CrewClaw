@@ -173,6 +173,22 @@ for (let i = 0; i < deltas.length; i++) {
 current = { deltaIndex: deltas.length, delta: "<end>" };
 md.end();
 
+const tableAnsi = renderTable([
+  "| 名称 | 状态 |",
+  "| --- | --- |",
+  "| CrewClaw | streaming |",
+]);
+assert.doesNotMatch(
+  tableAnsi,
+  /\x1b\[(?:4[0-9]|10[0-7])m/,
+  "tables must not paint per-cell background colors that become terminal black blocks"
+);
+assert.doesNotMatch(
+  tableAnsi,
+  /\x1b\[0m/,
+  "tables must use scoped style resets instead of ANSI 0m full resets"
+);
+
 const disappear = blankReappearFrames(term.history);
 if (disappear.length) {
   const first = disappear[0];

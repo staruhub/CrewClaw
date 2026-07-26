@@ -3,8 +3,7 @@
 //! 数据真值（用户标准）：
 //!   - APPEARANCE 组**全真生效**：theme(与 `t` 同源,立即 apply)/scanlines(与 `s` 同源)/
 //!     density(行距,影响真实渲染)。改动持久化到 `.crewclaw/prefs.json`。
-//!   - BEHAVIOR 组（审批策略/并行上限/月度预算/权限范围/Dream 时间）**引擎暂不支持**——
-//!     行内 dim 标注,可选可存(为引擎接入预留),但明示当前不生效,不谎称已连。
+//!   - BEHAVIOR 组按真实接线状态标注；Dream 推荐是引擎已消费的二态开关。
 //!
 //! v0.16：desc 列(设计稿每行的说明文字)+ 选项集/标签改用设计稿原值 + aqua 边框(原 purple)。
 
@@ -33,7 +32,7 @@ const APPROVAL_OPTS: [&str; 2] = ["所有交付", "信任后自动"];
 const PARALLEL_OPTS: [&str; 4] = ["1", "2", "3", "4"];
 const BUDGET_OPTS: [&str; 4] = ["$20", "$50", "$100", "$200"];
 const PERM_OPTS: [&str; 3] = ["单次调用", "任务生命周期", "会话"];
-const DREAM_OPTS: [&str; 4] = ["01:00", "02:00", "03:00", "关闭"];
+const DREAM_OPTS: [&str; 2] = ["开启", "关闭"];
 
 fn wrap(idx: usize, delta: i32, len: usize) -> usize {
     if len == 0 {
@@ -135,10 +134,10 @@ fn rows(ui_state: &UiState) -> Vec<RowView> {
             group: None,
         },
         RowView {
-            label: "Dream 时间",
-            desc: "每日复盘与记忆写入时刻",
+            label: "Dream 推荐",
+            desc: "是否展示批量复盘与记忆候选",
             value: DREAM_OPTS[p.dream % DREAM_OPTS.len()].to_string(),
-            unsupported: true,
+            unsupported: false,
             group: None,
         },
     ]

@@ -54,8 +54,18 @@ export function buildRunTurn({
       onThinking: sink.onThinking,
       onInvocation: sink.onInvocation,
       onToolEvent: sink.onToolEvent,
+      onSkillLaunched: sink.onSkillLaunched,
+      onTodoUpdated: sink.onTodoUpdated,
+      onMemoryCandidate: sink.onMemoryCandidate,
+      askUser: sink.askUser,
       onUsage: sink.onUsage,
       signal: sink.signal,
+      taskRunId: sink.taskRunId,
+      initialSkillIds:
+        typeof input === "object" && Array.isArray(input?.initialSkillIds)
+          ? input.initialSkillIds
+          : [],
+      onArtifactCreated: sink.onArtifactCreated,
       confirm: sink.confirm || agentLoopDeps.confirm,
     });
     if (saveSession) saveSession();

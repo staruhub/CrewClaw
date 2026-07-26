@@ -1,9 +1,7 @@
 import { computeCompatibility } from "./compatibility.mjs";
-import {
-  configuredProvidersFromEnv,
-  resolveEmployeeTools,
-} from "./employee-tools.mjs";
+import { resolveEmployeeTools } from "./employee-tools.mjs";
 import { validateEmployeePackage } from "./employee-package.mjs";
+import { mcpReadiness } from "./mcp-client.mjs";
 import { getRuntimeToolCatalog } from "./tool-truth.mjs";
 import { getToolStatus } from "./tui/tool-status.mjs";
 
@@ -246,6 +244,7 @@ export function compatibilityDoctor(pkg, runtimeCapabilities = {}) {
 
 export function onboardingDoctor(pkg, env = process.env, opts = {}) {
   const catalog = getRuntimeToolCatalog(opts);
+  const executableProviders = new Set(mcpReadiness(opts.mcp).providers);
   const toolResolution =
     opts.toolResolution ||
     resolveEmployeeTools({
@@ -253,8 +252,7 @@ export function onboardingDoctor(pkg, env = process.env, opts = {}) {
       catalog,
       toolSchemas: opts.toolSchemas || [],
       grants: opts.grants || [],
-      configuredProviders:
-        opts.configuredProviders || configuredProvidersFromEnv(env),
+      configuredProviders: opts.configuredProviders ?? executableProviders,
       engineCapabilities: opts.engineCapabilities,
       env,
       surface: opts.surface || "task",

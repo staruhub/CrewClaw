@@ -47,8 +47,9 @@ export function readBudgetIndex(root) {
 /**
  * M1 (conditional Dream) — the legacy learning rollback switch. Default ON (=生产当前行为:
  * accept → 即时写活跃记忆). `CREW_LEGACY_LEARNING` env overrides prefs: "0" forces off, "1" forces
- * on, unset falls through to prefs.legacy_learning (default true). M4 flips the prefs default to
- * false; this env + prefs pair stays as the auditable rollback channel until M5 removes legacy.
+ * on, unset falls through to prefs.legacy_learning (default true). The default may flip only after
+ * docs/dream-conditional-design.md's v0.20 gate is met: >=2 distinct ACTIVE employees, each with
+ * verified mock:false eval and non-negative score delta. Until then this remains the rollback path.
  */
 export function legacyLearningEnabled(root, env = process.env) {
   const flag = env?.CREW_LEGACY_LEARNING;

@@ -14,8 +14,18 @@
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { makeEvent, EVENTS } from "./protocol.mjs";
+import { createRevealPacer } from "./reveal-pacer.mjs";
 import { renderMessage } from "../ui-markdown.mjs";
+import { setContentWidth } from "../ui-layout.mjs";
+import { truncateToolDetail } from "../event-summary.mjs";
+import { toolEventPresentation } from "../ui-tools.mjs";
 import { isCommand, runCommand, commandCatalog } from "../commands.mjs";
+import {
+  proposeSessionPermissionLease,
+  sessionPermissionLeaseKey,
+  sessionPermissionLeaseLabel,
+  sessionPermissionLeaseMatches,
+} from "../permission-leases.mjs";
 import { buildRunTurn, buildQuickUtilityTurn } from "./turn-runner.mjs";
 import { routeTurn } from "./route.mjs";
 import {
@@ -42,12 +52,23 @@ import {
   withStateLock,
 } from "../state-lock.mjs";
 import { readKpi, recordTaskOutcome } from "../kpi.mjs";
-import { readEvalResult } from "../eval-runner.mjs";
+import {
+  buildGrowthCard,
+  classifyEvalProviderStatus,
+} from "../eval-provider.mjs";
+import { makeJudge, readEvalResult, runEval } from "../eval-runner.mjs";
 import { buildReflection, writeReflection } from "../reflect.mjs";
 import {
   DREAM_EVENT_FAMILY,
+  activateDreamCandidate,
+  approveDreamCandidate,
   assessDreamFromWorkspace,
+  buildDreamMorningReport,
+  generateDreamCandidate,
+  inspectDreamJob,
   persistDreamRecommendation,
+  rejectDreamCandidate,
+  rollbackDreamActivation,
 } from "../dream-controller.mjs";
 import {
   readApprovalPolicy,
@@ -79,6 +100,8 @@ export async function startJsonlBridge({
   root: bridgeRoot = process.env.CREWCLAW_ROOT || process.cwd(),
   artifactActionDeps = {},
   proofPackWriter,
+  taskPreflight,
+  refreshAgentContext,
 }) {
   let sessionPendingActions = []; // last task's actions — digit input matches these (§6.4)
   const artifactsById = new Map();
@@ -90,21 +113,40 @@ export async function startJsonlBridge({
     toolSeq = 0,
     apprSeq = 0;
   let pendingConfirm = null; // {id, taskRunId, resolve} while agentLoop awaits a tool authorization
+  const sessionPermissionLeases = new Map();
+  let pendingQuestion = null; // {id, taskRunId, options, otherKey, awaitingOther, resolve}
   let pendingApproval = null; // durable held deliverable awaiting acceptance
   let activeTaskRunId = null;
   let activeTurnId = null;
   let generationActive = false;
+  let revealPacer = null;
+  let revealPaused = false;
+  let postToolDeltas = [];
+  let sinkEventChain = Promise.resolve();
   let activeAbortController = null;
   let busy = false;
+  let dreamBusy = false;
+  let contextEpoch = Number.isSafeInteger(meta.contextEpoch)
+    ? meta.contextEpoch
+    : 0;
+  let activeMemoryStateHash =
+    typeof meta.memoryStateHash === "string" ? meta.memoryStateHash : null;
   let closing = false;
   let closeReason = "input_eof";
   let closeTerminalEmitted = false;
   let usageAcc = { prompt: 0, completion: 0 };
+  let lastTodoStatuses = [];
+  const activeSkillCalls = new Map();
   const clientEventFamilies = new Set();
   const emittedDreamRecommendations = new Set();
   const terminalTaskIds = new Set();
+  const cancelledTaskIds = new Set();
   const queuedInputs = [];
   const turnUsage = () => ({ ...usageAcc });
+  const skillUsageSnapshot = () =>
+    [...activeSkillCalls.entries()]
+      .map(([skill_id, calls]) => ({ skill_id, calls }))
+      .sort((left, right) => left.skill_id.localeCompare(right.skill_id, "en"));
   const terminalEvents = new Set([
     EVENTS.TASK_COMPLETED,
     EVENTS.TASK_REJECTED,
@@ -116,12 +158,14 @@ export async function startJsonlBridge({
     EVENTS.TOKEN_DELTA,
     EVENTS.THINKING_DELTA,
     EVENTS.ASSISTANT_RENDERED,
+    EVENTS.ASSISTANT_RENDERING_PREVIEW,
     EVENTS.TOOL_REQUESTED,
     EVENTS.TOOL_RUNNING,
     EVENTS.TOOL_SUCCEEDED,
     EVENTS.TOOL_FAILED,
     EVENTS.TOOL_BLOCKED,
     EVENTS.TOOL_CANCELLED,
+    EVENTS.TODO_UPDATED,
   ]);
   const correlatedEvents = new Set([
     EVENTS.TASK_STARTED,
@@ -133,6 +177,7 @@ export async function startJsonlBridge({
     EVENTS.TOKEN_DELTA,
     EVENTS.THINKING_DELTA,
     EVENTS.ASSISTANT_RENDERED,
+    EVENTS.ASSISTANT_RENDERING_PREVIEW,
     EVENTS.TOKEN_USAGE,
     EVENTS.TOOL_REQUESTED,
     EVENTS.TOOL_RUNNING,
@@ -140,6 +185,7 @@ export async function startJsonlBridge({
     EVENTS.TOOL_FAILED,
     EVENTS.TOOL_BLOCKED,
     EVENTS.TOOL_CANCELLED,
+    EVENTS.TODO_UPDATED,
   ]);
 
   const emit = (type, data = {}) => {
@@ -169,7 +215,7 @@ export async function startJsonlBridge({
       generationActive &&
       referencedTaskId === activeTaskRunId
     ) {
-      finishGeneration();
+      cancelGenerationNow(EVENTS.GENERATION_COMPLETED);
     }
     if (
       terminalEvents.has(type) &&
@@ -179,7 +225,7 @@ export async function startJsonlBridge({
       const failed =
         type === EVENTS.TASK_FAILED ||
         (type === EVENTS.TASK_REJECTED && payload.status === "failed");
-      finishGeneration(
+      cancelGenerationNow(
         failed ? EVENTS.GENERATION_FAILED : EVENTS.GENERATION_COMPLETED,
         failed ? { reason: payload.reason || "task failed" } : {}
       );
@@ -269,11 +315,117 @@ export async function startJsonlBridge({
     }
     return emit(type, turnPayload(data));
   };
+  const summarizeContextIndex = contextIndex => ({
+    skills: {
+      included: contextIndex?.skills?.included?.length || 0,
+      dropped: contextIndex?.skills?.dropped?.length || 0,
+      estimated_tokens: contextIndex?.skills?.estimatedTokens || 0,
+      budget_tokens: contextIndex?.skills?.budgetTokens || 0,
+      body_injected: false,
+    },
+    memory: {
+      included: contextIndex?.memory?.included?.length || 0,
+      dropped: contextIndex?.memory?.dropped?.length || 0,
+      estimated_tokens: contextIndex?.memory?.estimatedTokens || 0,
+      full_estimated_tokens: contextIndex?.memory?.fullEstimatedTokens || 0,
+      budget_tokens: contextIndex?.memory?.budgetTokens || 0,
+      body_injected: false,
+    },
+  });
+  const refreshContextAfterMemoryChange = async ({
+    reason,
+    expectedMemoryStateHash,
+  }) => {
+    const previousMemoryStateHash = activeMemoryStateHash;
+    if (typeof refreshAgentContext !== "function") {
+      return {
+        status: "unavailable",
+        reason,
+        epoch: contextEpoch,
+        previous_memory_state_hash: previousMemoryStateHash,
+        expected_memory_state_hash: expectedMemoryStateHash || null,
+      };
+    }
+    try {
+      const refreshed = await refreshAgentContext({
+        reason,
+        expectedMemoryStateHash,
+        epoch: contextEpoch + 1,
+      });
+      const nextSystem = String(refreshed?.system || "");
+      const nextMemoryStateHash = String(
+        refreshed?.memoryStateHash || ""
+      ).trim();
+      if (!nextSystem.trim()) throw new Error("refreshed system is empty");
+      if (!nextMemoryStateHash)
+        throw new Error("refreshed memory state hash is missing");
+      if (
+        expectedMemoryStateHash &&
+        nextMemoryStateHash !== expectedMemoryStateHash
+      ) {
+        throw new Error("refreshed memory state hash does not match receipt");
+      }
+      if (
+        !refreshed?.contextIndex ||
+        typeof refreshed.contextIndex !== "object"
+      ) {
+        throw new Error("refreshed context index is missing");
+      }
+
+      // buildRunTurn spreads agentLoopDeps at invocation time. Mutating this frozen session
+      // snapshot cannot affect an in-flight model call, but the very next turn sees the new index.
+      agentLoopDeps.system = nextSystem;
+      meta.contextIndex = refreshed.contextIndex;
+      if (
+        Number.isSafeInteger(refreshed.contextTokens) &&
+        refreshed.contextTokens > 0
+      ) {
+        meta.contextTokens = refreshed.contextTokens;
+      }
+      activeMemoryStateHash = nextMemoryStateHash;
+      contextEpoch += 1;
+      meta.memoryStateHash = nextMemoryStateHash;
+      meta.contextEpoch = contextEpoch;
+      return {
+        status: "applied",
+        reason,
+        epoch: contextEpoch,
+        previous_memory_state_hash: previousMemoryStateHash,
+        memory_state_hash: nextMemoryStateHash,
+        context_tokens:
+          Number.isSafeInteger(meta.contextTokens) && meta.contextTokens > 0
+            ? meta.contextTokens
+            : null,
+        context_index: summarizeContextIndex(refreshed.contextIndex),
+      };
+    } catch (error) {
+      return {
+        status: "failed",
+        reason,
+        epoch: contextEpoch,
+        previous_memory_state_hash: previousMemoryStateHash,
+        expected_memory_state_hash: expectedMemoryStateHash || null,
+        error: String(error?.message || error).slice(0, 240),
+      };
+    }
+  };
   const ensurePartId = () => {
     if (!activePartId && activeTurnId) {
       activePartId = `${activeTurnId}-part-${++partSeq}`;
     }
     return activePartId;
+  };
+  // Mid-stream markdown previews used to re-typeset the whole part every ~200ms and the
+  // front-end preferred that snapshot over the 30ms grapheme reveal. Generation therefore
+  // streams the raw buffer only; the first (and only) typeset arrives on assistant.rendered
+  // when the part flushes at a tool boundary or generation end.
+  const emitRevealedDelta = value => {
+    if (!generationActive || terminalTaskIds.has(activeTaskRunId)) return false;
+    const text = String(value || "");
+    if (!text) return false;
+    const partId = ensurePartId();
+    partText += text;
+    return emitTurn(EVENTS.TOKEN_DELTA, { part_id: partId, text });
   };
   const flushAssistantPart = () => {
     if (!partText.trim() || !generationActive) {
@@ -291,10 +443,35 @@ export async function startJsonlBridge({
     activePartId = null;
     return emitted;
   };
-  const finishGeneration = (type = EVENTS.GENERATION_COMPLETED, extra = {}) => {
+  const cancelGenerationNow = (
+    type = EVENTS.GENERATION_CANCELLED,
+    extra = {}
+  ) => {
+    if (!generationActive) return false;
+    revealPacer?.cancel();
+    revealPacer = null;
+    revealPaused = false;
+    postToolDeltas = [];
+    flushAssistantPart();
+    generationActive = false;
+    return emitTurn(type, {
+      id: `${activeTurnId}-generation`,
+      ...extra,
+    });
+  };
+  const finishGeneration = async (
+    type = EVENTS.GENERATION_COMPLETED,
+    extra = {}
+  ) => {
+    if (!generationActive) return false;
+    await sinkEventChain;
+    if (!generationActive) return false;
+    await revealPacer?.drain();
     if (!generationActive) return false;
     flushAssistantPart();
     generationActive = false;
+    revealPacer?.cancel();
+    revealPacer = null;
     return emitTurn(type, {
       id: `${activeTurnId}-generation`,
       ...extra,
@@ -316,7 +493,7 @@ export async function startJsonlBridge({
   // tasks/cost 的落盘快照）——EMPLOYEE 面板的"本会话"区不变，新增的"累计"区读这个。
   const kpiCumulative = readKpi(bridgeRoot, meta.agentId);
   // v0.18 B2：eval = 上岗考试真评测结果（eval-runner 落 .crewclaw/eval/<agent>.json）。null=从未评测
-  // → EVAL 屏保留 MOCK 占位；mock:true → 屏上标注"非认证分"；mock:false → 真认证分。
+  // → EVAL 屏保留 MOCK 占位；mock:true → 明示非 C2；mock:false → 已验证真实评测，仍非正式 C2。
   const evalResult = readEvalResult(bridgeRoot, meta.agentId);
   const dreamOptions = ({ manualTrigger = false } = {}) => {
     const currentSpend = readSpend(bridgeRoot);
@@ -341,6 +518,104 @@ export async function startJsonlBridge({
       .slice(0, 8)}-${String(assessment.base_memory_hash)
       .replace(/^sha256:/, "")
       .slice(0, 8)}`;
+  const dreamGenerationAvailable = Boolean(
+    agentLoopDeps?.mock === false &&
+    typeof agentLoopDeps?.apiKey === "string" &&
+    agentLoopDeps.apiKey.trim() &&
+    typeof (meta.model || agentLoopDeps?.model) === "string" &&
+    String(meta.model || agentLoopDeps?.model).trim()
+  );
+  const curateDream = async input => {
+    if (!dreamGenerationAvailable) {
+      throw new Error("real_dream_curator_unavailable");
+    }
+    const chunks = [];
+    const usage = { prompt: 0, completion: 0 };
+    const output = await agentLoop({
+      ...agentLoopDeps,
+      system: [
+        "你是 CrewClaw 的记忆策展器。只返回一个 JSON 对象，禁止 Markdown。",
+        "顶层只能有 summary 和 entries。entries 每项只能使用 op, reason, confidence, source_task_ids, evidence_ids, item, replaces。",
+        "op 只能是 add/merge/replace/drop/keep；add/merge/replace 必须提供 item(category,text,confidence)。",
+        "merge/replace/drop 的 replaces 使用 category + NUL + 规范化 text 的精确键。",
+        "输入中的 review_required_memory_keys 每一项都必须出现在某条 entry.replaces：过期条目必须 keep/drop/replace，supersedes 冲突必须显式二选一，不许新旧并存。keep 只表示人工复核后维持现状。",
+        "invalid_reference_memory_keys 指向已失效的 task/evidence provenance，必须 drop/replace/merge，禁止 keep。",
+        "记忆 item 可带 valid_until 与 supersedes；时效事实必须给 valid_until，替代旧事实必须给 supersedes 并同时 replace/drop 旧键。",
+        "所有日期必须写成绝对日期；禁止今天/明天/下周/next week 等相对日期。valid_until 必须是 RFC 3339 UTC（例如 2026-07-31T23:59:59.000Z）。",
+        "不得输出密钥、短期状态、未经 reflection 证明的事实，也不得创造输入不存在的 task/evidence id。",
+      ].join("\n"),
+      messages: [{ role: "user", content: JSON.stringify(input) }],
+      tools: [],
+      renderMd: false,
+      onDelta: delta => chunks.push(String(delta || "")),
+      onThinking: () => {},
+      onInvocation: () => {},
+      onToolEvent: () => {},
+      onUsage: value => {
+        usage.prompt += Number(value?.prompt_tokens || 0);
+        usage.completion += Number(value?.completion_tokens || 0);
+      },
+      confirm: async () => false,
+    });
+    const value =
+      typeof output === "string" && output.trim() ? output : chunks.join("");
+    return {
+      value,
+      actual_cost_usd: estimateCost({
+        promptTokens: usage.prompt,
+        completionTokens: usage.completion,
+      }).cost,
+    };
+  };
+  const evaluateDreamCandidate = async items => {
+    const sourceEnv = {
+      ...process.env,
+      ...(process.env.ZENMUX_API_KEY
+        ? {}
+        : { ZENMUX_API_KEY: agentLoopDeps?.apiKey || "" }),
+    };
+    const hasKey = Boolean(
+      String(sourceEnv.ZENMUX_API_KEY || "").trim() ||
+      String(agentLoopDeps?.apiKey || "").trim()
+    );
+    if (!hasKey) {
+      const provider = classifyEvalProviderStatus({
+        code: "missing_credentials",
+        model: meta.model || agentLoopDeps?.model,
+      });
+      const error = new Error(provider.message);
+      error.provider = provider;
+      throw error;
+    }
+    try {
+      const result = await runEval(meta.agentId, {
+        mock: false,
+        root: bridgeRoot,
+        judge: makeJudge({ sourceEnv }),
+        stagedMemoryItems: items,
+        sourceEnv,
+      });
+      return {
+        ...result,
+        provider_status: "verified",
+        eval_provider: classifyEvalProviderStatus({
+          ok: true,
+          code: "verified",
+          model: result.judge_model || result.model,
+        }),
+      };
+    } catch (error) {
+      const message = error?.message || String(error);
+      const httpMatch = message.match(/HTTP\s+(\d{3})/i);
+      const provider = classifyEvalProviderStatus(
+        httpMatch
+          ? { status: Number(httpMatch[1]), message, model: meta.model }
+          : { code: "unavailable", message, model: meta.model }
+      );
+      error.provider = provider;
+      throw error;
+    }
+  };
   const emitDreamAssessment = (assessment, { force = false } = {}) => {
     if (!assessment || !meta.agentId) return false;
     if (!clientEventFamilies.has(DREAM_EVENT_FAMILY)) return false;
@@ -365,12 +640,13 @@ export async function startJsonlBridge({
           base_memory_hash: assessment.base_memory_hash,
           trigger_reasons: assessment.trigger_reasons,
           metrics: assessment.metrics,
+          skill_signals: assessment.skill_signals,
           curation: assessment.curation,
           activation: assessment.activation,
           estimated_cost_usd: assessment.cost.estimated_usd,
           estimated_input_tokens: assessment.cost.estimated_input_tokens,
           estimated_output_tokens: assessment.cost.estimated_output_tokens,
-          generation_available: false,
+          generation_available: dreamGenerationAvailable,
         });
         emittedDreamRecommendations.add(dreamId);
       }
@@ -384,6 +660,7 @@ export async function startJsonlBridge({
         blockers: assessment.curation.blockers,
         trigger_reasons: assessment.trigger_reasons,
         metrics: assessment.metrics,
+        skill_signals: assessment.skill_signals,
       });
     }
     return false;
@@ -400,6 +677,32 @@ export async function startJsonlBridge({
     );
     return emitDreamAssessment(dreamAssessment, { force });
   };
+  const emitDreamMorningReport = () => {
+    if (!meta.agentId || !clientEventFamilies.has(DREAM_EVENT_FAMILY)) {
+      return false;
+    }
+    const projected = buildDreamMorningReport(bridgeRoot, meta.agentId);
+    if (!projected.ok) return false;
+    emit(EVENTS.DREAM_MORNING_REPORT, projected.report);
+    return true;
+  };
+  const growthCard = buildGrowthCard({
+    employeeId: meta.agentId,
+    evalResult,
+    provider: process.env.ZENMUX_API_KEY
+      ? evalResult?.mock === false
+        ? { ok: true, code: "verified" }
+        : {
+            code: process.env.ZENMUX_API_KEY
+              ? "unavailable"
+              : "missing_credentials",
+            message: evalResult
+              ? "Stored eval is mock-only; provider credentials are present but no certified baseline is bound."
+              : "No certified eval result is bound to this employee yet.",
+          }
+      : { code: "missing_credentials" },
+    kpi: kpiCumulative,
+  });
   emit(EVENTS.SESSION_READY, {
     employee: {
       name: agentName,
@@ -410,6 +713,7 @@ export async function startJsonlBridge({
       avatar: meta.avatar || [],
       kpi_cumulative: kpiCumulative,
       eval: evalResult,
+      growth_card: growthCard,
     },
     tool_catalog: {
       version: meta.toolCatalogVersion || null,
@@ -422,7 +726,20 @@ export async function startJsonlBridge({
       grant_source: meta.toolGrantSource || null,
       grant_warning: meta.toolGrantWarning || null,
     },
-    caps: { ansi: true, parts: true, commands: commandCatalog() },
+    context_index: {
+      epoch: contextEpoch,
+      memory_state_hash: activeMemoryStateHash,
+      context_tokens:
+        Number.isSafeInteger(meta.contextTokens) && meta.contextTokens > 0
+          ? meta.contextTokens
+          : null,
+      ...summarizeContextIndex(meta.contextIndex),
+    },
+    caps: {
+      ansi: true,
+      parts: true,
+      commands: commandCatalog(agentLoopDeps?.skillCatalog || []),
+    },
   });
 
   // Assistant prose is accumulated per part. A tool request flushes only the current part, and a
@@ -583,8 +900,15 @@ export async function startJsonlBridge({
       completionTokens: produced.completion,
     }).cost;
     const kpi = recordTaskOutcome(held.root, held.agentId || meta.agentId, {
-      accepted: true,
+      taskKind: "formal",
+      outcome: auto ? "auto_accepted" : "accepted",
+      acceptanceSource: auto ? "policy" : "user",
       cost,
+      durationMs: Number.isFinite(held.createdAt)
+        ? Math.max(0, Date.now() - held.createdAt)
+        : 0,
+      evidenceCount: held.artifact ? 1 : 0,
+      skillUsage: held.skillUsage || [],
       taskRunId: held.taskRunId,
     });
     const spend = accrueSpend(cost, held.taskRunId);
@@ -648,8 +972,15 @@ export async function startJsonlBridge({
       completionTokens: produced.completion,
     }).cost;
     const kpi = recordTaskOutcome(held.root, held.agentId || meta.agentId, {
-      accepted: false,
+      taskKind: "formal",
+      outcome: "rejected",
+      acceptanceSource: "none",
       cost,
+      durationMs: Number.isFinite(held.createdAt)
+        ? Math.max(0, Date.now() - held.createdAt)
+        : 0,
+      evidenceCount: held.artifact ? 1 : 0,
+      skillUsage: held.skillUsage || [],
       taskRunId: held.taskRunId,
     });
     const spend = accrueSpend(cost, held.taskRunId);
@@ -754,82 +1085,235 @@ export async function startJsonlBridge({
     get signal() {
       return activeAbortController?.signal;
     },
+    get taskRunId() {
+      return activeTaskRunId;
+    },
+    onArtifactCreated: artifact => {
+      if (!generationActive || !activeTaskRunId || !artifact) return;
+      emitTurn(EVENTS.ARTIFACT_CREATED, {
+        id: artifact.artifact_id,
+        taskRunId: activeTaskRunId,
+        name: artifact.name,
+        kind: artifact.kind,
+        path: artifact.path,
+        status: artifact.status,
+        bytes: artifact.bytes,
+      });
+    },
     onDelta: text => {
       if (!generationActive || terminalTaskIds.has(activeTaskRunId)) return;
       const value = text ?? "";
       if (!value) return;
-      const partId = ensurePartId();
-      partText += value;
-      emitTurn(EVENTS.TOKEN_DELTA, { part_id: partId, text: value });
+      if (revealPaused) postToolDeltas.push(value);
+      else revealPacer?.push(value);
     },
     // v0.11 M4：真·思考增量 → thinking.delta（前端折叠成「思考」块）。不计入 turnText（思考不是交付正文）。
     onThinking: text => {
       if (text && generationActive) emitTurn(EVENTS.THINKING_DELTA, { text });
     },
-    onToolEvent: (toolEvent = {}) => {
+    onSkillLaunched: skill => {
       if (!generationActive || terminalTaskIds.has(activeTaskRunId)) return;
-      const id = toolEvent.id || `tool${++toolSeq}`;
-      const tool = toolEvent.toolName || toolEvent.tool || "unknown";
-      const phase = toolEvent.phase;
-      const rawDetail =
-        toolEvent.detail ??
-        toolEvent.output ??
-        toolEvent.result ??
-        toolEvent.error ??
-        "";
-      const detail = String(
-        typeof rawDetail === "string"
-          ? rawDetail
-          : JSON.stringify(rawDetail, null, 2)
-      ).slice(0, 4096);
-      const common = {
-        id,
-        tool,
-        capability: toolEvent.decision?.capability,
-        capabilities: toolEvent.decision?.capabilities,
-        args: toolEvent.args || {},
-        label: toolEvent.action || toolEvent.summary || tool,
-        decision: toolEvent.decision?.decision,
-        decision_source: toolEvent.decision?.decision_source,
-        permission_level: toolEvent.decision?.level,
-      };
-      if (phase === "requested") {
-        if (terminalToolLifecycles.has(id)) return;
-        const current = activeToolLifecycles.get(id);
-        if (current?.phase === "requested" || current?.phase === "running")
-          return;
-        flushAssistantPart();
-        seenToolLifecycle.add(id);
-        activeToolLifecycles.set(id, { phase, ...common });
-        emitTurn(EVENTS.TOOL_REQUESTED, common);
-        return;
+      const skillId = String(skill?.skill || skill?.name || "").trim();
+      if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skillId)) {
+        activeSkillCalls.set(skillId, (activeSkillCalls.get(skillId) || 0) + 1);
       }
-      if (phase === "running") {
-        if (terminalToolLifecycles.has(id)) return;
-        if (activeToolLifecycles.get(id)?.phase === "running") return;
-        seenToolLifecycle.add(id);
-        activeToolLifecycles.set(id, { phase, ...common });
-        emitTurn(EVENTS.TOOL_RUNNING, common);
-        return;
-      }
-      const terminalType = {
-        succeeded: EVENTS.TOOL_SUCCEEDED,
-        failed: EVENTS.TOOL_FAILED,
-        blocked: EVENTS.TOOL_BLOCKED,
-        cancelled: EVENTS.TOOL_CANCELLED,
-      }[phase];
-      if (terminalType) {
-        if (terminalToolLifecycles.has(id)) return;
-        terminalToolLifecycles.add(id);
-        activeToolLifecycles.delete(id);
-        seenToolLifecycle.add(id);
-        emitTurn(terminalType, {
-          ...common,
-          summary: toolEvent.summary || toolEvent.action || tool,
-          code: toolEvent.code,
-          detail,
+      emitTurn(EVENTS.SKILL_LAUNCHED, {
+        id: skill?.id,
+        skill: skillId,
+      });
+    },
+    onTodoUpdated: update => {
+      if (!generationActive || !activeTaskRunId) return;
+      const todos = Array.isArray(update?.todos) ? update.todos : [];
+      if (update?.phase === "proposed") {
+        emitTurn(EVENTS.PLAN_CREATED, {
+          id: `plan-${activeTaskRunId}`,
+          steps: todos.map(todo => todo.content),
         });
       }
+      if (update?.phase === "approved") {
+        emitTurn(EVENTS.PLAN_APPROVED, { id: `plan-${activeTaskRunId}` });
+      }
+      todos.forEach((todo, index) => {
+        const previous = lastTodoStatuses[index];
+        if (todo.status === "in_progress" && previous !== "in_progress") {
+          emitTurn(EVENTS.STEP_STARTED, {
+            id: `todo-step-${activeTaskRunId}-${index}`,
+            label: todo.content,
+          });
+        }
+        if (todo.status === "completed" && previous !== "completed") {
+          emitTurn(EVENTS.STEP_COMPLETED, {
+            id: `todo-step-${activeTaskRunId}-${index}`,
+            summary: todo.content,
+          });
+        }
+      });
+      lastTodoStatuses = todos.map(todo => todo.status);
+      emitTurn(EVENTS.TODO_UPDATED, {
+        id: `todo-${activeTaskRunId}`,
+        phase: update?.phase || "updated",
+        todos,
+      });
+    },
+    onMemoryCandidate: candidate => {
+      if (!generationActive || !activeTaskRunId || !candidate) return;
+      emitTurn(EVENTS.MEMORY_SAVED, {
+        id: candidate.id,
+        pool: "candidate",
+        status: candidate.status,
+        category: candidate.category,
+        active_memory_changed: false,
+      });
+    },
+    askUser: question => {
+      const taskRunId = activeTaskRunId;
+      const id = `question-${taskRunId || "session"}-${++apprSeq}`;
+      const options = Array.isArray(question?.options) ? question.options : [];
+      const otherKey = String(options.length + 1);
+      const pending = new Promise(resolve => {
+        pendingQuestion = {
+          id,
+          taskRunId,
+          question: question?.question,
+          options,
+          otherKey,
+          awaitingOther: false,
+          resolve,
+        };
+      });
+      sinkEventChain = sinkEventChain
+        .then(async () => {
+          await revealPacer?.drain();
+          if (!generationActive || pendingQuestion?.id !== id) return;
+          emitTurn(EVENTS.PENDING_ACTIONS, {
+            id,
+            question: question?.question,
+            actions: [
+              ...options.map((label, index) => ({
+                key: String(index + 1),
+                label,
+                action_type: "ask_user_option",
+                payload: label,
+              })),
+              {
+                key: otherKey,
+                label: "其他（直接输入）",
+                action_type: "ask_user_other",
+              },
+            ],
+          });
+        })
+        .catch(error => {
+          emit(EVENTS.DEBUG_LINE, {
+            line: `structured question failed: ${String(error?.message || error)}`,
+          });
+        });
+      return pending;
+    },
+    onToolEvent: (toolEvent = {}) => {
+      if (!generationActive || terminalTaskIds.has(activeTaskRunId)) return;
+      const queuedToolEvent = { ...toolEvent };
+      const boundaryPacer =
+        queuedToolEvent.phase === "requested" ? revealPacer : null;
+      if (boundaryPacer) revealPaused = true;
+      sinkEventChain = sinkEventChain
+        .then(async () => {
+          if (!generationActive || terminalTaskIds.has(activeTaskRunId)) return;
+          if (queuedToolEvent.phase === "requested")
+            await boundaryPacer?.drain();
+          if (!generationActive || terminalTaskIds.has(activeTaskRunId)) return;
+          const id = queuedToolEvent.id || `tool${++toolSeq}`;
+          const tool =
+            queuedToolEvent.toolName || queuedToolEvent.tool || "unknown";
+          const phase = queuedToolEvent.phase;
+          const rawDetail =
+            queuedToolEvent.detail ??
+            queuedToolEvent.output ??
+            queuedToolEvent.result ??
+            queuedToolEvent.error ??
+            "";
+          const detailResult = truncateToolDetail(rawDetail);
+          const common = {
+            id,
+            tool,
+            name: queuedToolEvent.name || tool,
+            capability: queuedToolEvent.decision?.capability,
+            capabilities: queuedToolEvent.decision?.capabilities,
+            args: queuedToolEvent.args || {},
+            args_summary: queuedToolEvent.args_summary,
+            result_summary: queuedToolEvent.result_summary,
+            label:
+              queuedToolEvent.label ||
+              queuedToolEvent.action ||
+              queuedToolEvent.summary ||
+              tool,
+            debug_ref: queuedToolEvent.debug_ref,
+            decision: queuedToolEvent.decision?.decision,
+            decision_source: queuedToolEvent.decision?.decision_source,
+            permission_level: queuedToolEvent.decision?.level,
+          };
+          if (phase === "requested") {
+            if (terminalToolLifecycles.has(id)) return;
+            const current = activeToolLifecycles.get(id);
+            if (current?.phase === "requested" || current?.phase === "running")
+              return;
+            flushAssistantPart();
+            seenToolLifecycle.add(id);
+            activeToolLifecycles.set(id, { phase, ...common });
+            emitTurn(EVENTS.TOOL_REQUESTED, common);
+            if (revealPacer === boundaryPacer) {
+              revealPacer = createRevealPacer({ emit: emitRevealedDelta });
+            }
+            revealPaused = false;
+            for (const delta of postToolDeltas.splice(0))
+              revealPacer?.push(delta);
+            return;
+          }
+          if (phase === "running") {
+            if (terminalToolLifecycles.has(id)) return;
+            if (activeToolLifecycles.get(id)?.phase === "running") return;
+            seenToolLifecycle.add(id);
+            activeToolLifecycles.set(id, { phase, ...common });
+            emitTurn(EVENTS.TOOL_RUNNING, common);
+            return;
+          }
+          const terminalType = {
+            succeeded: EVENTS.TOOL_SUCCEEDED,
+            failed: EVENTS.TOOL_FAILED,
+            blocked: EVENTS.TOOL_BLOCKED,
+            cancelled: EVENTS.TOOL_CANCELLED,
+          }[phase];
+          if (terminalType) {
+            if (terminalToolLifecycles.has(id)) return;
+            terminalToolLifecycles.add(id);
+            activeToolLifecycles.delete(id);
+            seenToolLifecycle.add(id);
+            emitTurn(terminalType, {
+              ...common,
+              summary:
+                queuedToolEvent.result_summary ||
+                queuedToolEvent.summary ||
+                queuedToolEvent.action ||
+                tool,
+              code: queuedToolEvent.code,
+              detail: detailResult.detail,
+              ...(detailResult.truncated
+                ? {
+                    truncated: true,
+                    detail_original_chars: detailResult.originalChars,
+                  }
+                : {}),
+            });
+          }
+        })
+        .catch(error => {
+          revealPaused = false;
+          postToolDeltas = [];
+          emit(EVENTS.DEBUG_LINE, {
+            line: `tool event pacing failed: ${String(error?.message || error)}`,
+          });
+        });
     },
     // Backward-compatible adapter for injected/older agentLoop implementations that only expose
     // the settled audit record. The current runtime emits onToolEvent and is therefore skipped.
@@ -838,30 +1322,51 @@ export async function startJsonlBridge({
       if (knownId && seenToolLifecycle.has(knownId)) return;
       const id = knownId || `tool${++toolSeq}`;
       const tool = inv.toolName || inv.tool_name || "unknown";
+      const args = inv.args || {};
+      const detail =
+        inv.output ??
+        inv.result ??
+        inv.detail ??
+        inv.output_summary ??
+        inv.error ??
+        "";
+      const phase =
+        inv.status === "blocked"
+          ? "blocked"
+          : inv.status === "error"
+            ? "failed"
+            : inv.status === "cancelled"
+              ? "cancelled"
+              : "succeeded";
+      const requestedPresentation = toolEventPresentation({
+        name: tool,
+        args,
+        phase: "requested",
+      });
+      if (!requestedPresentation.args_summary && (inv.line || inv.action)) {
+        requestedPresentation.label = inv.line || inv.action;
+      }
       sink.onToolEvent({
         id,
         toolName: tool,
-        args: inv.args || {},
+        args,
         phase: "requested",
-        action: inv.line || inv.action || tool,
+        ...requestedPresentation,
       });
       sink.onToolEvent({
         id,
         toolName: tool,
-        args: inv.args || {},
-        phase:
-          inv.status === "blocked"
-            ? "blocked"
-            : inv.status === "error"
-              ? "failed"
-              : "succeeded",
-        action: inv.action || tool,
-        detail:
-          inv.output ??
-          inv.result ??
-          inv.detail ??
-          inv.output_summary ??
-          inv.error,
+        args,
+        phase,
+        ...toolEventPresentation({
+          name: tool,
+          args,
+          output: detail,
+          confirmed: phase === "blocked" ? false : undefined,
+          phase,
+          decision: inv.decision,
+        }),
+        detail,
         code: inv.code,
       });
     },
@@ -874,20 +1379,96 @@ export async function startJsonlBridge({
         completion: u.completion_tokens,
       });
     },
-    // L2 approval over the process boundary: emit APPROVAL_REQUIRED, await the front's a/d line.
+    // Protected-tool approval over the process boundary. A session lease may satisfy a repeated,
+    // narrowly-scoped workspace request only after the gateway has independently returned confirm.
     confirm: (msg, info = {}) => {
       const taskRunId = activeTaskRunId;
       const id = `tool-appr-${taskRunId || "session"}-${++apprSeq}`;
-      emitTurn(EVENTS.APPROVAL_REQUIRED, {
-        id,
-        kind: "tool_authorization",
+      const kind = info.kind || "tool_authorization";
+      const request = {
         tool: info.tool || info.toolName,
-        reason: typeof msg === "string" ? msg : info.reason,
-        scope: info.scope,
+        args: info.args,
+        permission: {
+          decision: "confirm",
+          scope: info.scope,
+          level: info.level,
+        },
+        root: bridgeRoot,
+        kind,
+      };
+      const sessionLease = proposeSessionPermissionLease(request);
+      const matchedLease = [...sessionPermissionLeases.values()].find(lease =>
+        sessionPermissionLeaseMatches(lease, request)
+      );
+      if (matchedLease) {
+        sinkEventChain = sinkEventChain
+          .then(async () => {
+            await revealPacer?.drain();
+            if (!generationActive) return false;
+            const common = {
+              id,
+              kind,
+              tool: info.tool || info.toolName,
+              taskRunId,
+              scope: info.scope,
+              session_lease: matchedLease,
+              auto: true,
+              decision_source: "session_permission_lease",
+            };
+            // Preserve an auditable canonical approval pair without leaving a human modal open.
+            emitTurn(EVENTS.APPROVAL_REQUIRED, {
+              ...common,
+              reason: typeof msg === "string" ? msg : info.reason,
+              choices: ["allow_session", "deny"],
+            });
+            emitTurn(EVENTS.APPROVAL_RESOLVED, {
+              ...common,
+              decision: "allow_session",
+            });
+            return true;
+          })
+          .catch(error => {
+            emit(EVENTS.DEBUG_LINE, {
+              line: `session approval pacing failed: ${String(error?.message || error)}`,
+            });
+            return false;
+          });
+        return sinkEventChain;
+      }
+      const pending = new Promise(resolve => {
+        pendingConfirm = {
+          id,
+          taskRunId,
+          resolve,
+          kind,
+          sessionLease,
+        };
       });
-      return new Promise(resolve => {
-        pendingConfirm = { id, taskRunId, resolve };
-      });
+      sinkEventChain = sinkEventChain
+        .then(async () => {
+          await revealPacer?.drain();
+          if (!generationActive || pendingConfirm?.id !== id) return;
+          emitTurn(EVENTS.APPROVAL_REQUIRED, {
+            id,
+            // Preserve the approval kind (e.g. "plan_approval" from todo_write) instead of
+            // flattening everything to tool_authorization — consumers (eval harness, TUI
+            // approval bar) must be able to tell a task-plan review from a tool grant.
+            kind,
+            tool: info.tool || info.toolName,
+            reason: typeof msg === "string" ? msg : info.reason,
+            scope: info.scope,
+            choices: sessionLease
+              ? ["allow", "allow_session", "deny"]
+              : ["allow", "deny"],
+            ...(sessionLease ? { session_lease: sessionLease } : {}),
+          });
+        })
+        .catch(error => {
+          emit(EVENTS.DEBUG_LINE, {
+            line: `approval pacing failed: ${String(error?.message || error)}`,
+          });
+        });
+      return pending;
     },
   };
 
@@ -1021,16 +1602,37 @@ export async function startJsonlBridge({
     // even while Windows is still reaping a child-process tree.
     cancelActiveToolLifecycles(closeReason);
 
+    if (pendingQuestion) {
+      const held = pendingQuestion;
+      pendingQuestion = null;
+      cancelGenerationNow(EVENTS.GENERATION_CANCELLED, {
+        reason: "等待用户回答期间会话已结束",
+      });
+      emit(EVENTS.PENDING_ACTIONS, {
+        taskRunId: held.taskRunId,
+        actions: [],
+      });
+      if (held.taskRunId) {
+        emitTurn(EVENTS.TASK_BLOCKED, {
+          id: held.taskRunId,
+          status: "question_interrupted",
+          reason: "等待用户回答期间输入通道关闭，任务已安全阻塞",
+        });
+      }
+      held.resolve("（输入通道已关闭，未收到用户回答）");
+      return;
+    }
+
     if (pendingConfirm) {
       const held = pendingConfirm;
       pendingConfirm = null;
-      finishGeneration(EVENTS.GENERATION_CANCELLED, {
+      cancelGenerationNow(EVENTS.GENERATION_CANCELLED, {
         reason: "工具授权等待期间会话已结束",
       });
       emit(EVENTS.APPROVAL_RESOLVED, {
         id: held.id,
         taskRunId: held.taskRunId,
-        kind: "tool_authorization",
+        kind: held.kind || "tool_authorization",
         decision: "deny",
         reason: closeReason,
       });
@@ -1085,7 +1687,7 @@ export async function startJsonlBridge({
     }
 
     if (busy && activeTaskRunId) {
-      finishGeneration(EVENTS.GENERATION_CANCELLED, {
+      cancelGenerationNow(EVENTS.GENERATION_CANCELLED, {
         reason: "输入通道关闭，生成已取消",
       });
       emitTurn(EVENTS.TASK_BLOCKED, {
@@ -1107,6 +1709,7 @@ export async function startJsonlBridge({
       busy ||
       pendingApproval ||
       pendingConfirm ||
+      pendingQuestion ||
       queuedInputs.length === 0
     ) {
       return false;
@@ -1148,6 +1751,49 @@ export async function startJsonlBridge({
       for (const family of result.eventFamilies || [])
         clientEventFamilies.add(family);
       refreshDreamAssessment();
+      emitDreamMorningReport();
+      return;
+    }
+
+    // Layout negotiation is control-plane input: never queue it behind a task or approval.
+    if (action?.type === "viewport.resize") {
+      setContentWidth(action.data?.content_width);
+      return;
+    }
+
+    if (action?.type === "generation.cancel") {
+      if (!busy || !activeTaskRunId) return;
+      const reason = String(action.data?.reason || "用户取消生成");
+      const taskRunId = activeTaskRunId;
+      cancelledTaskIds.add(taskRunId);
+      if (activeAbortController && !activeAbortController.signal.aborted) {
+        activeAbortController.abort(reason);
+      }
+      cancelActiveToolLifecycles(reason);
+      if (pendingConfirm) {
+        const held = pendingConfirm;
+        pendingConfirm = null;
+        emit(EVENTS.APPROVAL_RESOLVED, {
+          id: held.id,
+          taskRunId: held.taskRunId,
+          kind: held.kind || "tool_authorization",
+          decision: "deny",
+          reason,
+        });
+        held.resolve(false);
+      }
+      if (pendingQuestion) {
+        const held = pendingQuestion;
+        pendingQuestion = null;
+        emit(EVENTS.PENDING_ACTIONS, { taskRunId, actions: [] });
+        held.resolve("（用户取消提问）");
+      }
+      cancelGenerationNow(EVENTS.GENERATION_CANCELLED, { reason });
+      emitTurn(EVENTS.TASK_BLOCKED, {
+        id: taskRunId,
+        status: "user_cancelled",
+        reason,
+      });
       return;
     }
 
@@ -1160,18 +1806,256 @@ export async function startJsonlBridge({
         });
         return;
       }
-      if (result.dreamAction === "run") {
-        refreshDreamAssessment({ manualTrigger: true, force: true });
-      } else if (result.dreamAction === "inspect") {
-        refreshDreamAssessment({ force: true });
-      } else {
+      if (dreamBusy) {
         emit(EVENTS.DREAM_BLOCKED, {
           dream_id: result.dreamId || dreamIdFor(dreamAssessment),
           employee_id: meta.agentId,
-          reason: "dream_action_not_available_before_m4",
-          blockers: ["milestone_not_available"],
+          reason: "dream_action_in_progress",
+          blockers: ["dream_busy"],
         });
+        return;
       }
+      dreamBusy = true;
+      try {
+        if (result.dreamAction === "run") {
+          refreshDreamAssessment({ manualTrigger: true, force: true });
+          if (!dreamAssessment.recommended) return;
+          const dreamId = result.dreamId || dreamIdFor(dreamAssessment);
+          if (!dreamGenerationAvailable) {
+            emit(EVENTS.DREAM_BLOCKED, {
+              dream_id: dreamId,
+              employee_id: meta.agentId,
+              reason: "real_dream_curator_unavailable",
+              blockers: ["real_curator_unavailable"],
+              next_step: "配置真实模型凭据后重试；不会使用启发式或 MOCK 候选",
+            });
+            return;
+          }
+          emit(EVENTS.DREAM_STARTED, {
+            dream_id: dreamId,
+            employee_id: meta.agentId,
+            base_memory_hash: dreamAssessment.base_memory_hash,
+            model: meta.model || agentLoopDeps.model,
+          });
+          const generated = await generateDreamCandidate(
+            bridgeRoot,
+            dreamAssessment,
+            {
+              dreamId,
+              curate: curateDream,
+              modelId: String(meta.model || agentLoopDeps.model),
+              baseline: readEvalResult(bridgeRoot, meta.agentId),
+              evaluateCandidate: evaluateDreamCandidate,
+            }
+          );
+          if (!generated.ok) {
+            emit(EVENTS.DREAM_VALIDATION_FAILED, {
+              dream_id: dreamId,
+              employee_id: meta.agentId,
+              reason: generated.reason || "candidate_generation_failed",
+              validation: generated.validation || null,
+              blockers: generated.validation?.activation?.blockers || [
+                "candidate_generation_failed",
+              ],
+            });
+            return;
+          }
+          emit(EVENTS.DREAM_CANDIDATE_READY, {
+            dream_id: dreamId,
+            employee_id: meta.agentId,
+            state: generated.job.state,
+            summary: generated.summary,
+            base_memory_hash: generated.candidate.base_memory_hash,
+            candidate_memory_hash: generated.candidate.candidate_memory_hash,
+            diff: generated.diff,
+            validation: generated.validation,
+          });
+        } else if (result.dreamAction === "inspect") {
+          const inspected = inspectDreamJob(
+            bridgeRoot,
+            meta.agentId,
+            result.dreamId
+          );
+          if (!inspected.ok) {
+            refreshDreamAssessment({ force: true });
+            return;
+          }
+          const payload = {
+            dream_id: inspected.job.dream_id,
+            employee_id: meta.agentId,
+            state: inspected.job.state,
+            base_memory_hash: inspected.job.base_memory_hash,
+            candidate_memory_hash: inspected.job.candidate_memory_hash,
+            diff: inspected.diff,
+            validation: inspected.validation,
+          };
+          const type =
+            {
+              REVIEW_REQUIRED: EVENTS.DREAM_CANDIDATE_READY,
+              ACTIVE: EVENTS.DREAM_ACTIVATED,
+              ROLLED_BACK: EVENTS.DREAM_ROLLED_BACK,
+              REJECTED: EVENTS.DREAM_REJECTED,
+              FAILED: EVENTS.DREAM_VALIDATION_FAILED,
+            }[inspected.job.state] || EVENTS.DREAM_RECOMMENDED;
+          emit(type, payload);
+        } else if (result.dreamAction === "approve") {
+          const inspected = inspectDreamJob(
+            bridgeRoot,
+            meta.agentId,
+            result.dreamId
+          );
+          const dreamId = inspected.ok
+            ? inspected.job.dream_id
+            : result.dreamId;
+          const approved = dreamId
+            ? approveDreamCandidate(bridgeRoot, meta.agentId, dreamId)
+            : { ok: false, reason: inspected.reason || "dream_job_not_found" };
+          if (!approved.ok) {
+            emit(EVENTS.DREAM_BLOCKED, {
+              dream_id: dreamId || dreamIdFor(dreamAssessment),
+              employee_id: meta.agentId,
+              reason: approved.reason,
+              blockers: approved.blockers || ["approval_failed"],
+            });
+            return;
+          }
+          emit(EVENTS.DREAM_APPROVED, {
+            dream_id: dreamId,
+            employee_id: meta.agentId,
+            approval: approved.approval,
+          });
+          const activated = activateDreamCandidate(
+            bridgeRoot,
+            meta.agentId,
+            dreamId
+          );
+          if (!activated.ok) {
+            emit(EVENTS.DREAM_BLOCKED, {
+              dream_id: dreamId,
+              employee_id: meta.agentId,
+              reason: activated.reason,
+              blockers: activated.blockers || ["activation_failed"],
+              next_step: activated.next_step,
+            });
+            return;
+          }
+          const contextRefresh = await refreshContextAfterMemoryChange({
+            reason: EVENTS.DREAM_ACTIVATED,
+            expectedMemoryStateHash:
+              activated.activation?.activated_memory_hash,
+          });
+          emit(EVENTS.DREAM_ACTIVATED, {
+            dream_id: dreamId,
+            employee_id: meta.agentId,
+            activation: activated.activation,
+            context_refresh: contextRefresh,
+          });
+        } else if (result.dreamAction === "reject") {
+          const inspected = inspectDreamJob(
+            bridgeRoot,
+            meta.agentId,
+            result.dreamId
+          );
+          const dreamId = inspected.ok
+            ? inspected.job.dream_id
+            : result.dreamId;
+          const rejected = dreamId
+            ? rejectDreamCandidate(bridgeRoot, meta.agentId, dreamId)
+            : { ok: false, reason: inspected.reason || "dream_job_not_found" };
+          emit(rejected.ok ? EVENTS.DREAM_REJECTED : EVENTS.DREAM_BLOCKED, {
+            dream_id: dreamId || dreamIdFor(dreamAssessment),
+            employee_id: meta.agentId,
+            ...(rejected.ok
+              ? { approval: rejected.approval }
+              : { reason: rejected.reason, blockers: ["rejection_failed"] }),
+          });
+        } else if (result.dreamAction === "rollback") {
+          const inspected = inspectDreamJob(
+            bridgeRoot,
+            meta.agentId,
+            result.dreamId
+          );
+          const dreamId = inspected.ok
+            ? inspected.job.dream_id
+            : result.dreamId;
+          const rolledBack = dreamId
+            ? rollbackDreamActivation(bridgeRoot, meta.agentId, dreamId)
+            : { ok: false, reason: inspected.reason || "dream_job_not_found" };
+          const contextRefresh = rolledBack.ok
+            ? await refreshContextAfterMemoryChange({
+                reason: EVENTS.DREAM_ROLLED_BACK,
+                expectedMemoryStateHash:
+                  rolledBack.activation?.previous_memory_hash,
+              })
+            : null;
+          emit(
+            rolledBack.ok ? EVENTS.DREAM_ROLLED_BACK : EVENTS.DREAM_BLOCKED,
+            {
+              dream_id: dreamId || dreamIdFor(dreamAssessment),
+              employee_id: meta.agentId,
+              ...(rolledBack.ok
+                ? {
+                    activation: rolledBack.activation,
+                    rollback: rolledBack.rollback,
+                    context_refresh: contextRefresh,
+                  }
+                : {
+                    reason: rolledBack.reason,
+                    blockers: rolledBack.blockers || ["rollback_failed"],
+                  }),
+            }
+          );
+        }
+      } finally {
+        emitDreamMorningReport();
+        dreamBusy = false;
+      }
+      return;
+    }
+
+    // ask_user reuses the same PendingAction digit transport. Choosing “other” keeps the model
+    // paused until the next free-form user.message arrives; no answer is fabricated locally.
+    if (pendingQuestion) {
+      const held = pendingQuestion;
+      const key =
+        action?.type === "pending.run" ? String(action.data?.key || "") : "";
+      if (key === held.otherKey) {
+        held.awaitingOther = true;
+        emit(EVENTS.PENDING_ACTIONS, {
+          taskRunId: held.taskRunId,
+          actions: [],
+        });
+        return;
+      }
+      const index = Number(key) - 1;
+      const option = Number.isInteger(index) ? held.options[index] : null;
+      const freeform =
+        action?.type === "user.message"
+          ? String(action.data?.text || "").trim()
+          : "";
+      // Leaked control frames (e.g. viewport.resize) are degraded to user.message by the
+      // parser; they must never be treated as the user's answer to a structured question.
+      if (!option && freeform.startsWith("{")) {
+        try {
+          const maybeFrame = JSON.parse(freeform);
+          if (maybeFrame && typeof maybeFrame.type === "string") {
+            emit(EVENTS.DEBUG_LINE, {
+              line: `ignored leaked control frame as ask_user answer: ${freeform.slice(0, 80)}`,
+            });
+            return;
+          }
+        } catch {
+          // Not valid JSON — treat as a normal free-form answer.
+        }
+      }
+      const answer = option || freeform;
+      if (!answer) return;
+      pendingQuestion = null;
+      emit(EVENTS.PENDING_ACTIONS, {
+        taskRunId: held.taskRunId,
+        actions: [],
+      });
+      held.resolve(answer);
       return;
     }
 
@@ -1191,16 +2075,48 @@ export async function startJsonlBridge({
         }
         allow = !!result.approval;
       } else {
-        allow =
-          text === "a" || text === "allow" || text === "y" || text === "是";
+        // Only explicit approve/deny keys release the approval; unrecognized input
+        // (e.g. leaked control frames degraded to user.message) must not auto-reject.
+        const normalized = text.toLowerCase();
+        const approveKeys = new Set(["a", "allow", "y", "是"]);
+        const denyKeys = new Set(["r", "reject", "d", "n", "deny", "否"]);
+        if (approveKeys.has(normalized)) {
+          allow = true;
+        } else if (denyKeys.has(normalized)) {
+          allow = false;
+        } else {
+          emit(EVENTS.DEBUG_LINE, {
+            line: `ignored unrecognized input while awaiting approval: ${text.slice(0, 80)}`,
+          });
+          return;
+        }
       }
-      const { id, taskRunId, resolve } = pendingConfirm;
+      const wantsSession =
+        action?.type === "approval.resolve" &&
+        String(action.data?.decision || "").toLowerCase() === "allow_session";
+      if (wantsSession && !pendingConfirm.sessionLease) {
+        emit(EVENTS.DEBUG_LINE, {
+          line: `session lease is unavailable for approval ${pendingConfirm.id}`,
+        });
+        return;
+      }
+      const { id, taskRunId, resolve, kind, sessionLease } = pendingConfirm;
       pendingConfirm = null;
+      if (allow && wantsSession && sessionLease) {
+        const key = sessionPermissionLeaseKey(sessionLease);
+        if (key) sessionPermissionLeases.set(key, sessionLease);
+      }
       emit(EVENTS.APPROVAL_RESOLVED, {
         id,
         taskRunId,
-        kind: "tool_authorization",
-        decision: allow ? "allow" : "deny",
+        kind: kind || "tool_authorization",
+        decision: allow ? (wantsSession ? "allow_session" : "allow") : "deny",
+        ...(allow && wantsSession && sessionLease
+          ? {
+              session_lease: sessionLease,
+              decision_source: "user_session_grant",
+            }
+          : {}),
       });
       resolve(allow);
       return;
@@ -1212,7 +2128,7 @@ export async function startJsonlBridge({
     if (action?.type === "approval.resolve") {
       if (!pendingApproval || action.data?.id !== pendingApproval.id) return;
       const result = safelyApplyUserAction(action);
-      if (result.invalidDecision) {
+      if (result.invalidDecision || result.decision === "allow_session") {
         emit(EVENTS.DEBUG_LINE, {
           line: `invalid approval decision for ${pendingApproval.id}`,
         });
@@ -1307,34 +2223,54 @@ export async function startJsonlBridge({
     // v0.8 M3: slash commands are engine-executed (they read engine state: model/history/registry),
     // NOT model turns. Intercept BEFORE task.started so a command never counts as a task, and emit
     // command.output for the front-end to display. /clear also resets the shared history + transcript.
+    let userInvokedSkillIds = [];
     if (isCommand(text)) {
       const result = runCommand(text, {
         name: agentName,
         model: meta.model,
         root: bridgeRoot,
         color: true,
+        permissionLeases: [...sessionPermissionLeases.values()]
+          .map(sessionPermissionLeaseLabel)
+          .filter(Boolean),
+        skillCatalog: agentLoopDeps?.skillCatalog || [],
       });
-      if (result.action?.type === "exit") {
-        rl.close();
+      if (result.action?.type === "skill") {
+        userInvokedSkillIds = [result.action.skill];
+        text =
+          String(result.action.arguments || "").trim() ||
+          `请执行用户显式调用的技能 /${result.action.skill}`;
+      } else {
+        if (result.action?.type === "exit") {
+          rl.close();
+          return;
+        }
+        const clear = result.action?.type === "clear";
+        if (clear) history.length = 0; // single source of truth: engine clears, front-end mirrors
+        const clearPermissionLeases =
+          result.action?.type === "permission_leases_clear";
+        const clearedPermissionLeaseCount = clearPermissionLeases
+          ? sessionPermissionLeases.size
+          : 0;
+        if (clearPermissionLeases) sessionPermissionLeases.clear();
+        const switchUnavailable = result.action?.type === "switch";
+        const body =
+          result.text ||
+          (clear
+            ? "（上下文已清空）"
+            : clearPermissionLeases
+              ? `已撤销 ${clearedPermissionLeaseCount} 条本会话授权；后续受保护操作将重新询问。`
+              : switchUnavailable
+                ? "Workbench 会话不支持原地切换员工；请退出后用 crew chat <employee> 启动新会话，以便重新执行工具预检。"
+                : "");
+        emit(EVENTS.COMMAND_OUTPUT, {
+          command: text,
+          clear,
+          ansi_lines: body ? renderMessage(body, { color: true }) : [],
+          text: body,
+        });
         return;
       }
-      const clear = result.action?.type === "clear";
-      if (clear) history.length = 0; // single source of truth: engine clears, front-end mirrors
-      const switchUnavailable = result.action?.type === "switch";
-      const body =
-        result.text ||
-        (clear
-          ? "（上下文已清空）"
-          : switchUnavailable
-            ? "Workbench 会话不支持原地切换员工；请退出后用 crew chat <employee> 启动新会话，以便重新执行工具预检。"
-            : "");
-      emit(EVENTS.COMMAND_OUTPUT, {
-        command: text,
-        clear,
-        ansi_lines: body ? renderMessage(body, { color: true }) : [],
-        text: body,
-      });
-      return;
     }
     if (busy) {
       const queued = {
@@ -1370,11 +2306,18 @@ export async function startJsonlBridge({
     const turnId = "turn" + ++turnSeq;
     activeTaskRunId = taskRunId;
     activeTurnId = turnId;
+    activeSkillCalls.clear();
     activeAbortController = new AbortController();
     generationActive = true;
+    revealPacer?.cancel();
+    revealPacer = createRevealPacer({ emit: emitRevealedDelta });
+    revealPaused = false;
+    postToolDeltas = [];
+    sinkEventChain = Promise.resolve();
     seenToolLifecycle.clear();
     activeToolLifecycles.clear();
     terminalToolLifecycles.clear();
+    lastTodoStatuses = [];
     partText = "";
     activePartId = null;
     // 纯附件轮 text 为空——给个占位标题，避免任务标题空白。
@@ -1389,6 +2332,33 @@ export async function startJsonlBridge({
     });
     usageAcc = { prompt: 0, completion: 0 }; // 每轮重置 token 计量，ProofPack 成本只算本任务本轮（不累计历史轮）
     try {
+      const capabilityCheck =
+        typeof taskPreflight === "function" ? await taskPreflight(text) : null;
+      if (!isPendingActionInput && capabilityCheck?.ok === false) {
+        const reason = String(
+          capabilityCheck.reason ||
+            "当前员工无法完成该交付物；请先完成工具体检与授权。"
+        );
+        sink.onDelta(`\n⛔ ${reason}`);
+        await finishGeneration();
+        emitTurn(EVENTS.TASK_BLOCKED, {
+          id: taskRunId,
+          status: capabilityCheck.code || "tool_preflight_blocked",
+          reason,
+          blocking: capabilityCheck.blocking || [],
+          est_cost: 0,
+        });
+        recordTaskOutcome(root, meta.agentId, {
+          taskKind: "formal",
+          outcome: "correctly_blocked",
+          acceptanceSource: "none",
+          cost: 0,
+          evidenceCount: 1,
+          skillUsage: skillUsageSnapshot(),
+          taskRunId,
+        });
+        return;
+      }
       if (!isPendingActionInput && budgetBlocksNewTask) {
         const unavailable = spend.state === SPEND_STATE_INVALID;
         const reason = unavailable
@@ -1411,11 +2381,21 @@ export async function startJsonlBridge({
             ? "\n⛔ 月度预算账本无法安全验证，新任务已暂停。请先修复或恢复 SETTINGS 对应的本月预算状态。"
             : `\n⛔ 本月已达预算上限（$${spend.total.toFixed(2)}/$${cap}）。新任务已暂停——去 SETTINGS 调高月度预算上限后再派活。`
         );
-        finishGeneration();
+        await finishGeneration();
         emitTurn(EVENTS.TASK_BLOCKED, {
           id: taskRunId,
           status: "budget_blocked",
           reason,
+          est_cost: 0,
+        });
+        recordTaskOutcome(root, meta.agentId, {
+          taskKind: "formal",
+          outcome: "correctly_blocked",
+          acceptanceSource: "none",
+          cost: 0,
+          evidenceCount: 1,
+          skillUsage: skillUsageSnapshot(),
+          taskRunId,
         });
         return;
       }
@@ -1434,8 +2414,16 @@ export async function startJsonlBridge({
         // routeTurn 传给我们的 msg 是路由用的字符串；把本轮 parts 合并回去交给 runTurn。
         runModelTurn: msg =>
           runTurn(
-            messageParts && messageParts.length
-              ? { text: msg, parts: messageParts }
+            (messageParts && messageParts.length) || userInvokedSkillIds.length
+              ? {
+                  text: msg,
+                  ...(messageParts && messageParts.length
+                    ? { parts: messageParts }
+                    : {}),
+                  ...(userInvokedSkillIds.length
+                    ? { initialSkillIds: userInvokedSkillIds }
+                    : {}),
+                }
               : msg,
             sink
           ),
@@ -1456,6 +2444,9 @@ export async function startJsonlBridge({
         agentId: meta.agentId, // v0.13 M2：memory.state 的真实条目数按员工读取
       });
       if (closing) return;
+      // Provider chunking is transport-level detail. Do not expose a terminal, approval modal, or
+      // final assistant snapshot until the stable 30 ms / 2–4 grapheme visual stream is drained.
+      await finishGeneration();
       // §11 Approval-before-Done + CC-PROOF-001. Three terminal shapes:
       //  (a) user accepted a held deliverable → write the ProofPack, emit approval.accepted, done.
       //  (b) task produced a deliverable → enter Approval (approval.requested), do NOT complete.
@@ -1479,6 +2470,7 @@ export async function startJsonlBridge({
           artifact: art,
           fingerprint,
           usage: turnUsage(),
+          skillUsage: skillUsageSnapshot(),
           createdAt: Date.now(),
         };
         if (!fingerprint.ok) {
@@ -1494,8 +2486,12 @@ export async function startJsonlBridge({
           policy === APPROVAL_TRUST_AUTO &&
           readKpi(root, meta.agentId).accepted >= TRUST_AUTO_THRESHOLD;
         if (trusted) {
-          emit(EVENTS.TOKEN_DELTA, {
-            text: "\n✓ 信任后自动验收（该员工累计验收已达阈值，交付流水完整保留）。",
+          const autoAccepted =
+            "✓ 信任后自动验收（该员工累计验收已达阈值，交付流水完整保留）。";
+          emit(EVENTS.COMMAND_OUTPUT, {
+            command: "approval.auto_accept",
+            text: autoAccepted,
+            ansi_lines: renderMessage(autoAccepted, { color: true }),
           });
           const pendingPersisted = persistPendingDelivery(held);
           const decisionPersisted = pendingPersisted.ok
@@ -1532,6 +2528,16 @@ export async function startJsonlBridge({
           emitApprovalRequested(emit, held);
           // do NOT emit task.completed — the accept action closes the task.
         }
+      } else if (decision.correctlyBlocked) {
+        recordTaskOutcome(root, meta.agentId, {
+          taskKind: "formal",
+          outcome: "correctly_blocked",
+          acceptanceSource: "none",
+          cost: 0,
+          evidenceCount: 1,
+          skillUsage: skillUsageSnapshot(),
+          taskRunId,
+        });
       } else if (!decision.blocked) {
         // preflight-blocked 轮已经发过 task.blocked（终态，已清 busy）——不能再发 task.completed，
         // 否则 reducer 会把 blocked 覆盖成 done/needs_artifact，UI 前脚说阻塞后脚说完成。
@@ -1556,16 +2562,24 @@ export async function startJsonlBridge({
           );
         if (countsTowardEmployeeKpi) {
           recordTaskOutcome(root, meta.agentId, {
-            accepted: false,
+            taskKind:
+              decision.type === "employee_chat"
+                ? "chat"
+                : decision.type === "artifact_action"
+                  ? "artifact_action"
+                  : "formal",
+            outcome: "completed",
+            acceptanceSource: "none",
             cost: plainCost,
+            skillUsage: skillUsageSnapshot(),
             taskRunId,
           });
         }
         accrueSpend(plainCost, taskRunId); // v0.18 C3
       }
     } catch (e) {
-      if (!closing) {
-        finishGeneration(EVENTS.GENERATION_FAILED, {
+      if (!closing && !cancelledTaskIds.has(taskRunId)) {
+        await finishGeneration(EVENTS.GENERATION_FAILED, {
           reason: String((e && e.message) || e),
         });
         emit(EVENTS.TASK_REJECTED, {
@@ -1573,9 +2587,16 @@ export async function startJsonlBridge({
           taskRunId,
           status: "failed",
           reason: String((e && e.message) || e),
+          ...(typeof e?.code === "string" && e.code
+            ? { reason_code: e.code }
+            : {}),
+          ...(Number.isInteger(e?.httpStatus)
+            ? { http_status: e.httpStatus }
+            : {}),
         });
       }
     } finally {
+      cancelledTaskIds.delete(taskRunId);
       busy = false;
       activeAbortController = null;
       scheduleQueuedInput();
@@ -1743,6 +2764,7 @@ function pendingDeliveryReceipt(held) {
     artifact: held.artifact,
     fingerprint: held.fingerprint,
     usage: held.usage,
+    skillUsage: Array.isArray(held.skillUsage) ? held.skillUsage : [],
     createdAt: held.createdAt,
   };
 }

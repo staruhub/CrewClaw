@@ -625,7 +625,7 @@ AI 员工从创建到被使用，有完整生命周期。
 | Submitted | 已提交审核       |
 | Rejected  | 审核未通过       |
 | Published | 已上架           |
-| Verified  | 已认证           |
+| Verified  | 已验证           |
 | Hired     | 被用户雇佣       |
 | Active    | 在用户团队中可用 |
 | Warning   | 可用但有问题     |

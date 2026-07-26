@@ -6,6 +6,8 @@ import {
   probeModelAccess,
   requiredToolPreflight,
 } from "./run.mjs";
+import { runtimeToolReadiness } from "./employee-tools.mjs";
+import { mcpReadiness } from "./mcp-client.mjs";
 
 const employeeId = String(process.argv[2] || "").trim();
 const workspaceRoot = resolve(process.argv[3] || process.cwd());
@@ -24,6 +26,7 @@ try {
   const surfaces = {};
   let grantSnapshot = null;
   let resolvedModel = null;
+  let resolvedMcp = null;
   for (const surface of ["chat", "task"]) {
     const profile = await loadProfile(employeeId, {
       workspaceRoot,
@@ -32,12 +35,17 @@ try {
     });
     grantSnapshot ||= profile.grantSnapshot;
     resolvedModel ||= profile.model;
+    resolvedMcp ||= profile.mcp;
     const preflight = requiredToolPreflight(profile.toolResolution);
     surfaces[surface] = {
       status: preflight.ok ? "ready" : "blocked",
       blocking: preflight.blocking,
       degraded: preflight.degraded,
       resolution: profile.toolResolution.sessionCatalog,
+      providers: {
+        search: runtimeToolReadiness(profile.toolResolution, "web_search"),
+        render: runtimeToolReadiness(profile.toolResolution, "browser_render"),
+      },
     };
   }
   // v0.20 G2：真·模型可用性预检——用配置的模型发一次最小请求，把 403/无权限/模型名错等
@@ -60,6 +68,7 @@ try {
       grant_source: grantSnapshot?.source || "none",
       grant_warning: grantSnapshot?.warning || null,
       grants: grantSnapshot?.grants || [],
+      mcp: mcpReadiness(resolvedMcp),
       model_access,
       surfaces,
     })}\n`

@@ -9,6 +9,7 @@ import {
   persistDreamRecommendation,
 } from "../dream-controller.mjs";
 import { dreamJobPath } from "../dream-paths.mjs";
+import { recordTaskOutcome } from "../kpi.mjs";
 import { buildReflection, writeReflection } from "../reflect.mjs";
 
 const employeeId = "ai-adoption-whale";
@@ -48,6 +49,20 @@ const automatic = assessDream({
   reflections,
   memoryItems: currentMemory,
   baseline,
+  skillPerformance: [
+    {
+      skill_id: "stale-playbook",
+      calls: 7,
+      settled_tasks: 3,
+      successful_tasks: 0,
+      accepted_tasks: 0,
+      auto_accepted_tasks: 0,
+      negative_tasks: 3,
+      success_rate: 0,
+      acceptance_rate: 0,
+      retirement_candidate: true,
+    },
+  ],
   now,
 });
 assert.equal(automatic.curation.eligible, true);
@@ -55,6 +70,12 @@ assert.equal(automatic.recommended, true);
 assert.ok(automatic.trigger_reasons.includes("accepted_tasks"));
 assert.equal(automatic.metrics.accepted_tasks, 8);
 assert.equal(automatic.input.reflection_ids.length, 8);
+assert.equal(automatic.metrics.skill_retirement_candidate_count, 1);
+assert.deepEqual(
+  automatic.skill_signals.retirement_candidates.map(skill => skill.skill_id),
+  ["stale-playbook"]
+);
+assert.equal(automatic.skill_signals.advisory_only, true);
 assert.ok(
   automatic.cost.estimated_usd > 0,
   "recommendation cost is an honest estimate, not zero"
@@ -125,9 +146,24 @@ const root = mkdtempSync(join(tmpdir(), "crew-dream-controller-"));
 try {
   for (const reflection of reflections)
     assert.equal(writeReflection(root, reflection).ok, true);
+  for (let index = 0; index < 3; index++) {
+    recordTaskOutcome(root, employeeId, {
+      taskRunId: `skill-failure-${index}`,
+      taskKind: "formal",
+      outcome: "failed",
+      acceptanceSource: "none",
+      skillUsage: [{ skill_id: "stale-playbook", calls: 1 }],
+      ts: now + index,
+    });
+  }
   const scanned = assessDreamFromWorkspace(root, employeeId, { now });
   assert.equal(scanned.recommended, true);
   assert.deepEqual(scanned.input_errors, []);
+  assert.deepEqual(
+    scanned.skill_signals.retirement_candidates.map(skill => skill.skill_id),
+    ["stale-playbook"],
+    "workspace Dream assessment consumes KPI skill outcomes"
+  );
   const persisted = persistDreamRecommendation(root, scanned, {
     dreamId: "dream-m2-test",
   });

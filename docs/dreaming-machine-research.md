@@ -85,8 +85,8 @@ episodic 往 semantic 和 procedural 蒸馏的那道工序。
 
 - Letta 论文：sleep-time compute 在 AIME/GSM 上相对 test-time-only 是帕累托改进
   （同 token 预算分更高 / 同分 token 更省）。
-- 对 CrewClaw：`eval-runner` 已经能出真认证分（mock:false）。度量闭环 =
-  **认证分绑定 (spec_version, judge model, memory_state_hash)**；
+- 对 CrewClaw：`eval-runner` 已经能出已验证真实评测分（mock:false，但非正式 C2）。度量闭环 =
+  **评测分绑定 (spec_version, judge model, memory_state_hash)**；
   梦一次 → 重跑 `pnpm eval:expert <slug>` → EVAL 屏展示两次分对比。
   这正是 prd_v0.18 §5 Phase 3 写的终点验收（"同员工两次真评测分对比可观测"）。
 - 附带指标：记忆条数/去重率、召回注入 token 数（梦应当让注入**更短更准**而非更长）。

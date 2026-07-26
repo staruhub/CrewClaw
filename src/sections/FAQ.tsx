@@ -11,7 +11,7 @@ const faqs = [
   },
   {
     q: "Is CrewClaw replacing Hermes?",
-    a: "No. Hermes remains the runtime. CrewClaw distributes ChaoGeek-certified profile packages and wraps official Hermes profile commands for easier onboarding.",
+    a: "No. CrewClaw's core engine lives in packages/runtime. Hermes is a supported export and integration target; CrewClaw separately publishes signed certification evidence after formal repeated-run evaluation.",
   },
   {
     q: "What is inside a profile?",

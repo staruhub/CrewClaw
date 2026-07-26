@@ -20,8 +20,8 @@ const features = [
   },
   {
     icon: "qa" as const,
-    title: "Certified Examples",
-    desc: "Every available expert includes examples, eval notes, known limitations, and a ChaoGeek certification file.",
+    title: "Evidence-ready Examples",
+    desc: "Every available employee includes examples, eval notes, known limitations, and an honest evidence-status file.",
   },
 ];
 
@@ -32,7 +32,7 @@ export function Features() {
         <SectionHeader
           label="OUR FEATURES"
           title="Not Just Prompts"
-          description="Every ChaoGeek-certified expert is a tested Hermes profile with tuned behavior, skills, examples, and boundaries."
+          description="Every available employee ships a validated package with declared behavior, skills, examples, and boundaries. Lab certification is shown only when signed evidence exists."
           centered
         />
 

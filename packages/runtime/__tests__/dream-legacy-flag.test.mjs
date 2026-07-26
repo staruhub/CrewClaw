@@ -5,7 +5,14 @@
 // and an immutable Reflection is still written (the new pipeline is always on in this branch).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -54,6 +61,28 @@ const DREAM_REVIEW = {
 };
 
 function runOnce(root, modelUrl, legacyFlag) {
+  mkdirSync(join(root, ".crewclaw"), { recursive: true });
+  writeFileSync(
+    join(root, ".crewclaw", "team.json"),
+    `${JSON.stringify(
+      [
+        {
+          workspace_employee_id: "dream-legacy-test-hire",
+          employee_id: AGENT_ID,
+          version: "0.2.0",
+          status: "active",
+          hired_at: "2026-07-14T00:00:00Z",
+          fired_at: null,
+          permissions_granted: [],
+          package_sha256: null,
+          hire_source: "test_fixture",
+        },
+      ],
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
   return new Promise((resolvePromise, reject) => {
     const child = spawn(
       RUNTIME_ENTRY ? process.execPath : "node",

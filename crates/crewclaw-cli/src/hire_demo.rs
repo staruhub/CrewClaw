@@ -1,12 +1,12 @@
 //! Scripted onboarding ceremony for the ClawCon / FORCE stage demo.
 //!
-//! `crew hire <agent>` plays a deterministic, animated "AI employee onboarding"
+//! `crew hire <agent> --demo` plays a deterministic, animated "AI employee onboarding"
 //! built from a per-agent card in `registry/hire-scenario.json`. The four spinner
 //! steps are generated from the card (download → install skills → verify → sign),
 //! so adding a new hireable employee is just one card entry — every available
 //! agent gets a ceremony, not only one. Scripted-for-stability: no network, no
-//! real install, identical every run. `--live` is handled by the real Hermes
-//! path in `main.rs`.
+//! real install, identical every run. Normal `crew hire` uses the real Hermes
+//! path in `main.rs`; demo mode is never selected implicitly.
 
 use std::path::Path;
 use std::thread;
@@ -50,7 +50,7 @@ struct Step {
 /// The four onboarding steps, generated from the agent card so any agent works.
 fn steps_for(card: &AgentCard) -> Vec<Step> {
     let skills_detail = if card.skills.is_empty() {
-        "ChaoGeek-certified skills".to_string()
+        "C1 package-validated skills".to_string()
     } else {
         format!("{} skills · {}", card.skills.len(), card.skills.join(", "))
     };
@@ -98,7 +98,7 @@ pub fn run_hire_ceremony(args: &[String], root: &Path, target: &str) -> Result<i
     println!();
     println!("CrewClaw · Hiring");
     println!(
-        "Onboarding a ChaoGeek-certified AI employee from {}",
+        "Onboarding a C1 package-validated AI employee from {}",
         card.source
     );
     println!();
@@ -190,7 +190,10 @@ pub fn run_badge(args: &[String], root: &Path, target: &str) -> Result<i32, Stri
     let cert = if a.certification.is_empty() {
         format!("v{}", a.version)
     } else {
-        format!("[{}] · v{}", a.certification, a.version)
+        format!(
+            "[DEMO · {} SCENARIO CLAIM] · v{}",
+            a.certification, a.version
+        )
     };
 
     println!();
@@ -223,15 +226,15 @@ pub fn run_fire_ceremony(args: &[String], root: &Path, target: &str) -> Result<i
     } else {
         format!("{} {}", card.emoji, card.name)
     };
-    let line = format!("{who} offboarded · access revoked · package removed");
+    let line = format!("{who} offboarded · access revoked · record retained");
     if ascii {
         println!("  OK  {line}");
-        println!("Employment ended. Manifest made it clean — hire, fire, no leftovers.");
+        println!("Employment ended. History is retained and the employee can be re-hired.");
     } else {
         println!("  {} {}", style("✓").green().bold(), style(line).green());
         println!(
             "{}",
-            style("Employment ended. Manifest made it clean — hire, fire, no leftovers.").dim()
+            style("Record retained · access disabled · ready to re-hire later.").dim()
         );
     }
     Ok(0)

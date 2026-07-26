@@ -832,6 +832,36 @@ assert.ok(
   assert.ok(state.debug.some(line => line.includes("wrong")));
 }
 
+// A cached session lease keeps its approval event pair auditable without flashing a modal.
+{
+  const state = reduceAll([
+    makeEvent(EVENTS.TASK_STARTED, { id: "lease-task", mode: "Task" }),
+    makeEvent(EVENTS.APPROVAL_REQUIRED, {
+      id: "lease-auto-1",
+      taskRunId: "lease-task",
+      kind: "tool_authorization",
+      tool: "write_file",
+      auto: true,
+      decision_source: "session_permission_lease",
+      session_lease: {
+        kind: "session",
+        allowlist: [{ tool: "write_file", pattern: "docs/**" }],
+      },
+    }),
+    makeEvent(EVENTS.APPROVAL_RESOLVED, {
+      id: "lease-auto-1",
+      taskRunId: "lease-task",
+      kind: "tool_authorization",
+      decision: "allow_session",
+      auto: true,
+      decision_source: "session_permission_lease",
+    }),
+  ]);
+  assert.equal(state.approval, null, "an auto lease hit never opens a modal");
+  assert.equal(state.status, "running");
+  assert.equal(state.settledApprovals["lease-auto-1"], "resolved");
+}
+
 // Artifact export records an export destination without replacing the source path. Stale
 // mutations cannot change an artifact belonging to the current task.
 {

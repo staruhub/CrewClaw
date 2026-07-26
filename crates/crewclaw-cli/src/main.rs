@@ -14,6 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod doctor;
 mod hire_demo;
 mod manifest;
+mod package_import;
 mod permissions;
 mod standup;
 mod state_store;
@@ -30,6 +31,48 @@ pub(crate) const CREWCLAW_ASCII: &[&str] = &[
     "  \\_____|_|  \\___| \\_/\\_/       \\_____|_|\\__,_| \\_/\\_/  ",
 ];
 
+#[derive(Clone, Debug)]
+enum HireProvenance {
+    Cli,
+    WebsitePackage { sha256: String },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HireExecutionMode {
+    Live,
+    Demo,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum OffboardingMode {
+    ExportMemory,
+    Handoff,
+    Purge,
+}
+
+impl OffboardingMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ExportMemory => "export_memory",
+            Self::Handoff => "handoff",
+            Self::Purge => "purge",
+        }
+    }
+}
+
+fn hire_execution_mode(args: &[String]) -> Result<HireExecutionMode, String> {
+    let live = has_flag(args, "--live");
+    let demo = has_flag(args, "--demo");
+    if live && demo {
+        return Err("--live and --demo are mutually exclusive for crew hire".to_string());
+    }
+    Ok(if demo {
+        HireExecutionMode::Demo
+    } else {
+        HireExecutionMode::Live
+    })
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct Registry {
     pub(crate) experts: Vec<Expert>,
@@ -42,6 +85,10 @@ pub(crate) struct Expert {
     pub(crate) status: String,
     pub(crate) certification: String,
     #[serde(default)]
+    pub(crate) evidence_state: RegistryEvidenceState,
+    #[serde(default)]
+    pub(crate) evaluation: Option<serde_json::Value>,
+    #[serde(default)]
     pub(crate) category: String,
     pub(crate) description: String,
     pub(crate) local_source: Option<String>,
@@ -50,6 +97,16 @@ pub(crate) struct Expert {
     pub(crate) tags: Vec<String>,
     pub(crate) requires: Requirements,
     pub(crate) first_task: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub(crate) struct RegistryEvidenceState {
+    #[serde(default)]
+    pub(crate) package_status: String,
+    #[serde(default)]
+    pub(crate) lab_status: String,
+    #[serde(default)]
+    pub(crate) field_status: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -145,6 +202,11 @@ fn repo_root() -> PathBuf {
 }
 
 fn run_cli(args: &[String], root: &Path) -> Result<i32, String> {
+    if is_version_request(args) {
+        println!("{}", version_line());
+        return Ok(0);
+    }
+
     if args
         .iter()
         .any(|arg| matches!(arg.as_str(), "help" | "--help" | "-h"))
@@ -202,6 +264,9 @@ fn run_cli(args: &[String], root: &Path) -> Result<i32, String> {
         }
         Some("list") => run_list(root, &registry),
         Some("hire" | "install") => {
+            if let Some(archive) = option_value(args, "--from") {
+                return run_package_hire(root, &registry, args, Path::new(&archive));
+            }
             let Some(target) = target else {
                 return run_interactive_hire(args, root, &registry);
             };
@@ -247,6 +312,18 @@ fn run_cli(args: &[String], root: &Path) -> Result<i32, String> {
     }
 }
 
+fn is_version_request(args: &[String]) -> bool {
+    matches!(args, [arg] if matches!(arg.as_str(), "version" | "--version" | "-V"))
+}
+
+fn version_line() -> String {
+    format!("crewclaw-cli {}", env!("CARGO_PKG_VERSION"))
+}
+
+fn short_digest(digest: &str) -> &str {
+    digest.get(..12).unwrap_or(digest)
+}
+
 pub(crate) fn show_brand_header() {
     for line in CREWCLAW_ASCII {
         println!("{line}");
@@ -262,17 +339,16 @@ fn show_help(root: &Path) {
     println!();
     println!("Usage");
     println!("  crew <command> [args]                  bundled launcher — run from any directory");
-    println!("  crew hire <expert> [--yes]             e.g. crew hire ai-adoption-whale");
+    println!("  crew hire <expert> [--yes] [--demo]    e.g. crew hire ai-adoption-whale");
     println!("  crew run <expert> \"<task>\"             one-shot: put an employee to work (live)");
     println!("  crew chat <expert>                     interactive multi-turn chat session");
+    println!("  crew --version                         print the bundled CLI version and exit");
     println!("  (dev alternative) {local_command} <command>");
     println!();
     println!("Commands");
     println!("  search [keyword]  Search the employee registry");
     println!("  inspect <expert>  Show an AI employee resume from registry + hire.yaml");
-    println!(
-        "  hire <expert>     Hire an AI employee (scripted onboarding; --live installs for real)"
-    );
+    println!("  hire <expert>     Hire an AI employee (live by default; --demo is scripted)");
     println!("  run <expert> <task>  Put a hired employee to work — live model, real output");
     println!("  chat <expert>     Open an interactive multi-turn chat with a hired employee");
     println!(
@@ -283,7 +359,9 @@ fn show_help(root: &Path) {
         "  workbench [--demo]  Open the Ratatui Trial Workbench; reads TaskEvent JSONL on stdin"
     );
     println!("  badge <expert>    Show a hired employee's manifest as an ID card");
-    println!("  fire <expert>     Offboard a hired AI employee");
+    println!(
+        "  fire <expert> [--export-memory|--handoff|--purge]  Offboard with a truth-bearing receipt"
+    );
     println!("  update [expert]   Show available employee upgrades; --apply updates team state");
     println!("  logs [expert]     Show CrewClaw activity records");
     println!("  list              Show available and coming-soon experts");
@@ -295,6 +373,8 @@ fn show_help(root: &Path) {
     println!("  verify            Run all agents in parallel to check the project is runnable");
     println!();
     println!("Options");
+    println!("  --from <package.tar.gz>  Verify and hire a downloaded employee package");
+    println!("  --sha256 <digest>        Require the published package SHA-256 checksum");
     println!("  --name <profile>  Install with a custom Hermes profile name");
     println!(
         "  --grant-capability <id>  Explicitly enable one declared conditional or non_default capability (repeatable)"
@@ -306,7 +386,10 @@ fn show_help(root: &Path) {
     println!("  --force           Pass --force to Hermes profile install");
     println!("  --run-first       Start the first Hermes chat test after install");
     println!(
-        "  --live            verify: run each agent's real command instead of the scripted demo"
+        "  --demo            hire: run the explicit scripted onboarding instead of installing"
+    );
+    println!(
+        "  --live            verify: run real commands; hire: compatibility alias (live is default)"
     );
     println!("  --ascii           verify: plain output with no emoji or color");
     println!("  --plain           chat/run --task: use legacy plain output instead of Workbench");
@@ -363,6 +446,60 @@ fn run_search(registry: &Registry, keyword: Option<&str>) -> Result<i32, String>
     Ok(0)
 }
 
+fn evaluation_has_non_empty_string(evaluation: &serde_json::Value, field: &str) -> bool {
+    evaluation
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn has_published_lab_credential(expert: &Expert) -> bool {
+    expert.evidence_state.lab_status == "certified"
+        && expert.evaluation.as_ref().is_some_and(|evaluation| {
+            evaluation.get("mock").and_then(serde_json::Value::as_bool) == Some(false)
+                && evaluation_has_non_empty_string(evaluation, "signature")
+                && evaluation_has_non_empty_string(evaluation, "source")
+        })
+}
+
+pub(crate) fn expert_evidence_label(expert: &Expert) -> String {
+    let level = &expert.certification;
+    if expert.evidence_state.field_status == "proven" {
+        return format!("{level} · field status proven (registry)");
+    }
+    if has_published_lab_credential(expert) {
+        return format!("{level} · signed lab credential (registry)");
+    }
+    if expert.evidence_state.lab_status == "certified" {
+        return format!("{level} · lab status claimed; signed credential unavailable (registry)");
+    }
+    match expert.evidence_state.package_status.as_str() {
+        "validated" => format!("{level} · package contract validated (registry)"),
+        "invalid" => format!("{level} · package invalid (registry)"),
+        status if !status.is_empty() => format!("{level} · package {status} (registry)"),
+        _ => format!("{level} · evidence source unavailable"),
+    }
+}
+
+pub(crate) fn expert_evidence_label_zh(expert: &Expert) -> String {
+    let level = &expert.certification;
+    if expert.evidence_state.field_status == "proven" {
+        return format!("{level} · 实战状态 proven（registry）");
+    }
+    if has_published_lab_credential(expert) {
+        return format!("{level} · 签名实验室凭证（registry）");
+    }
+    if expert.evidence_state.lab_status == "certified" {
+        return format!("{level} · 实验室状态已标记；签名凭证缺失（registry）");
+    }
+    match expert.evidence_state.package_status.as_str() {
+        "validated" => format!("{level} · 包合同已验证（registry）"),
+        "invalid" => format!("{level} · 包验证失败（registry）"),
+        "draft" => format!("{level} · 包草稿（registry）"),
+        _ => format!("{level} · 证据来源缺失"),
+    }
+}
+
 fn run_inspect(root: &Path, registry: &Registry, target: &str) -> Result<i32, String> {
     let Some(expert) = find_expert(registry, target) else {
         eprintln!("Error: Unknown expert: {target}");
@@ -391,7 +528,7 @@ fn run_inspect(root: &Path, registry: &Registry, target: &str) -> Result<i32, St
         "version: {}",
         expert.version.as_deref().unwrap_or("unknown")
     );
-    println!("certification: {}", expert.certification);
+    println!("evidence: {}", expert_evidence_label(expert));
     println!();
     println!("identity:");
     println!("  title: {}", manifest.identity.title);
@@ -419,7 +556,10 @@ fn run_list(root: &Path, registry: &Registry) -> Result<i32, String> {
     for expert in &registry.experts {
         println!(
             "{}  {}  {}  {}",
-            expert.name, expert.status, expert.certification, expert.description
+            expert.name,
+            expert.status,
+            expert_evidence_label(expert),
+            expert.description
         );
     }
 
@@ -447,6 +587,16 @@ fn run_hire(
     root: &Path,
     ask_first_run: bool,
 ) -> Result<i32, String> {
+    run_hire_with_provenance(expert, args, root, ask_first_run, &HireProvenance::Cli)
+}
+
+fn run_hire_with_provenance(
+    expert: &Expert,
+    args: &[String],
+    root: &Path,
+    ask_first_run: bool,
+    provenance: &HireProvenance,
+) -> Result<i32, String> {
     if let Some(code) = reject_unhireable(expert, root) {
         return Ok(code);
     }
@@ -461,7 +611,7 @@ fn run_hire(
         let workspace_employee_id = employee.workspace_employee_id.clone();
         // Re-hire is also a security reconciliation point: old team.json files may contain
         // disabled or confirmation-gated manifest entries as if they were grants.
-        persist_hire(root, expert, &permission_plan)?;
+        persist_hire_with_provenance(root, expert, &permission_plan, provenance)?;
         println!(
             "Already hired: {} is active as {} (AC-HIRE-004).",
             expert.name, workspace_employee_id
@@ -473,15 +623,63 @@ fn run_hire(
     // ceremony, or team state can change. An invalid grant must have zero installation effects.
     let permission_plan = hire_permission_plan(root, expert, args)?;
 
-    let code = if !has_flag(args, "--live") && hire_demo::has_ceremony(root, &expert.name) {
-        hire_demo::run_hire_ceremony(args, root, &expert.name)?
-    } else {
-        hire_expert(expert, args, root, ask_first_run)?
+    let code = match hire_execution_mode(args)? {
+        HireExecutionMode::Live => hire_expert(expert, args, root, ask_first_run)?,
+        HireExecutionMode::Demo => {
+            if !hire_demo::has_ceremony(root, &expert.name) {
+                return Err(format!(
+                    "No scripted onboarding exists for {}; remove --demo to perform a live hire",
+                    expert.name
+                ));
+            }
+            hire_demo::run_hire_ceremony(args, root, &expert.name)?
+        }
     };
 
     if code == 0 {
-        persist_hire(root, expert, &permission_plan)?;
+        persist_hire_with_provenance(root, expert, &permission_plan, provenance)?;
         append_activity(root, "hire", &expert.name)?;
+    }
+    Ok(code)
+}
+
+fn run_package_hire(
+    root: &Path,
+    registry: &Registry,
+    args: &[String],
+    archive: &Path,
+) -> Result<i32, String> {
+    let expected_sha256 = option_value(args, "--sha256");
+    let imported =
+        package_import::import_employee_package(root, archive, expected_sha256.as_deref())?;
+    let expert = find_expert(registry, &imported.slug).ok_or_else(|| {
+        format!(
+            "Employee package {} is not present in the trusted registry",
+            imported.slug
+        )
+    })?;
+    if expert.version.as_deref() != Some(imported.version.as_str()) {
+        return Err(format!(
+            "Employee package version {} does not match registry version {}",
+            imported.version,
+            expert.version.as_deref().unwrap_or("missing")
+        ));
+    }
+    let provenance = HireProvenance::WebsitePackage {
+        sha256: imported.sha256.clone(),
+    };
+    let code = run_hire_with_provenance(expert, args, root, false, &provenance)?;
+    if code == 0 {
+        println!(
+            "Package verified: {} ({}) [{}].",
+            imported.slug,
+            short_digest(&imported.sha256),
+            if imported.installed {
+                "installed"
+            } else {
+                "reused"
+            }
+        );
     }
     Ok(code)
 }
@@ -519,7 +717,12 @@ fn ensure_active_rehire_version(
     ))
 }
 
-fn persist_hire(root: &Path, expert: &Expert, plan: &HirePermissionPlan) -> Result<(), String> {
+fn persist_hire_with_provenance(
+    root: &Path,
+    expert: &Expert,
+    plan: &HirePermissionPlan,
+    provenance: &HireProvenance,
+) -> Result<(), String> {
     let permissions = plan.granted.clone();
     let version = expert.version.as_deref().unwrap_or("unknown");
     let (record, created) = team::mutate_team(root, |employees| {
@@ -527,12 +730,32 @@ fn persist_hire(root: &Path, expert: &Expert, plan: &HirePermissionPlan) -> Resu
             // Exact replacement makes re-hire idempotent and revokes grants that are no longer
             // safe-by-default. Never union with the legacy list: that would preserve escalation.
             existing.permissions_granted = permissions.clone();
+            if let HireProvenance::WebsitePackage { sha256 } = provenance {
+                if existing
+                    .package_sha256
+                    .as_deref()
+                    .is_some_and(|current| current != sha256)
+                {
+                    return Err(format!(
+                        "Active employee package checksum differs for {}",
+                        expert.name
+                    ));
+                }
+                existing.package_sha256 = Some(sha256.clone());
+                existing.hire_source = Some("website".to_string());
+            }
             return Ok((existing.clone(), false));
         }
-        Ok((
-            team::add_active_employee(employees, &expert.name, version, permissions),
-            true,
-        ))
+        let mut record = team::add_active_employee(employees, &expert.name, version, permissions);
+        if let HireProvenance::WebsitePackage { sha256 } = provenance {
+            let created = employees
+                .last_mut()
+                .ok_or_else(|| "New employee record was not persisted".to_string())?;
+            created.package_sha256 = Some(sha256.clone());
+            created.hire_source = Some("website".to_string());
+            record = created.clone();
+        }
+        Ok((record, true))
     })?;
     if created {
         println!("Your new AI employee has joined the crew.");
@@ -740,33 +963,93 @@ fn run_fire(
         return Ok(1);
     }
 
-    println!(
-        "Impact: {} will be marked fired; history remains in .crewclaw/team.json.",
-        expert.name
-    );
-    let fired = team::mutate_team(root, |employees| {
-        let Some(employee) = team::active_employee_mut(employees, &expert.name) else {
-            return Ok(false);
-        };
-        employee.status = team::WorkspaceEmployeeStatus::Fired;
-        employee.fired_at = Some(team::now_iso8601());
-        Ok(true)
-    })?;
-    if !fired {
-        eprintln!("Error: {} is no longer active in this crew.", expert.name);
-        return Ok(1);
+    let requested_modes = [
+        ("--export-memory", OffboardingMode::ExportMemory),
+        ("--handoff", OffboardingMode::Handoff),
+        ("--purge", OffboardingMode::Purge),
+    ]
+    .into_iter()
+    .filter(|(flag, _)| has_flag(args, flag))
+    .collect::<Vec<_>>();
+    if requested_modes.len() > 1 {
+        return Err("--export-memory, --handoff, and --purge are mutually exclusive".to_string());
     }
-    append_activity(root, "fire", &expert.name)?;
+    let mode = requested_modes
+        .first()
+        .map(|(_, mode)| *mode)
+        .unwrap_or(OffboardingMode::ExportMemory);
+    let successor = option_value(args, "--successor");
+    if successor.is_some() && mode != OffboardingMode::Handoff {
+        return Err("--successor is only valid with --handoff".to_string());
+    }
+    println!(
+        "Impact: {} will be marked fired using {} mode; the audit ledger remains.",
+        expert.name,
+        mode.as_str()
+    );
+    let result = match offboard_employee(root, &expert.name, mode, successor.as_deref()) {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("Error: {error}.");
+            return Ok(1);
+        }
+    };
 
     if hire_demo::has_ceremony(root, &expert.name) {
         let code = hire_demo::run_fire_ceremony(args, root, &expert.name)?;
         return Ok(code);
     }
     println!(
-        "Fired {}. New tasks are disabled for this employee.",
-        expert.name
+        "Fired {}. New tasks are disabled. Receipt: {}",
+        expert.name, result.receipt_path
     );
     Ok(0)
+}
+
+#[derive(Debug, Deserialize)]
+struct NodeOffboardingResult {
+    employee: team::WorkspaceEmployee,
+    receipt_path: String,
+}
+
+fn offboard_employee(
+    root: &Path,
+    employee_id: &str,
+    mode: OffboardingMode,
+    successor: Option<&str>,
+) -> Result<NodeOffboardingResult, String> {
+    let script = root.join("packages/runtime/offboarding-cli.mjs");
+    if !script.is_file() {
+        return Err(format!(
+            "shared offboarding service is unavailable: {}",
+            script.display()
+        ));
+    }
+    let mut command = Command::new(resolve_command_path("node"));
+    command
+        .arg(&script)
+        .arg(employee_id)
+        .arg(root)
+        .arg("--mode")
+        .arg(mode.as_str())
+        .current_dir(root)
+        .env("CREWCLAW_ROOT", root)
+        .stdin(Stdio::null());
+    if let Some(successor) = successor {
+        command.arg("--successor").arg(successor);
+    }
+    let output = command
+        .output()
+        .map_err(|error| format!("failed to launch shared offboarding service: {error}"))?;
+    if !output.status.success() {
+        return Err(non_empty(
+            &String::from_utf8_lossy(&output.stderr),
+            &String::from_utf8_lossy(&output.stdout),
+            "shared offboarding service failed",
+        ));
+    }
+    serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("invalid shared offboarding service JSON: {error}"))
 }
 
 fn run_employee_doctor(root: &Path, registry: &Registry, target: &str) -> Result<i32, String> {
@@ -838,6 +1121,38 @@ fn run_runtime_tool_doctor(root: &Path, employee: &str) -> Result<bool, String> 
             }
         );
     }
+    let mcp = &snapshot["mcp"];
+    println!(
+        "  mcp: {}",
+        mcp["status"].as_str().unwrap_or("not_configured")
+    );
+    if let Some(servers) = mcp["servers"].as_array() {
+        for server in servers {
+            let name = server["name"].as_str().unwrap_or("unknown");
+            if server["ready"].as_bool().unwrap_or(false) {
+                println!("    {name}: ready");
+            } else {
+                let missing = server["missing_env"]
+                    .as_array()
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                println!(
+                    "    {name}: blocked{}",
+                    if missing.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" (missing {missing})")
+                    }
+                );
+            }
+        }
+    }
     // v0.20 G2：模型可用性预检——把 403 / 无权限 / 模型名错 / 缺 key 在 doctor 阶段显性化，
     // 而不是等到 crew chat 里才丢一个截断的 HTTP 403。
     let model_ok = {
@@ -864,6 +1179,15 @@ fn run_runtime_tool_doctor(root: &Path, employee: &str) -> Result<bool, String> 
         let state = &snapshot["surfaces"][surface];
         let status = state["status"].as_str().unwrap_or("unknown");
         println!("  {surface}: {status}");
+        for provider in ["search", "render"] {
+            let readiness = &state["providers"][provider];
+            let provider_status = if readiness["ready"].as_bool().unwrap_or(false) {
+                "ready"
+            } else {
+                readiness["availability"].as_str().unwrap_or("unresolved")
+            };
+            println!("    {provider} provider: {provider_status}");
+        }
         for kind in ["blocking", "degraded"] {
             if let Some(items) = state[kind].as_array() {
                 for item in items {
@@ -917,7 +1241,7 @@ fn reject_unhireable(expert: &Expert, root: &Path) -> Option<i32> {
 fn run_interactive_hire(args: &[String], root: &Path, registry: &Registry) -> Result<i32, String> {
     show_brand_header();
     println!();
-    println!("Choose a ChaoGeek-certified Hermes expert:");
+    println!("Choose a C1 package-validated Hermes expert:");
     println!();
     for (index, expert) in registry.experts.iter().enumerate() {
         println!(
@@ -1714,7 +2038,7 @@ fn positionals(args: &[String]) -> Vec<String> {
         if value.starts_with('-') {
             if matches!(
                 value.as_str(),
-                "--name" | "--grant-capability" | "--skip-capability"
+                "--name" | "--from" | "--sha256" | "--grant-capability" | "--skip-capability"
             ) {
                 index += 2;
             } else {
@@ -1843,6 +2167,25 @@ mod tests {
     }
 
     #[test]
+    fn version_request_is_explicit_and_uses_the_cargo_package_version() {
+        assert!(is_version_request(&strings(&["--version"])));
+        assert!(is_version_request(&strings(&["-V"])));
+        assert!(is_version_request(&strings(&["version"])));
+        assert!(!is_version_request(&strings(&["run", "--version"])));
+        assert_eq!(
+            version_line(),
+            format!("crewclaw-cli {}", env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    #[test]
+    fn short_digest_never_panics_on_short_or_non_ascii_input() {
+        assert_eq!(short_digest("0123456789abcdef"), "0123456789ab");
+        assert_eq!(short_digest("short"), "short");
+        assert_eq!(short_digest("校验值"), "校验值");
+    }
+
+    #[test]
     fn skips_value_options_when_collecting_positionals() {
         assert_eq!(
             positionals(&strings(&[
@@ -1914,6 +2257,27 @@ mod tests {
                 "--target".to_string(),
                 "custom".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn hire_defaults_live_and_requires_demo_to_be_explicit() {
+        assert_eq!(
+            hire_execution_mode(&strings(&["hire", "docs-octopus"])),
+            Ok(HireExecutionMode::Live)
+        );
+        assert_eq!(
+            hire_execution_mode(&strings(&["hire", "docs-octopus", "--live"])),
+            Ok(HireExecutionMode::Live),
+            "--live remains a compatibility alias"
+        );
+        assert_eq!(
+            hire_execution_mode(&strings(&["hire", "docs-octopus", "--demo"])),
+            Ok(HireExecutionMode::Demo)
+        );
+        assert!(
+            hire_execution_mode(&strings(&["hire", "docs-octopus", "--demo", "--live"])).is_err(),
+            "conflicting truth modes fail closed"
         );
     }
 
@@ -2019,6 +2383,8 @@ mod tests {
             display_name: name.to_string(),
             status: "available".to_string(),
             certification: "C2".to_string(),
+            evidence_state: RegistryEvidenceState::default(),
+            evaluation: None,
             category: "engineering".to_string(),
             description: "Test expert".to_string(),
             local_source: Some(format!("experts/{name}")),
@@ -2030,6 +2396,35 @@ mod tests {
             },
             first_task: "Review this".to_string(),
         }
+    }
+
+    #[test]
+    fn evidence_labels_name_the_registry_source_and_fail_closed() {
+        let mut expert = expert_with_version("code-review-shrimp", "0.1.0");
+        expert.certification = "C1".to_string();
+        expert.evidence_state.package_status = "validated".to_string();
+        assert_eq!(
+            expert_evidence_label(&expert),
+            "C1 · package contract validated (registry)"
+        );
+        assert_eq!(
+            expert_evidence_label_zh(&expert),
+            "C1 · 包合同已验证（registry）"
+        );
+
+        expert.certification = "C2".to_string();
+        expert.evidence_state.lab_status = "certified".to_string();
+        assert!(expert_evidence_label(&expert).contains("signed credential unavailable"));
+
+        expert.evaluation = Some(serde_json::json!({
+            "mock": false,
+            "signature": "signed-fixture",
+            "source": "certification/code-review-shrimp/credential.json"
+        }));
+        assert_eq!(
+            expert_evidence_label(&expert),
+            "C2 · signed lab credential (registry)"
+        );
     }
 
     #[test]
@@ -2076,6 +2471,8 @@ mod tests {
             hired_at: "2026-06-22T00:00:00Z".to_string(),
             fired_at: None,
             permissions_granted: Vec::new(),
+            package_sha256: None,
+            hire_source: Some("cli".to_string()),
         }
     }
 
@@ -2319,7 +2716,8 @@ mod tests {
             &strings(&["--grant-capability", "contacts.read"]),
         )
         .expect("first hire plan");
-        persist_hire(&root, &expert, &first_plan).expect("first hire");
+        persist_hire_with_provenance(&root, &expert, &first_plan, &HireProvenance::Cli)
+            .expect("first hire");
         let first = team::read_team(&root).expect("team after hire");
         assert_eq!(first.len(), 1);
         assert_eq!(

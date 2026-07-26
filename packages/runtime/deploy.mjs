@@ -13,14 +13,17 @@ import {
   writeStateFileAtomic,
 } from "./state-lock.mjs";
 
-export function deployToOpenWork(pkg, { root = process.cwd() } = {}) {
+export function deployToOpenWork(
+  pkg,
+  { root = process.cwd(), runtimeCapabilities = null } = {}
+) {
   const validation = openworkAdapter.validate(pkg);
   if (!validation.ok) return { ok: false, errors: validation.errors };
 
   const blueprint = openworkAdapter.compile(pkg);
   const compatibility = computeCompatibility(
     pkg,
-    openworkAdapter.capabilities()
+    runtimeCapabilities || openworkAdapter.capabilities()
   );
   const targetLevel = openworkAdapter.targetLevel || "L4";
 
@@ -47,6 +50,8 @@ export function deployToOpenWork(pkg, { root = process.cwd() } = {}) {
     target: "openwork",
     target_level: targetLevel,
     compatibility_level: compatibility.level,
+    runtime_probe_status: runtimeCapabilities ? "provided" : "unprobed",
+    deployment_mode: "blueprint_only",
     reasons: compatibility.reasons || [],
     blueprint_keys: Object.keys(blueprint),
   };

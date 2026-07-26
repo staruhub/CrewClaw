@@ -8,12 +8,23 @@
 import { visibleLen } from "./ui.mjs";
 
 export const GUTTER = "   "; // 3 spaces — the shared content gutter
-export const CONTENT_MAX = 100; // readability cap
+export const CONTENT_MAX = 240; // fallback safety cap; negotiated pane widths are exact
 export const CONTENT_MIN = 40; // never wrap narrower than this
 export const RIGHT_MARGIN = 1; // trailing breathing room
 
+let negotiatedContentWidth = null;
+
+// Ratatui owns the real pane geometry and sends the width after every relevant layout change.
+export function setContentWidth(width) {
+  const parsed = Number(width);
+  negotiatedContentWidth =
+    Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+  return negotiatedContentWidth;
+}
+
 // Width available for content to the RIGHT of the gutter, clamped for sanity.
 export function contentWidth() {
+  if (negotiatedContentWidth !== null) return negotiatedContentWidth;
   const cols = process.stdout.columns || 80;
   const w = cols - visibleLen(GUTTER) - RIGHT_MARGIN;
   return Math.max(CONTENT_MIN, Math.min(CONTENT_MAX, w));

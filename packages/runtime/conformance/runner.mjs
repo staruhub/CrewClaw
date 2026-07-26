@@ -11,7 +11,7 @@
 // `--keep` preserves the isolated temporary workspace for every vector and prints its path.
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -72,6 +72,13 @@ export const LIVE_VECTORS = Object.freeze([
     scrubSearchKeys: true,
     want: ["task.blocked"],
     deny: ["artifact.created"],
+    assertData: events => {
+      const blocked = events.find(event => event.type === "task.blocked");
+      if (!blocked) return "task.blocked missing";
+      if (blocked.data?.est_cost !== 0)
+        return `preflight block must carry exact zero-cost evidence; got ${JSON.stringify(blocked.data)}`;
+      return null;
+    },
   },
   {
     id: 4,
@@ -208,6 +215,38 @@ export const LIVE_VECTORS = Object.freeze([
       const joined = (rendered.data?.ansi_lines || []).join("\n");
       if (!/parts-received:[^\]]*image_url/.test(joined))
         return "model did not receive an image_url content block (parts downbridge broken)";
+      return null;
+    },
+  },
+  {
+    id: 15,
+    label: "session.ready 暴露 skills/memory 索引预算且不注入正文",
+    input: "/model",
+    want: ["session.ready", "command.output"],
+    deny: ["task.started"],
+    assertData: events => {
+      const context = events.find(event => event.type === "session.ready")?.data
+        ?.context_index;
+      if (!context) return "session.ready missing context_index";
+      if (context.skills?.included < 1)
+        return "skill index must include at least one real profile skill";
+      if (context.skills?.body_injected !== false)
+        return "skill bodies must stay out of the system index";
+      if (context.skills?.estimated_tokens > context.skills?.budget_tokens)
+        return "skill index exceeded its declared token budget";
+      if (context.memory?.included < 1)
+        return "memory index must include seeded memory records";
+      if (context.memory?.body_injected !== false)
+        return "memory bodies must stay out of the system index";
+      if (context.memory?.estimated_tokens > context.memory?.budget_tokens)
+        return "memory index exceeded its declared token budget";
+      if (
+        !Number.isFinite(context.memory?.full_estimated_tokens) ||
+        context.memory.estimated_tokens >=
+          context.memory.full_estimated_tokens / 3
+      ) {
+        return `memory index is not under one third of full injection: ${JSON.stringify(context.memory)}`;
+      }
       return null;
     },
   },
@@ -504,6 +543,36 @@ export async function runConformance({
     : LIVE_VECTORS;
   for (const vector of selected) {
     const root = mkdtempSync(join(tmpdir(), `crew-conf-${vector.id}-`));
+    const stateRoot = join(root, ".crewclaw");
+    mkdirSync(stateRoot, { recursive: true });
+    writeFileSync(
+      join(stateRoot, "team.json"),
+      `${JSON.stringify([
+        {
+          workspace_employee_id: `conformance-${agent}`,
+          employee_id: agent,
+          version: "conformance-harness",
+          status: "active",
+          hired_at: "2026-01-01T00:00:00.000Z",
+          fired_at: null,
+          permissions_granted: [],
+          package_sha256: null,
+          hire_source: "eval_harness",
+        },
+      ])}\n`
+    );
+    mkdirSync(join(stateRoot, "memory"), { recursive: true });
+    writeFileSync(
+      join(stateRoot, "memory", `${agent}.json`),
+      `${JSON.stringify(
+        Array.from({ length: 50 }, (_, index) => ({
+          category: index % 2 ? "project_facts" : "verified_sops",
+          confidence: index < 40 ? "high" : "medium",
+          text: `Conformance memory ${index}: ${"verified detail ".repeat(80)}tail-${index}`,
+          savedAt: new Date(1_700_000_000_000 + index).toISOString(),
+        }))
+      )}\n`
+    );
     try {
       const execution = await runVector(vector, { agent, root });
       const verdict = judge(vector, execution);

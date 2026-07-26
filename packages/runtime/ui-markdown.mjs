@@ -9,7 +9,7 @@ function prefixLines(lines, prefix, hangPrefix = prefix) {
   return indent(lines, prefix, hangPrefix).split("\n");
 }
 
-function renderInline(s) {
+export function renderInline(s) {
   const codes = [];
   s = s.replace(/`([^`]+)`/g, (_, c) => {
     codes.push(c);
@@ -42,11 +42,20 @@ export function renderMdLine(line, state) {
     if (state.inFence) {
       state.inFence = false;
       state.fenceLang = "";
-      return [GUTTER + "\x1b[2m└──────\x1b[0m"];
+      return [
+        GUTTER + "\x1b[2m└" + "─".repeat(Math.max(0, cw - 2)) + "┘\x1b[22m",
+      ];
     }
     state.inFence = true;
     state.fenceLang = (fence[1] || "").trim();
-    return [GUTTER + "\x1b[2m┌─ " + (state.fenceLang || "code") + "\x1b[0m"];
+    const label = `┌─ ${state.fenceLang || "code"} `;
+    return [
+      GUTTER +
+        "\x1b[2m" +
+        label +
+        "─".repeat(Math.max(0, cw - visibleLen(label) - 1)) +
+        "┐\x1b[22m",
+    ];
   }
   // code body: gutter + syntax highlight, never wrapped (wrapping corrupts code)
   if (state.inFence)
@@ -54,20 +63,20 @@ export function renderMdLine(line, state) {
       GUTTER + highlightCode(line, state.fenceLang || "", { color: true }),
     ];
   if (/^\s*([-*_])\1{2,}\s*$/.test(line))
-    return [GUTTER + "\x1b[2m" + "─".repeat(cw) + "\x1b[0m"];
+    return [GUTTER + "\x1b[2m" + "─".repeat(cw) + "\x1b[22m"];
   if (line.trim() === "") return [""];
   const h = line.match(/^(#{1,6})\s+(.*)$/);
   if (h) {
     const open = h[1].length <= 2 ? "\x1b[1;38;5;75m" : "\x1b[1m";
     return prefixLines(
-      wrapText(h[2], cw).map(t => open + renderInline(t) + "\x1b[0m"),
+      wrapText(h[2], cw).map(t => open + renderInline(t) + "\x1b[22;39m"),
       GUTTER
     );
   }
   const bq = line.match(/^\s*>\s?(.*)$/);
   if (bq)
     return wrapText(bq[1], cw - 2).map(
-      t => GUTTER + "\x1b[2m│ " + renderInline(t) + "\x1b[0m"
+      t => GUTTER + "\x1b[2m│ " + renderInline(t) + "\x1b[22m"
     );
   const ul = line.match(/^(\s*)[-*+]\s+(.*)$/);
   if (ul) {
@@ -101,7 +110,10 @@ export function renderMessage(text, opts = {}) {
   const flushTable = () => {
     if (state.table.length > 0) {
       out.push(
-        ...renderTable(state.table, { color: opts.color ?? true }).split("\n")
+        ...renderTable(state.table, {
+          color: opts.color ?? true,
+          renderInline,
+        }).split("\n")
       );
       state.table = [];
     }

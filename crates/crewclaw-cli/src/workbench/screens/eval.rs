@@ -1,5 +1,5 @@
-//! EVAL 屏呈现受保护的 KPI/TaskRun 状态与评测记录。认证只来自 Node `session.ready` 中经
-//! `readEvalResult` 完整校验的结果；Rust 磁盘投影只能显示为待验证，mock 始终非认证。
+//! EVAL 屏呈现受保护的 KPI/TaskRun 状态与评测记录。Node `session.ready` 可证明一次评测
+//! 与当前 subject 绑定，但不等于正式 C2；C2 只来自签名 Credential。Rust 磁盘投影待验证。
 
 use ratatui::{
     Frame,
@@ -11,9 +11,17 @@ use ratatui::{
 
 use super::super::config;
 use super::super::state::{
-    AppState, DreamSnapshot, EvalReport, KpiCumulative, MonthlyMetric, UiState,
+    AppState, DreamSnapshot, EvalReport, GrowthCard, KpiCumulative, MonthlyMetric, UiState,
 };
 use super::{bar, pad_left, screen_block, section};
+
+#[derive(Clone, Copy)]
+struct EvalPresentation<'a> {
+    report: Option<&'a EvalReport>,
+    from_session: bool,
+    errors: &'a [String],
+    growth_card: Option<&'a GrowthCard>,
+}
 
 /// v0.17 P2 C1：员工首次验收距今的天数（epoch ms 差，向下取整）。无历史 → None（不伪造"0 天"）。
 fn tenure_days(first_hired_ts: Option<u64>) -> Option<u64> {
@@ -36,6 +44,7 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState, area:
         .map(|e| e.kpi_cumulative)
         .unwrap_or_default();
     let event_eval = state.employee.as_ref().and_then(|e| e.eval.as_ref());
+    let growth_card = state.employee.as_ref().and_then(|e| e.growth_card.as_ref());
     let eval_from_session = event_eval.is_some();
     let (cum, eval, monthly, dream, errors) = if ui_state.persisted_state_active {
         (
@@ -48,44 +57,38 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState, area:
     } else {
         (&event_cum, event_eval, &[][..], None, &[][..])
     };
-    // 左主区 | 右认证/TaskRun 状态侧栏。窄于 90 列时退化为单栏。
+    let presentation = EvalPresentation {
+        report: eval,
+        from_session: eval_from_session,
+        errors,
+        growth_card,
+    };
+    // 左主区 | 右评测/TaskRun 状态侧栏。窄于 90 列时退化为单栏。
     if inner.width >= 90 {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(40), Constraint::Length(35)])
             .split(inner);
-        render_main(
-            frame,
-            cum,
-            eval,
-            eval_from_session,
-            monthly,
-            errors,
-            pad_left(cols[0]),
-        );
-        render_status(frame, eval, eval_from_session, cum, dream, errors, cols[1]);
+        render_main(frame, cum, monthly, presentation, pad_left(cols[0]));
+        render_status(frame, cum, dream, presentation, cols[1]);
     } else {
-        render_main(
-            frame,
-            cum,
-            eval,
-            eval_from_session,
-            monthly,
-            errors,
-            pad_left(inner),
-        );
+        render_main(frame, cum, monthly, presentation, pad_left(inner));
     }
 }
 
 fn render_main(
     frame: &mut Frame<'_>,
     cum: &KpiCumulative,
-    eval: Option<&EvalReport>,
-    eval_from_session: bool,
     monthly: &[MonthlyMetric],
-    errors: &[String],
+    presentation: EvalPresentation<'_>,
     area: Rect,
 ) {
+    let EvalPresentation {
+        report: eval,
+        from_session: eval_from_session,
+        errors,
+        growth_card,
+    } = presentation;
     let dim = Style::default().fg(config::dim());
 
     // 顶部固定 4 行给真值标注 + KPI 瓦片(bg1 底+bd 框,2 行×3 列);其余(月度条形/上岗考试/
@@ -95,6 +98,7 @@ fn render_main(
         .constraints([
             Constraint::Length(1),
             Constraint::Length(1),
+            Constraint::Length(if growth_card.is_some() { 3 } else { 0 }),
             Constraint::Length(6),
             Constraint::Min(3),
         ])
@@ -126,15 +130,18 @@ fn render_main(
     let eval_unverified = errors.iter().any(|error| error.starts_with("eval:"));
     let eval_summary = match eval {
         Some(report) if eval_from_session && report.certified && !report.mock => (
-            format!(" 上岗考试 · 已认证 {} · {}", report.score, report.verdict),
+            format!(
+                " 上岗考试 · 已验证评测 {} · {} · 非 C2",
+                report.score, report.verdict
+            ),
             config::green(),
         ),
         Some(report) if report.mock => (
-            format!(" 上岗考试 · 非认证机械分 {}", report.score),
+            format!(" 上岗考试 · MOCK 机械分 {} · 非 C2", report.score),
             config::orange(),
         ),
         Some(_) => (
-            " 上岗考试 · 存储记录待验证 · 不可认证".to_string(),
+            " 上岗考试 · 存储记录待验证 · 非 C2".to_string(),
             config::yellow(),
         ),
         None if eval_unverified => (" 上岗考试 · 状态不可验证".to_string(), config::red()),
@@ -149,16 +156,21 @@ fn render_main(
         ))),
         rows[1],
     );
+    if let Some(card) = growth_card {
+        render_growth_card(frame, card, rows[2]);
+    }
+    let kpi_area = rows[3];
+    let body_area = rows[4];
     if kpi_unverified {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 " 持久化 KPI 文件损坏或不安全；未展示其中指标",
                 Style::default().fg(config::red()),
             ))),
-            rows[2],
+            kpi_area,
         );
     } else {
-        render_kpi_tiles(frame, cum, rows[2]);
+        render_kpi_tiles(frame, cum, kpi_area);
     }
 
     let mut lines: Vec<Line> = Vec::new();
@@ -198,10 +210,68 @@ fn render_main(
 
     render_exams(&mut lines, eval, eval_from_session, dim, eval_unverified);
 
-    frame.render_widget(Paragraph::new(Text::from(lines)), rows[3]);
+    frame.render_widget(Paragraph::new(Text::from(lines)), body_area);
 }
 
-/// 上岗考试 section 的四态渲染（session 认证 / mock 非认证 / 磁盘待验证 / 未评测）。
+fn render_growth_card(frame: &mut Frame<'_>, card: &GrowthCard, area: Rect) {
+    if area.height == 0 {
+        return;
+    }
+    let color = match card.provider_status.as_str() {
+        "available" if card.certified => config::green(),
+        "available" => config::yellow(),
+        "missing_credentials" | "authentication_failed" => config::orange(),
+        "rate_limited" => config::yellow(),
+        _ => config::red(),
+    };
+    let score = card
+        .score
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "—".to_string());
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(
+                " Growth Card ",
+                Style::default()
+                    .fg(config::bg())
+                    .bg(color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(
+                    "  provider:{}  code:{}",
+                    card.provider_status, card.provider_code
+                ),
+                Style::default().fg(color),
+            ),
+            Span::styled(
+                format!(
+                    "  score:{}  {}",
+                    score,
+                    if card.certified {
+                        "verified_eval"
+                    } else if card.mock {
+                        "mock"
+                    } else {
+                        "unverified"
+                    }
+                ),
+                Style::default().fg(config::dim()),
+            ),
+        ]),
+        Line::from(Span::styled(
+            format!(" next: {}", card.next_step),
+            Style::default().fg(config::fg()),
+        )),
+        Line::from(Span::styled(
+            format!(" {}", card.provider_message),
+            Style::default().fg(config::dim()),
+        )),
+    ];
+    frame.render_widget(Paragraph::new(Text::from(lines)), area);
+}
+
+/// 上岗考试 section 的四态渲染（session 已验证评测 / mock / 磁盘待验证 / 未评测）。
 fn render_exams(
     lines: &mut Vec<Line<'static>>,
     eval: Option<&EvalReport>,
@@ -220,7 +290,7 @@ fn render_exams(
         (bar(score, 100, 18), color)
     };
     match eval {
-        // 真实认证分。
+        // 与当前 subject 绑定的真实评测；仍不是正式 C2。
         Some(rep) if eval_from_session && rep.certified && !rep.mock => {
             lines.push(Line::from(vec![
                 Span::styled(
@@ -247,9 +317,9 @@ fn render_exams(
                     Span::styled(format!(" {}", exam.score), Style::default().fg(color)),
                 ]));
             }
-            push_verdict(lines, &rep.verdict, "认证 verdict ", dim, true);
+            push_verdict(lines, &rep.verdict, "评测 verdict ", dim, true);
         }
-        // MOCK 跑（CREW_MOCK 机械 harness，非认证分）。
+        // MOCK 跑（CREW_MOCK 机械 harness，不能作为 C2）。
         Some(rep) if rep.mock => {
             lines.push(Line::from(vec![
                 Span::styled(
@@ -259,7 +329,7 @@ fn render_exams(
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    "MOCK 跑（CREW_MOCK · 非认证分）",
+                    "MOCK 跑（CREW_MOCK · 非 C2）",
                     Style::default().fg(config::orange()),
                 ),
             ]));
@@ -272,9 +342,9 @@ fn render_exams(
                     Span::styled(format!(" {}", exam.score), dim),
                 ]));
             }
-            push_verdict(lines, &rep.verdict, "机械 verdict（非认证） ", dim, false);
+            push_verdict(lines, &rep.verdict, "机械 verdict（非 C2） ", dim, false);
         }
-        // Rust 只能做安全读取与结构投影，无法重算 Node 当前 subject contract；不认证。
+        // Rust 只能做安全读取与结构投影，无法重算 Node 当前 subject contract。
         Some(_) => {
             lines.push(Line::from(vec![
                 Span::styled(
@@ -284,7 +354,7 @@ fn render_exams(
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    "存储记录待验证（不可认证）",
+                    "存储记录待验证（非 C2）",
                     Style::default().fg(config::yellow()),
                 ),
             ]));
@@ -445,18 +515,22 @@ fn render_kpi_tiles(frame: &mut Frame<'_>, cum: &KpiCumulative, area: Rect) {
     }
 }
 
-/// 右侧只显示可核验的认证与 TaskRun 状态，不制造雇主评分、雇佣数或评价。
+/// 右侧只显示可核验的评测与 TaskRun 状态，不制造雇主评分、雇佣数或评价。
 fn render_status(
     frame: &mut Frame<'_>,
-    eval: Option<&EvalReport>,
-    eval_from_session: bool,
     kpi: &KpiCumulative,
     dream: Option<&DreamSnapshot>,
-    errors: &[String],
+    presentation: EvalPresentation<'_>,
     area: Rect,
 ) {
+    let EvalPresentation {
+        report: eval,
+        from_session: eval_from_session,
+        errors,
+        growth_card,
+    } = presentation;
     let block = Block::default()
-        .title(" 认证与任务状态 ")
+        .title(" 评测与任务状态 ")
         .borders(Borders::LEFT)
         .border_style(Style::default().fg(config::border()));
     let inner = block.inner(area);
@@ -467,7 +541,7 @@ fn render_status(
     match eval {
         Some(report) if eval_from_session && report.certified && !report.mock => {
             lines.push(Line::from(Span::styled(
-                " 已认证 · mock:false",
+                " 已验证评测 · mock:false · 非 C2",
                 Style::default()
                     .fg(config::green())
                     .add_modifier(Modifier::BOLD),
@@ -489,7 +563,7 @@ fn render_status(
         }
         Some(report) if report.mock => {
             lines.push(Line::from(Span::styled(
-                " 非认证机械评测 · mock:true",
+                " MOCK 机械评测 · mock:true · 非 C2",
                 Style::default()
                     .fg(config::orange())
                     .add_modifier(Modifier::BOLD),
@@ -501,7 +575,7 @@ fn render_status(
         }
         Some(_) => {
             lines.push(Line::from(Span::styled(
-                " 存储记录待验证 · 不可认证",
+                " 存储记录待验证 · 非 C2",
                 Style::default()
                     .fg(config::yellow())
                     .add_modifier(Modifier::BOLD),
@@ -520,6 +594,19 @@ fn render_status(
             )));
         }
         None => lines.push(Line::from(Span::styled(" 未评测", dim))),
+    }
+    if let Some(card) = growth_card {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!(" EvalProvider · {}", card.provider_status),
+            Style::default()
+                .fg(config::aqua())
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(Span::styled(
+            format!(" {}", card.next_step),
+            dim,
+        )));
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(

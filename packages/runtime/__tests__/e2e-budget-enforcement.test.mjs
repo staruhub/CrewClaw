@@ -16,6 +16,20 @@ import {
 } from "../spend.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const waitFor = async (predicate, label, timeoutMs = 5_000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await sleep(10);
+  }
+  assert.fail(label);
+};
+
+const collapsePacedDeltas = lifecycle =>
+  lifecycle.filter(
+    (type, index) =>
+      type !== "token.delta" || lifecycle[index - 1] !== "token.delta"
+  );
 
 function tmpRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "crew-budget-"));
@@ -126,7 +140,10 @@ async function bridgeRefusesNewTaskOverBudget() {
   });
   await sleep(20);
   input.push("给我一份内部知识问答ROI示例\n");
-  await sleep(150);
+  await waitFor(
+    () => events.some(event => event.type === "task.blocked"),
+    "paced budget refusal did not reach task.blocked"
+  );
   const types = events.map(e => e.type);
 
   const lifecycle = types.filter(type =>
@@ -140,7 +157,7 @@ async function bridgeRefusesNewTaskOverBudget() {
     ].includes(type)
   );
   assert.deepEqual(
-    lifecycle,
+    collapsePacedDeltas(lifecycle),
     [
       "task.started",
       "generation.started",
@@ -194,21 +211,26 @@ async function bridgeRefusesNewTaskWhenLedgerIsInvalid() {
   });
   await sleep(20);
   input.push("开始新任务\n");
-  await sleep(100);
+  await waitFor(
+    () => events.some(event => event.type === "task.blocked"),
+    "paced invalid-ledger refusal did not reach task.blocked"
+  );
 
   assert.deepEqual(
-    events
-      .map(event => event.type)
-      .filter(type =>
-        [
-          "task.started",
-          "generation.started",
-          "token.delta",
-          "assistant.rendered",
-          "generation.completed",
-          "task.blocked",
-        ].includes(type)
-      ),
+    collapsePacedDeltas(
+      events
+        .map(event => event.type)
+        .filter(type =>
+          [
+            "task.started",
+            "generation.started",
+            "token.delta",
+            "assistant.rendered",
+            "generation.completed",
+            "task.blocked",
+          ].includes(type)
+        )
+    ),
     [
       "task.started",
       "generation.started",
@@ -221,11 +243,11 @@ async function bridgeRefusesNewTaskWhenLedgerIsInvalid() {
   const warning = events.find(event => event.type === "budget.warning");
   assert.equal(warning?.data?.reason_code, "budget_state_unavailable");
   assert.ok(
-    events.some(
-      event =>
-        event.type === "token.delta" &&
-        event.data?.text?.includes("预算账本无法安全验证")
-    )
+    events
+      .filter(event => event.type === "token.delta")
+      .map(event => event.data?.text || "")
+      .join("")
+      .includes("预算账本无法安全验证")
   );
   input.push("/exit\n");
   await sleep(20);

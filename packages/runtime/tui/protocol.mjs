@@ -19,6 +19,7 @@ export const EVENTS = {
   TASK_MODE_CHANGED: "task.mode_changed",
   PLAN_CREATED: "plan.created",
   PLAN_APPROVED: "plan.approved",
+  TODO_UPDATED: "todo.updated",
   STEP_STARTED: "step.started",
   STEP_COMPLETED: "step.completed",
   TOOL_REQUESTED: "tool.requested",
@@ -47,6 +48,9 @@ export const EVENTS = {
   // front-end shares one markdown renderer (ui-markdown.mjs). token.delta still streams the
   // raw text live; assistant.rendered "sets" the typeset version once the turn completes.
   ASSISTANT_RENDERED: "assistant.rendered",
+  // Progressive mid-stream markdown snapshot (full reparse, throttled). Same payload shape
+  // as assistant.rendered; front-ends may treat it as a provisional typeset of the active part.
+  ASSISTANT_RENDERING_PREVIEW: "assistant.rendering_preview",
   TOKEN_DELTA: "token.delta",
   // v0.11 M4：模型推理增量（真·思考，来自 delta.reasoning_content）。前端收进可折叠「思考」块。
   THINKING_DELTA: "thinking.delta",
@@ -74,6 +78,7 @@ export const EVENTS = {
   // Conditional Dream event family (dream/v1). Node and Rust land these together; the engine
   // emits them only after client.ready advertises support for dream/v1.
   DREAM_RECOMMENDED: "dream.recommended",
+  DREAM_MORNING_REPORT: "dream.morning_report",
   DREAM_STARTED: "dream.started",
   DREAM_CANDIDATE_READY: "dream.candidate_ready",
   DREAM_VALIDATION_FAILED: "dream.validation_failed",
@@ -90,6 +95,15 @@ export const EVENTS = {
 };
 
 const KNOWN = new Set(Object.values(EVENTS));
+const TOOL_EVENTS = new Set([
+  EVENTS.TOOL_REQUESTED,
+  EVENTS.TOOL_RUNNING,
+  EVENTS.TOOL_CALLED,
+  EVENTS.TOOL_SUCCEEDED,
+  EVENTS.TOOL_FAILED,
+  EVENTS.TOOL_BLOCKED,
+  EVENTS.TOOL_CANCELLED,
+]);
 export function isTaskEvent(type) {
   return KNOWN.has(type);
 }
@@ -111,6 +125,18 @@ function requireObject(data, key, errors) {
   const value = data?.[key];
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     errors.push(`data.${key} must be an object`);
+  }
+}
+
+function optionalString(data, key, errors, { nonEmpty = false } = {}) {
+  if (data?.[key] === undefined) return;
+  if (
+    typeof data[key] !== "string" ||
+    (nonEmpty && data[key].trim().length === 0)
+  ) {
+    errors.push(
+      `data.${key} must be ${nonEmpty ? "a non-empty string" : "a string"}`
+    );
   }
 }
 
@@ -141,8 +167,13 @@ function requireTaskReference(data, errors) {
 
 function requireApprovalKind(data, expected, errors) {
   requireString(data, "kind", errors);
-  if (typeof data?.kind === "string" && data.kind !== expected) {
-    errors.push(`data.kind must be ${expected}`);
+  // Additive: task-plan review ("plan_approval", from todo_write) rides the same
+  // approval events as tool grants; a tool_authorization slot accepts either kind.
+  const matches =
+    data?.kind === expected ||
+    (expected === "tool_authorization" && data?.kind === "plan_approval");
+  if (typeof data?.kind === "string" && !matches) {
+    errors.push(`data.kind must be ${expected} or plan_approval`);
   }
 }
 
@@ -157,6 +188,16 @@ export function validateTaskEventPayload(type, data) {
   const errors = [];
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return { ok: false, errors: ["data must be an object"] };
+  }
+
+  if (TOOL_EVENTS.has(type)) {
+    optionalString(data, "name", errors, { nonEmpty: true });
+    optionalString(data, "args_summary", errors);
+    optionalString(data, "result_summary", errors);
+    optionalString(data, "debug_ref", errors, { nonEmpty: true });
+    if (data.truncated !== undefined && typeof data.truncated !== "boolean") {
+      errors.push("data.truncated must be a boolean");
+    }
   }
 
   switch (type) {
@@ -258,8 +299,8 @@ export function validateTaskEventPayload(type, data) {
       requireString(data, "id", errors);
       requireString(data, "taskRunId", errors);
       requireApprovalKind(data, "tool_authorization", errors);
-      if (!new Set(["allow", "deny"]).has(data.decision)) {
-        errors.push("data.decision must be allow or deny");
+      if (!new Set(["allow", "allow_session", "deny"]).has(data.decision)) {
+        errors.push("data.decision must be allow, allow_session, or deny");
       }
       break;
     case EVENTS.APPROVAL_REQUESTED:
@@ -277,6 +318,7 @@ export function validateTaskEventPayload(type, data) {
       }
       break;
     case EVENTS.DREAM_RECOMMENDED:
+    case EVENTS.DREAM_MORNING_REPORT:
     case EVENTS.DREAM_STARTED:
     case EVENTS.DREAM_CANDIDATE_READY:
     case EVENTS.DREAM_VALIDATION_FAILED:

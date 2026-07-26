@@ -11,7 +11,7 @@ runtime spec, JSON Schemas in `contracts/schema/`), the employee registry + vali
 reference runtime (`packages/runtime`, TaskEvent JSONL), the Ratatui supervision workbench
 (`crates/crewclaw-cli`), the evaluation runner (real benchmark scores), and the local-first
 marketplace website (Vite + hono, real package downloads). Authoritative product doc:
-`docs/prd_v0.18.md` (versioned with the implementation; boundary charter included).
+`docs/prd_v0.20.md` (versioned with the implementation; boundary charter included).
 
 ## Boundaries (charter, 2026-07-10)
 

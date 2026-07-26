@@ -10,7 +10,7 @@ const steps = isLocalDevelopment
       {
         step: "01",
         title: "Choose An Expert",
-        desc: "Browse the launch crew and pick a certified Hermes profile for review, product work, onboarding, or docs.",
+        desc: "Browse the launch crew and compare package, lab-certification, and field-evidence status before choosing an employee.",
         preview: "template",
       },
       {
@@ -30,7 +30,7 @@ const steps = isLocalDevelopment
       {
         step: "01",
         title: "Explore The Crew",
-        desc: "Review the certified profiles, declared tools, permissions, and expected deliverables before setup.",
+        desc: "Review the validated package, declared tools, permissions, expected deliverables, and any signed credentials before setup.",
         preview: "template",
       },
       {

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
+import type { OffboardingMode } from "@contracts/team";
 import type { DoctorReport, HealthStatus } from "@contracts/types";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -112,11 +115,14 @@ function ReportList({ items }: { items: string[] }) {
 }
 
 export default function TeamDashboard() {
+  const navigate = useNavigate();
   const team = useTeam();
   const roleAssignments = useRoles();
   const [report, setReport] = useState<DoctorReport | null>(null);
   const [reportEmployeeName, setReportEmployeeName] =
     useState<string>("Employee");
+  const [offboardingMode, setOffboardingMode] =
+    useState<OffboardingMode>("export_memory");
   const [roleDraft, setRoleDraft] = useState<RoleDraft | null>(null);
   const roster = team.list().filter(employee => employee.status !== "fired");
 
@@ -201,6 +207,23 @@ export default function TeamDashboard() {
             <Link to="/marketplace">Hire more</Link>
           </Button>
         </div>
+
+        {team.syncState !== "synced" ? (
+          <Alert
+            aria-live="polite"
+            className="mt-6 rounded-[8px] border-amber-300/25 bg-amber-300/10 text-crew-heading"
+          >
+            <AlertTitle>
+              {team.syncState === "loading"
+                ? "Synchronizing local roster…"
+                : "Local roster unavailable"}
+            </AlertTitle>
+            <AlertDescription className="text-crew-body">
+              {team.syncMessage ??
+                "Checking .crewclaw/team.json before showing roster actions."}
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {rows.length === 0 ? (
           <Card className="mt-10 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
@@ -346,13 +369,14 @@ export default function TeamDashboard() {
                               <AlertDialogTrigger asChild>
                                 <Button
                                   className="rounded-[8px]"
-                                  onClick={() =>
+                                  onClick={() => {
+                                    setOffboardingMode("export_memory");
                                     track("fire_clicked", {
                                       employee_id:
                                         workspaceEmployee.employee_id,
                                       employee_name: name,
-                                    })
-                                  }
+                                    });
+                                  }}
                                   variant="destructive"
                                 >
                                   Fire
@@ -364,10 +388,64 @@ export default function TeamDashboard() {
                                     Fire {name}?
                                   </AlertDialogTitle>
                                   <AlertDialogDescription className="leading-6 text-crew-body">
-                                    This employee will leave your crew, but
-                                    history will be kept.
+                                    Choose how CrewClaw should preserve or
+                                    remove the employee&apos;s working memory.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
+                                <RadioGroup
+                                  className="gap-2"
+                                  onValueChange={value =>
+                                    setOffboardingMode(value as OffboardingMode)
+                                  }
+                                  value={offboardingMode}
+                                >
+                                  <label className="flex cursor-pointer gap-3 rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
+                                    <RadioGroupItem
+                                      className="mt-1"
+                                      value="export_memory"
+                                    />
+                                    <span>
+                                      <span className="block text-sm font-medium text-crew-heading">
+                                        Export memory pack
+                                      </span>
+                                      <span className="mt-1 block text-xs leading-5 text-crew-body">
+                                        Keep a checksum-bound pack for a future
+                                        replacement or audit.
+                                      </span>
+                                    </span>
+                                  </label>
+                                  <label className="flex cursor-pointer gap-3 rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
+                                    <RadioGroupItem
+                                      className="mt-1"
+                                      value="handoff"
+                                    />
+                                    <span>
+                                      <span className="block text-sm font-medium text-crew-heading">
+                                        Hand off to a successor
+                                      </span>
+                                      <span className="mt-1 block text-xs leading-5 text-crew-body">
+                                        Export memory, create a draft, then open
+                                        the marketplace with the role prefilled.
+                                      </span>
+                                    </span>
+                                  </label>
+                                  <label className="flex cursor-pointer gap-3 rounded-[8px] border border-red-300/20 bg-red-400/[0.04] p-3">
+                                    <RadioGroupItem
+                                      className="mt-1"
+                                      value="purge"
+                                    />
+                                    <span>
+                                      <span className="block text-sm font-medium text-red-100">
+                                        Purge recallable state
+                                      </span>
+                                      <span className="mt-1 block text-xs leading-5 text-crew-body">
+                                        Delete memory, Dream candidates, and
+                                        skill usage; retain the audit ledger.
+                                        This is not media sanitization.
+                                      </span>
+                                    </span>
+                                  </label>
+                                </RadioGroup>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel className="rounded-[8px] border-white/15">
                                     Keep employee
@@ -375,15 +453,28 @@ export default function TeamDashboard() {
                                   <AlertDialogAction
                                     className="rounded-[8px] bg-destructive text-white hover:bg-destructive/90"
                                     onClick={() => {
-                                      const result = team.fire(
-                                        workspaceEmployee.employee_id
-                                      );
-                                      track("fire_confirmed", {
-                                        employee_id:
+                                      void team
+                                        .fire(
                                           workspaceEmployee.employee_id,
-                                        employee_name: name,
-                                        ok: result.ok,
-                                      });
+                                          offboardingMode
+                                        )
+                                        .then(result => {
+                                          track("fire_confirmed", {
+                                            employee_id:
+                                              workspaceEmployee.employee_id,
+                                            employee_name: name,
+                                            ok: result.ok,
+                                            mode: offboardingMode,
+                                          });
+                                          if (
+                                            result.ok &&
+                                            offboardingMode === "handoff"
+                                          ) {
+                                            navigate(
+                                              `/marketplace?handoff_from=${encodeURIComponent(workspaceEmployee.employee_id)}`
+                                            );
+                                          }
+                                        });
                                     }}
                                   >
                                     Fire employee

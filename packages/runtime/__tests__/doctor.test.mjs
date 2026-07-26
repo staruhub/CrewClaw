@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -10,6 +11,7 @@ import {
   packageDoctor,
   runtimeDoctor,
 } from "../doctor.mjs";
+import { parseMcpConfig } from "../mcp-client.mjs";
 import { loadDotEnv } from "../run.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -43,9 +45,12 @@ function statusRank(status) {
 const loaded = loadEmployeePackage(whalePackagePath);
 assert.equal(loaded.ok, true, loaded.errors?.join("\n"));
 const whale = loaded.package;
-const TOOL_SCHEMAS = ["web_search", "web_fetch", "browser_render"].map(
-  name => ({ function: { name } })
-);
+const TOOL_SCHEMAS = [
+  "artifact_write",
+  "web_search",
+  "web_fetch",
+  "browser_render",
+].map(name => ({ function: { name } }));
 const doctorOpts = { toolSchemas: TOOL_SCHEMAS };
 
 {
@@ -142,6 +147,75 @@ const doctorOpts = { toolSchemas: TOOL_SCHEMAS };
 }
 
 {
+  const mcpPackage = {
+    ...whale,
+    tool_needs: {
+      "github.read": {
+        necessity: "required",
+        permission: "readonly",
+        description:
+          "Read repository contents through the configured MCP adapter",
+      },
+    },
+  };
+  const mcpCatalog = {
+    version: "test",
+    capabilities: [
+      {
+        id: "github.read",
+        invocation: "adapter",
+        operation: "read",
+        provider_bindings: [
+          { provider: "mcp.github", tools: ["get_file_contents"] },
+        ],
+      },
+    ],
+  };
+  const rawMcp = {
+    mcp_servers: {
+      github: {
+        command: "node",
+        args: ["server.mjs"],
+        env: {
+          GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}",
+        },
+        tools: { include: ["get_file_contents"] },
+      },
+    },
+  };
+  const env = { GITHUB_PERSONAL_ACCESS_TOKEN: "doctor-test-token" };
+
+  const ambientCredentialOnly = onboardingDoctor(mcpPackage, env, {
+    catalog: mcpCatalog,
+    toolSchemas: [],
+  });
+  assert.equal(ambientCredentialOnly.status, "broken");
+  assert.ok(
+    ambientCredentialOnly.checks.some(
+      check => check.name === "tool.github.read" && !check.ok
+    ),
+    "ambient credentials alone must not invent an executable MCP provider"
+  );
+
+  const parsedMcp = parseMcpConfig(rawMcp, {
+    env,
+    profileDir: repoRoot,
+  });
+  const executableMcp = onboardingDoctor(mcpPackage, env, {
+    catalog: mcpCatalog,
+    toolSchemas: [],
+    mcp: parsedMcp,
+  });
+  assert.equal(executableMcp.status, "healthy");
+  assert.ok(
+    executableMcp.checks.some(
+      check => check.name === "tool.github.read" && check.ok
+    ),
+    "doctor accepts only providers projected from the parsed executable MCP config"
+  );
+}
+
+{
   const drifted = onboardingDoctor(
     {
       ...whale,
@@ -195,6 +269,47 @@ const doctorOpts = { toolSchemas: TOOL_SCHEMAS };
   );
   assert.ok(result.fixes.some(fix => /预算|budget|成本|模型/.test(fix)));
   assert.ok(result.fixes.some(fix => /证据|evidence|来源/.test(fix)));
+}
+
+{
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "crewclaw-tool-doctor-"));
+  try {
+    const env = { ...process.env, CREW_DOCTOR_SKIP_MODEL: "1" };
+    delete env.GITHUB_PERSONAL_ACCESS_TOKEN;
+    const output = spawnSync(
+      process.execPath,
+      [
+        join(repoRoot, "packages", "runtime", "tool-doctor-cli.mjs"),
+        "code-review-shrimp",
+        workspaceRoot,
+      ],
+      { cwd: repoRoot, env, encoding: "utf8" }
+    );
+    assert.equal(
+      output.status,
+      0,
+      `tool doctor failed:\n${output.stderr || output.stdout}`
+    );
+    const snapshot = JSON.parse(output.stdout);
+    assert.equal(snapshot.schema_version, "crewclaw.tool-doctor/v1");
+    assert.equal(snapshot.mcp.status, "blocked");
+    assert.deepEqual(snapshot.mcp.providers, []);
+    assert.deepEqual(snapshot.mcp.servers[0]?.missing_env, [
+      "GITHUB_PERSONAL_ACCESS_TOKEN",
+    ]);
+    for (const surface of ["chat", "task"]) {
+      assert.equal(
+        snapshot.surfaces[surface].providers.search.runtime_tool,
+        "web_search"
+      );
+      assert.equal(
+        snapshot.surfaces[surface].providers.render.runtime_tool,
+        "browser_render"
+      );
+    }
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
 }
 
 console.log("doctor.test.mjs passed");

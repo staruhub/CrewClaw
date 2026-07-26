@@ -1,119 +1,85 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { computeCompatibility } from "../compatibility.mjs";
 import { loadEmployeePackage } from "../employee-package.mjs";
 import openworkAdapter, {
   openworkAdapter as namedOpenworkAdapter,
 } from "../adapters/openwork.mjs";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(__dirname, "..", "..", "..");
-const whalePackagePath = join(
-  repoRoot,
-  "experts",
-  "ai-adoption-whale",
-  "crewclaw.employee.yaml"
+const repoRoot = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  ".."
 );
-
-const results = [];
-
-async function check(name, fn) {
-  try {
-    await fn();
-    results.push({ name, ok: true });
-    console.log(`PASS ${name}`);
-  } catch (error) {
-    results.push({ name, ok: false, error });
-    console.log(`FAIL ${name}: ${error?.message || String(error)}`);
-  }
-}
-
-const loaded = loadEmployeePackage(whalePackagePath);
+const loaded = loadEmployeePackage(
+  join(repoRoot, "experts", "ai-adoption-whale", "crewclaw.employee.yaml")
+);
 assert.equal(loaded.ok, true, loaded.errors?.join("\n"));
 const whale = loaded.package;
-const expectedBlueprintKeys = [
-  "employee_card",
-  "workspace_instructions",
-  "tool_bindings",
-  "permission_gateway_rules",
-  "artifact_templates",
-  "task_acceptance_rules",
-  "workspace_memory",
-  "reflection_job",
-  "workspace_ui_layout",
-];
 
-await check("exports named and default adapter", () => {
-  assert.equal(namedOpenworkAdapter, openworkAdapter);
-});
+assert.equal(namedOpenworkAdapter, openworkAdapter);
+assert.equal(openworkAdapter.validate(whale).ok, true);
 
-await check("validate does not throw for whale fixture", () => {
-  assert.doesNotThrow(() => openworkAdapter.validate(whale));
-  const result = openworkAdapter.validate(whale);
-  assert.equal(result.ok, true, result.errors?.join("\n"));
-});
-
-const blueprint = openworkAdapter.compile(whale);
-
-await check("compile returns blueprint with exactly the 11.3 nine keys", () => {
-  assert.deepEqual(
-    Object.keys(blueprint).sort(),
-    expectedBlueprintKeys.toSorted()
-  );
-});
-
-await check(
-  "tool_bindings includes abstract web-search without vendor names",
-  () => {
-    const serialized = JSON.stringify(blueprint.tool_bindings);
-    assert.match(serialized, /web-search/);
-    assert.doesNotMatch(
-      serialized,
-      /tavily|playwright|bash|curl|selenium|puppeteer|serper|openai|anthropic/i
-    );
-  }
+const capabilities = openworkAdapter.capabilities();
+assert.equal(capabilities.detected, false);
+assert.equal(capabilities.probed, false);
+assert.equal(
+  computeCompatibility(whale, capabilities).level,
+  "L0",
+  "an unconfigured private OpenWork runtime must never claim observed capability"
 );
 
-await check("permission rules keep P0 auto-allow and P4 deny-safe", () => {
-  const rules = blueprint.permission_gateway_rules;
-  assert.equal(
-    rules.tiers.P0.auto_allow,
-    true,
-    "P0 read-public must auto-allow"
-  );
-  assert.equal(
-    rules.tiers.P0.approval_required,
-    false,
-    "P0 read-public must not require approval"
-  );
-  assert.ok(
-    rules.tiers.P4.auto_allow === false ||
-      rules.tiers.P4.default_action === "deny",
-    "P4 must not be auto-allowed"
-  );
-  assert.notEqual(
-    rules.tiers.P4.auto_allow,
-    true,
-    "P4 auto_allow must never be true"
-  );
-});
+const detection = openworkAdapter.detect();
+assert.equal(detection.ok, false);
+assert.equal(detection.status, "contract_required");
+assert.match(detection.reason, /owner's OpenWork contract/i);
 
-await check("computeCompatibility returns L4 for OpenWork capabilities", () => {
-  const result = computeCompatibility(whale, openworkAdapter.capabilities());
-  assert.equal(result.level, "L4", result.reasons.join("\n"));
-});
+const blueprint = openworkAdapter.compile(whale);
+assert.deepEqual(Object.keys(blueprint).sort(), [
+  "artifact_templates",
+  "employee_card",
+  "permission_gateway_rules",
+  "reflection_job",
+  "task_acceptance_rules",
+  "tool_bindings",
+  "workspace_instructions",
+  "workspace_memory",
+  "workspace_ui_layout",
+]);
+assert.equal(blueprint.permission_gateway_rules.tiers.P0.auto_allow, true);
+assert.equal(
+  blueprint.permission_gateway_rules.tiers.P4.default_action,
+  "deny"
+);
+assert.doesNotMatch(
+  JSON.stringify(blueprint.tool_bindings),
+  /tavily|playwright|bash|curl|selenium|puppeteer|serper|openai|anthropic/i
+);
 
-await check("runSmokeTest is dry-run Seed 2.1 eval trial", () => {
-  const smoke = openworkAdapter.runSmokeTest(whale);
-  assert.equal(smoke.dry_run, true);
-  assert.match(
-    `${smoke.id} ${smoke.task} ${smoke.seed} ${smoke.name}`,
-    /Seed 2\.1|seed-2\.1/i
-  );
+assert.deepEqual(openworkAdapter.install(whale), {
+  ok: false,
+  reason: "openwork_contract_unconfigured",
 });
+const smoke = openworkAdapter.runSmokeTest(whale);
+assert.equal(smoke.ok, false);
+assert.equal(smoke.dry_run, true);
+assert.equal(smoke.reason, "openwork_contract_unconfigured");
+assert.equal(openworkAdapter.doctor(whale).observed_level, "L0");
+assert.equal(openworkAdapter.collectEvents().ok, false);
+assert.equal(openworkAdapter.collectArtifacts().ok, false);
 
-const failed = results.filter(result => !result.ok);
-if (failed.length > 0) {
-  process.exitCode = 1;
-}
+const implementation = readFileSync(
+  join(repoRoot, "packages", "runtime", "adapters", "openwork.mjs"),
+  "utf8"
+);
+assert.doesNotMatch(
+  implementation,
+  /@opencode-ai|global\.health|different-ai|\.opencode\/skills/,
+  "the owner's OpenWork adapter must not inherit contracts from an unrelated public project"
+);
+
+console.log("openwork-adapter.test.mjs passed");

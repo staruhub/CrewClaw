@@ -15,6 +15,7 @@ import { Readable, Writable } from "node:stream";
 import {
   agentLoop,
   callModel,
+  requiredToolPreflight,
   runStructuredProcess,
   runTool,
 } from "../run.mjs";
@@ -150,6 +151,101 @@ test("callModel aborts an in-flight SSE response from the caller signal", async 
   );
 });
 
+test("callModel renews its idle watchdog on chunks and keeps a separate total cap", async () => {
+  await withSseServer(
+    res => {
+      const frames = ["长", "任务", "完成"];
+      let index = 0;
+      // Send the first frame immediately so this test measures idle-window renewal,
+      // not Windows loopback connection scheduling against a 40 ms deadline.
+      res.write(
+        `data: ${JSON.stringify({ choices: [{ delta: { content: frames[index++] } }] })}\n\n`
+      );
+      const timer = setInterval(() => {
+        res.write(
+          `data: ${JSON.stringify({ choices: [{ delta: { content: frames[index++] } }] })}\n\n`
+        );
+        if (index === frames.length) {
+          clearInterval(timer);
+          res.end("data: [DONE]\n\n");
+        }
+      }, 25);
+      res.on("close", () => clearInterval(timer));
+    },
+    async baseUrl => {
+      const result = await callModel({
+        ...modelOptions(baseUrl),
+        idleTimeoutMs: 40,
+        totalTimeoutMs: 300,
+      });
+      assert.equal(result.content, "长任务完成");
+    }
+  );
+
+  await withSseServer(
+    res => {
+      res.write(
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "开始" } }] })}\n\n`
+      );
+      setTimeout(() => res.end("data: [DONE]\n\n"), 90);
+    },
+    async baseUrl => {
+      await assert.rejects(
+        callModel({
+          ...modelOptions(baseUrl),
+          idleTimeoutMs: 30,
+          totalTimeoutMs: 300,
+        }),
+        /stream was idle.*retry/
+      );
+    }
+  );
+
+  await withSseServer(
+    res => {
+      const timer = setInterval(
+        () =>
+          res.write(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: "." } }] })}\n\n`
+          ),
+        15
+      );
+      setTimeout(() => {
+        clearInterval(timer);
+        res.end("data: [DONE]\n\n");
+      }, 120);
+      res.on("close", () => clearInterval(timer));
+    },
+    async baseUrl => {
+      await assert.rejects(
+        callModel({
+          ...modelOptions(baseUrl),
+          idleTimeoutMs: 40,
+          totalTimeoutMs: 55,
+        }),
+        /generation exceeded.*HERMES_TOTAL_TIMEOUT_MS/
+      );
+    }
+  );
+});
+
+test("artifact preflight blocks an explicit file task before spending model tokens", () => {
+  const blocked = requiredToolPreflight(
+    { blocking: [], degraded: [], visibleTools: [] },
+    { taskText: "给我一份方案 输出为 plan.pdf" }
+  );
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.code, "tool_preflight_blocked");
+  assert.match(blocked.reason, /plan\.pdf/);
+  assert.match(blocked.reason, /文档生成能力建设中/);
+
+  const ordinary = requiredToolPreflight(
+    { blocking: [], degraded: [], visibleTools: [] },
+    { taskText: "解释这段方案" }
+  );
+  assert.equal(ordinary.ok, true);
+});
+
 test("runTool rejects an already-cancelled signal before doing work", async () => {
   const controller = new AbortController();
   controller.abort("user_exit");
@@ -233,8 +329,17 @@ test("agentLoop emits a stable live tool lifecycle and keeps its audit record", 
     assert.equal(new Set(lifecycle.map(event => event.id)).size, 1);
     assert.equal(lifecycle[0].id, "call-stable");
     assert.deepEqual(lifecycle[0].args, { value: 1 });
+    assert.equal(lifecycle[0].name, "noop");
+    assert.equal(lifecycle[0].args_summary, '{"value":1}');
+    assert.equal(lifecycle[0].label, 'noop · {"value":1}');
+    assert.equal(lifecycle[0].result_summary, undefined);
+    assert.equal(lifecycle[2].result_summary, "已完成");
+    assert.equal(lifecycle[2].summary, "已完成");
     assert.equal(audits.length, 1);
     assert.equal(audits[0].call_id, "call-stable");
+    assert.equal(audits[0].name, "noop");
+    assert.equal(audits[0].args_summary, '{"value":1}');
+    assert.equal(audits[0].result_summary, "已完成");
     assert.equal(
       messages.find(message => message.role === "tool")?.tool_call_id,
       "call-stable"
@@ -439,7 +544,10 @@ test("JSONL bridge freezes assistant parts around one live tool row", async () =
     const base = {
       id: "call-1",
       toolName: "web_search",
+      name: "web_search",
       args: { query: "CrewClaw" },
+      args_summary: '"CrewClaw"',
+      label: 'web_search · "CrewClaw"',
     };
     options.onToolEvent({
       ...base,
@@ -450,6 +558,7 @@ test("JSONL bridge freezes assistant parts around one live tool row", async () =
     options.onToolEvent({
       ...base,
       phase: "succeeded",
+      result_summary: "3 条",
       summary: "找到 3 个来源",
       detail: "result",
     });
@@ -498,6 +607,18 @@ test("JSONL bridge freezes assistant parts around one live tool row", async () =
     [...seqs].sort((a, b) => a - b)
   );
   assert.equal(new Set(seqs).size, seqs.length);
+  const toolEvents = harness.events.filter(event =>
+    event.type.startsWith("tool.")
+  );
+  assert.ok(toolEvents.every(event => event.data.name === "web_search"));
+  assert.ok(
+    toolEvents.every(event => event.data.args_summary === '"CrewClaw"')
+  );
+  assert.ok(
+    toolEvents.every(event => event.data.label === 'web_search · "CrewClaw"')
+  );
+  assert.equal(toolEvents.at(-1).data.result_summary, "3 条");
+  assert.equal(toolEvents.at(-1).data.summary, "3 条");
   await closeBridge(harness);
 });
 
@@ -572,6 +693,38 @@ test("closing the bridge cancels generation and drops late deltas", async () => 
   );
   assert.equal(types.includes("task.completed"), false);
   rmSync(harness.root, { recursive: true, force: true });
+});
+
+test("generation.cancel aborts the active turn without closing the bridge", async () => {
+  const harness = bridgeHarness(async options => {
+    options.onDelta("正在生成");
+    await new Promise(resolve =>
+      options.signal.addEventListener("abort", resolve, { once: true })
+    );
+    const error = new Error("cancelled");
+    error.code = "CREW_GENERATION_CANCELLED";
+    throw error;
+  });
+  harness.input.push("开始一个长任务\n");
+  await waitFor(
+    () => harness.events.some(event => event.type === "token.delta"),
+    "generation did not start"
+  );
+  harness.input.push(
+    `${JSON.stringify({ type: "generation.cancel", data: {} })}\n`
+  );
+  await waitFor(
+    () => harness.events.some(event => event.type === "task.blocked"),
+    "cancel action did not block the active task"
+  );
+  const types = harness.events.map(event => event.type);
+  assert.ok(types.indexOf("generation.cancelled") >= 0);
+  assert.ok(
+    types.indexOf("task.blocked") > types.indexOf("generation.cancelled")
+  );
+  assert.equal(types.includes("task.completed"), false);
+  assert.equal(types.includes("task.rejected"), false);
+  await closeBridge(harness);
 });
 
 test("closing the bridge cancels a real running tool process exactly once", async () => {

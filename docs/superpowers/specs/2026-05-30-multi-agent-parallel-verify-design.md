@@ -2,7 +2,7 @@
 
 ## Summary
 
-`crewclaw verify` makes a crew of 6 ChaoGeek-certified agents fan out **in parallel** to verify that the project is runnable. Each agent owns one verification dimension (build, types, lint, unit, e2e, registry) and reports a verdict on its own live spinner lane. The demo is **scripted/data-driven** by default — durations and verdicts come from `registry/verify-scenario.json` so the roadshow run is fast, deterministic, and never flakes — with a `--live` toggle that swaps the scripted steps for the real shell commands.
+`crewclaw verify` makes a crew of 6 C1 package-validated agents fan out **in parallel** to verify that the project is runnable. Each agent owns one verification dimension (build, types, lint, unit, e2e, registry) and reports a verdict on its own live spinner lane. The demo is **scripted/data-driven** by default — durations and verdicts come from `registry/verify-scenario.json` so the roadshow run is fast and deterministic. Scripted results are demo data, not C2 certification; `--live` swaps the scripted steps for the real shell commands.
 
 ## The Crew (6 agents)
 

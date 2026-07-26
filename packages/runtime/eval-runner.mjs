@@ -23,7 +23,13 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, isAbsolute } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { readArtifactFileGuarded } from "./artifact-contract.mjs";
 import { computeMemoryStateHash } from "./memory-hash.mjs";
@@ -35,6 +41,7 @@ import {
 } from "./state-lock.mjs";
 import { validateTaskEvent } from "./tui/protocol.mjs";
 import { snapshotEvalSubject } from "./eval-subject.mjs";
+import { classifyEvalProviderFailure } from "./eval-provider.mjs";
 import yaml from "./yaml.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -80,7 +87,12 @@ const SEARCH_ENDPOINTS = {
   brave: "https://api.search.brave.com/res/v1/web/search",
   ddg: "https://lite.duckduckgo.com/lite/",
 };
-const SMOKE_TIMEOUT_MS = 120_000;
+const SMOKE_TIMEOUT_MS = (() => {
+  // Real-model smoke tasks (multi-step agent loops) can legitimately exceed the
+  // 120s default; allow an explicit override without changing the default.
+  const raw = Number.parseInt(process.env.CREW_EVAL_SMOKE_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 120_000;
+})();
 const JUDGE_TIMEOUT_MS = 60_000;
 const MAX_RUNTIME_STDOUT_BYTES = 4 * 1024 * 1024;
 const MAX_RUNTIME_STDERR_BYTES = 1024 * 1024;
@@ -391,10 +403,18 @@ export function loadEmployeeSpec(root, slug) {
   ) {
     throw new Error(`"${slug}" pass_threshold must be within (0,1]`);
   }
+  // A real hire must grant every `necessity: required` capability before the employee can
+  // work (validateCapabilityGrantTokens enforces this). The eval harness mirrors that
+  // baseline; without it the worker loses e.g. artifact.report and every deliverable comes
+  // back empty (observed 2026-07-17: judge honestly scored "交付物为空" 0/100 across the board).
+  const requiredCapabilities = Object.entries(spec?.tool_needs ?? {})
+    .filter(([, need]) => need?.necessity === "required")
+    .map(([capability]) => capability);
   return {
     smokeTests,
     rubric,
     passThreshold,
+    requiredCapabilities,
     specVersion: String(spec?.identity?.version ?? "0.0.0"),
     specHash: createHash("sha256").update(source).digest("hex"),
     subjectContract: subject.contractVersion,
@@ -402,6 +422,7 @@ export function loadEmployeeSpec(root, slug) {
     dependencyHash: subject.dependencyHash,
     runtimeIdentity: subject.runtimeIdentity,
     profileModel: subject.profileModel,
+    certificationPolicy: spec?.certification_policy ?? null,
   };
 }
 
@@ -417,6 +438,20 @@ export function actionForEvalEvent(event) {
     !data.taskRunId
   ) {
     return null;
+  }
+  if (event.type === "approval.required" && data.kind === "plan_approval") {
+    // Task-plan review is coordination, not an external effect: the evaluator approves the
+    // plan so the M2 plan-first discipline can run instead of deadlocking the smoke test
+    // (deny → "revise the plan" → resubmit loop until step cap; observed 2026-07-17).
+    return {
+      type: "approval.resolve",
+      data: {
+        id: data.id,
+        taskRunId: data.taskRunId,
+        kind: data.kind,
+        decision: "allow",
+      },
+    };
   }
   if (
     event.type === "approval.required" &&
@@ -535,11 +570,46 @@ export function runSmokeTest(
     timeoutMs = SMOKE_TIMEOUT_MS,
     workerModel,
     executionContext,
+    stagedMemoryItems = [],
+    grantedCapabilities = [],
     sourceEnv = process.env,
   } = {}
 ) {
   return new Promise((resolvePromise, rejectPromise) => {
     const runRoot = mkdtempSync(join(tmpdir(), "crew-eval-"));
+    if (Array.isArray(stagedMemoryItems) && stagedMemoryItems.length > 0) {
+      const stagedPath = resolveStatePath(
+        join(runRoot, ".crewclaw", "memory", `${slug}.json`),
+        runRoot
+      );
+      writeJsonAtomic(stagedPath, stagedMemoryItems, { root: runRoot });
+    }
+    // The production runtime now requires a durable active hire. Certification still exercises
+    // that same boundary inside its isolated workspace instead of bypassing it with an env flag.
+    const stateRoot = join(runRoot, ".crewclaw");
+    mkdirSync(stateRoot, { recursive: true });
+    writeFileSync(
+      join(stateRoot, "team.json"),
+      `${JSON.stringify(
+        [
+          {
+            workspace_employee_id: `eval-${slug}`,
+            employee_id: slug,
+            version: "eval-harness",
+            status: "active",
+            hired_at: new Date().toISOString(),
+            fired_at: null,
+            permissions_granted: grantedCapabilities.map(
+              capability => `capability:${capability}`
+            ),
+            package_sha256: null,
+            hire_source: "eval_harness",
+          },
+        ],
+        null,
+        2
+      )}\n`
+    );
     const env = buildEvalChildEnv({
       mock,
       runRoot,
@@ -805,7 +875,12 @@ function mechanicalGrade(events, artifactText) {
 }
 
 function lifecycleFailureGrade({ acceptance, rubric, terminal }) {
-  const reason = `runtime ended with ${terminal?.type || "an unknown terminal"}`;
+  const terminalType = terminal?.type || "an unknown terminal";
+  const terminalReason = shortDiagnostic(
+    terminal?.data?.reason || terminal?.data?.status || "",
+    240
+  );
+  const reason = `runtime ended with ${terminalType}${terminalReason ? `: ${terminalReason}` : ""}`;
   return {
     score: 0,
     passed: false,
@@ -821,6 +896,23 @@ function lifecycleFailureGrade({ acceptance, rubric, terminal }) {
       reason,
     })),
   };
+}
+
+export class EvalInfrastructureError extends Error {
+  constructor({ testId, terminal, provider }) {
+    const terminalReason = shortDiagnostic(
+      terminal?.data?.reason || terminal?.data?.status || "",
+      240
+    );
+    super(
+      `eval smoke ${testId} was not graded because the provider was unavailable` +
+        `${terminalReason ? `: ${terminalReason}` : ""}`
+    );
+    this.name = "EvalInfrastructureError";
+    this.code = "CREW_EVAL_INFRASTRUCTURE";
+    this.provider = provider;
+    this.terminal_type = terminal?.type || null;
+  }
 }
 
 // Real grade: smoke acceptance criteria are hard gates, while the outcome rubric supplies the
@@ -883,7 +975,7 @@ export async function gradeArtifactWithJudge(
 // M0.3：判官提示词定版——换措辞就换版本号，否则"分涨了"无法归因（判官变了 vs 员工变了）。
 export const JUDGE_PROMPT_VERSION = "crewclaw.judge-prompt/v1";
 
-function makeJudge({ sourceEnv = process.env, identity } = {}) {
+export function makeJudge({ sourceEnv = process.env, identity } = {}) {
   const apiKey = sourceEnv.ZENMUX_API_KEY;
   const baseUrl = configuredProviderBaseUrl(sourceEnv);
   const model = identity?.judgeModel ?? configuredJudgeModel(sourceEnv);
@@ -966,6 +1058,7 @@ export async function runEval(
     smokeTests,
     rubric,
     passThreshold,
+    requiredCapabilities,
     specVersion,
     specHash,
     subjectContract,
@@ -988,6 +1081,10 @@ export async function runEval(
         mock,
         workerModel: executionIdentity.workerModel,
         executionContext: executionIdentity.executionContext,
+        stagedMemoryItems,
+        grantedCapabilities: requiredCapabilities,
+        runtimePath: join(root, "packages", "runtime", "run.mjs"),
+        cwd: root,
         sourceEnv: capturedSourceEnv,
       }
     );
@@ -995,6 +1092,18 @@ export async function runEval(
     if (mock || !judge) {
       graded = mechanicalGrade(events, artifactText);
     } else if (terminal.type !== "task.completed") {
+      const providerFailure = classifyEvalProviderFailure({
+        ...terminal.data,
+        terminal_type: terminal.type,
+        model: executionIdentity.workerModel,
+      });
+      if (providerFailure) {
+        throw new EvalInfrastructureError({
+          testId: test.id,
+          terminal,
+          provider: providerFailure,
+        });
+      }
       graded = lifecycleFailureGrade({
         acceptance: test.acceptance,
         rubric,
@@ -1628,6 +1737,9 @@ async function main() {
     console.error(
       "Error: real eval needs ZENMUX_API_KEY (or pass --mock for a mechanical harness run). Refusing to silently downgrade."
     );
+    console.error(
+      "EvalProvider status: missing_credentials — set ZENMUX_API_KEY in crewhire/.env.local, or use an OpenAI-compatible judge key with inference permission. Account 403 (key lists models but cannot call) is authentication_failed, not a missing key."
+    );
     process.exit(1);
   }
   const sourceEnv = { ...process.env };
@@ -1644,7 +1756,9 @@ async function main() {
       JSON.stringify({ ...result, persisted: written, path, reason }, null, 2)
     );
   } else {
-    const tag = result.mock ? " \x1b[33m[MOCK · 机械跑,非认证分]\x1b[0m" : "";
+    const tag = result.mock
+      ? " \x1b[33m[MOCK · 机械跑 · 非 C2]\x1b[0m"
+      : " \x1b[36m[真实评测 · 非 C2 Credential]\x1b[0m";
     console.log(`\n${slug} · ${result.verdict} · ${result.score}/100${tag}`);
     console.log(
       `  graded_by: ${result.graded_by} · worker: ${result.worker_model} · judge: ${result.judge_model ?? "none"} · threshold: ${result.pass_threshold}`

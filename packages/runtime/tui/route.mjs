@@ -23,7 +23,7 @@ import {
   writeArtifact,
 } from "../artifact-contract.mjs";
 import { weatherCity, weatherDay, fetchWeatherCard } from "../weather.mjs";
-import { pickBackend } from "../tools-web.mjs";
+import { searchProviderHealth } from "../tools-web.mjs";
 import { EVENTS } from "./protocol.mjs";
 
 // deps: { emit(type,data), runModelTurn(text)->Promise<answer>, pendingActions, employeeScope,
@@ -199,19 +199,22 @@ export async function routeTurn(message, deps = {}) {
           reason: decision.reason,
         });
       // AC-003 / CC-TOOL-001 Preflight: a task that needs the live web must have a real
-      // search provider BEFORE the model runs. No provider (pickBackend ⇒ ddg scrape) ⇒
+      // search provider BEFORE the model runs. Reuse the same provider-health projection as
+      // employee tool resolution/doctor; a keyless DDG fallback is not production readiness.
       // block honestly instead of letting the agent burn tool calls guessing URLs and
       // fabricate a "latest models" list. Tool Truth over tool hallucination (§4.5/§9.1).
-      if (decision.needsSearch && pickBackend(env).name === "ddg") {
-        const detail = "未配置 web.search provider（Tavily / Serper / Brave）";
+      const searchHealth = searchProviderHealth(env);
+      if (decision.needsSearch && !searchHealth.ready) {
+        const detail = searchHealth.reason;
         emit(EVENTS.TOOL_PREFLIGHT_CHECKED, {
           id: "web_search",
           tool: "web.search",
           ok: false,
           label: "web.search",
           detail,
-          status: "missing_key",
+          status: searchHealth.code,
           reason: detail,
+          provider: searchHealth.provider,
         });
         emit(EVENTS.TASK_BLOCKED, {
           id: taskRunId,
@@ -219,9 +222,11 @@ export async function routeTurn(message, deps = {}) {
           reason:
             "缺少可验证的联网搜索能力（web.search missing_key），本研究任务已阻塞；配置 TAVILY_API_KEY（免费）后可运行。",
           tool: "web.search",
-          status: "missing_key",
+          status: searchHealth.code,
+          est_cost: 0,
         });
         decision.blocked = true;
+        decision.correctlyBlocked = true;
         break;
       }
       const answer = await runModelTurn(message);
@@ -425,16 +430,27 @@ async function persistDeliverable({ emit, answer, message, taskRunId, root }) {
     // URL → evidence card 落 .crewclaw/runs/<id>.evidence.json（与 run 模式同一存储）并实时
     // emit。只在交付轮触发；不造数字置信度（引擎置信度是分类，source_type 才是真值）。
     try {
-      const cited = [...new Set(text.match(/https?:\/\/[^\s)]+/g) || [])];
-      for (const src of cited) {
+      const citedUrls = [...new Set(text.match(/https?:\/\/[^\s)]+/g) || [])];
+      const citedFiles = [
+        ...new Set(
+          text.match(/[A-Za-z0-9_@./\\-]+\.[A-Za-z0-9]+:\d+(?::\d+)?/g) || []
+        ),
+      ];
+      const cited = [
+        ...citedUrls.map(source => ({ source, type: "url" })),
+        ...citedFiles.map(source => ({ source, type: "file" })),
+      ];
+      for (const { source: src, type } of cited) {
         const card = newEvidenceCard({
-          field: "来源",
+          field: type === "url" ? "来源" : "文件证据",
           value: src,
-          sourceUrl: src,
+          ...(type === "url"
+            ? { sourceUrl: src }
+            : { sourceRef: src, sourceType: "file" }),
         });
         addEvidence(root, taskRunId, card);
         emit(EVENTS.EVIDENCE_CREATED, {
-          fact: "报告引用来源",
+          fact: type === "url" ? "报告引用来源" : "报告引用文件位置",
           source: src,
           source_type: card.source_type,
         });

@@ -1,5 +1,6 @@
 import { computeCompatibility } from "../compatibility.mjs";
 import { validateEmployeePackage } from "../employee-package.mjs";
+import { derivePermissionPolicy } from "../permission-policy.mjs";
 import { defineAdapter } from "./adapter-interface.mjs";
 
 const BLUEPRINT_KEYS = Object.freeze([
@@ -52,16 +53,28 @@ const PERMISSION_TIERS = Object.freeze({
   }),
 });
 
-const OPENWORK_CAPABILITY_LIST = Object.freeze([
-  "web.search",
-  "web.extract",
-  "web.fetch_extract",
-  "source.verify",
-  "evidence.create",
-  "artifact.report",
-  "browser.render",
-  "shell.run",
-]);
+const UNPROBED_CAPABILITIES = Object.freeze({
+  detected: false,
+  probed: false,
+  tools: false,
+  events: false,
+  memory: false,
+  permissions: false,
+  artifacts: false,
+  outcome: false,
+  workspace: false,
+  long_running: false,
+  tasks: false,
+  logs: false,
+  doctor: false,
+  basic_acceptance: false,
+  hire: false,
+  onboard: false,
+  workbench: false,
+  artifact: false,
+  dream: false,
+  capabilities: [],
+});
 
 function hasValue(value) {
   if (value === null || value === undefined) return false;
@@ -90,6 +103,10 @@ function objectEntries(value) {
 }
 
 function toolBindings(pkg) {
+  const policy = derivePermissionPolicy(
+    pkg?.tool_needs || {},
+    pkg?.permission_policy || {}
+  );
   return objectEntries(pkg?.tool_needs).map(([name, need]) => {
     const disabled = String(need?.necessity || "").toLowerCase() === "disabled";
     return {
@@ -98,9 +115,9 @@ function toolBindings(pkg) {
       necessity: need?.necessity || "optional",
       permission: need?.permission || "unspecified",
       permission_level:
-        pkg?.permission_policy?.grants?.[name] ||
-        pkg?.permission_policy?.denied?.[name] ||
-        pkg?.permission_policy?.default_level ||
+        policy.grants?.[name] ||
+        policy.denied?.[name] ||
+        policy.default_level ||
         "P1",
       description: need?.description || "",
       enabled: !disabled,
@@ -110,10 +127,13 @@ function toolBindings(pkg) {
 }
 
 function permissionGatewayRules(pkg) {
-  const grants = pkg?.permission_policy?.grants || {};
-  const denied = pkg?.permission_policy?.denied || {};
+  const policy = derivePermissionPolicy(
+    pkg?.tool_needs || {},
+    pkg?.permission_policy || {}
+  );
+  const grants = policy.grants || {};
+  const denied = policy.denied || {};
   const tiers = {};
-
   for (const [tier, rule] of Object.entries(PERMISSION_TIERS)) {
     tiers[tier] = {
       ...rule,
@@ -127,105 +147,82 @@ function permissionGatewayRules(pkg) {
         .sort(),
     };
   }
-
   return {
-    default_level: pkg?.permission_policy?.default_level || "P1",
+    default_level: policy.default_level || "P1",
     tier_order: ["P0", "P1", "P2", "P3", "P4"],
     tiers,
     human_authorization_required: toArray(
-      pkg?.permission_policy?.human_authorization_required
+      policy.human_authorization_required
     ).map(String),
-    levels: pkg?.permission_policy?.levels || {},
+    levels: policy.levels || {},
   };
 }
 
-function artifactTemplates(pkg) {
-  return toArray(pkg?.deliverables).map(deliverable => ({
-    type: deliverable?.type || capabilityId(deliverable?.name || deliverable),
-    name: deliverable?.name || deliverable?.type || String(deliverable),
-    template_source: "crewclaw-deliverable",
-  }));
-}
-
-function taskAcceptanceRules(pkg) {
-  return toArray(pkg?.outcome_rubric).map(rule => ({
-    id: rule?.id || capabilityId(rule?.criterion || rule),
-    weight: rule?.weight ?? null,
-    criterion: rule?.criterion || String(rule),
-  }));
-}
-
-function workspaceInstructions(pkg) {
-  return {
-    title: pkg?.role_contract?.title || "",
-    mission: pkg?.role_contract?.mission || "",
-    responsibilities: toArray(pkg?.role_contract?.responsibilities),
-    not_responsible_for: toArray(pkg?.role_contract?.not_responsible_for),
-    best_for: toArray(pkg?.role_contract?.best_for),
-  };
-}
-
-function employeeCard(pkg) {
+function compileBlueprint(pkg) {
   const identity = pkg?.identity || {};
+  const smoke = Array.isArray(pkg?.eval_suite?.smoke_tests)
+    ? pkg.eval_suite.smoke_tests[0]
+    : null;
   return {
-    id: identity.id || "",
-    name: identity.name || identity.english_name || "",
-    english_name: identity.english_name || "",
-    avatar: identity.avatar || "",
-    author: identity.author || "",
-    version: identity.version || "",
-    certification: identity.certification || "",
-    title: identity.title || pkg?.role_contract?.title || "",
-    description: identity.description || "",
+    [BLUEPRINT_KEYS[0]]: {
+      id: identity.id || "",
+      name: identity.name || identity.english_name || "",
+      english_name: identity.english_name || "",
+      avatar: identity.avatar || "",
+      author: identity.author || "",
+      version: identity.version || "",
+      certification: identity.certification || "",
+      title: identity.title || pkg?.role_contract?.title || "",
+      description: identity.description || "",
+    },
+    [BLUEPRINT_KEYS[1]]: {
+      title: pkg?.role_contract?.title || "",
+      mission: pkg?.role_contract?.mission || "",
+      responsibilities: toArray(pkg?.role_contract?.responsibilities),
+      not_responsible_for: toArray(pkg?.role_contract?.not_responsible_for),
+      best_for: toArray(pkg?.role_contract?.best_for),
+    },
+    [BLUEPRINT_KEYS[2]]: toolBindings(pkg),
+    [BLUEPRINT_KEYS[3]]: permissionGatewayRules(pkg),
+    [BLUEPRINT_KEYS[4]]: toArray(pkg?.deliverables).map(deliverable => ({
+      type: deliverable?.type || capabilityId(deliverable?.name || deliverable),
+      name: deliverable?.name || deliverable?.type || String(deliverable),
+      template_source: "crewclaw-deliverable",
+    })),
+    [BLUEPRINT_KEYS[5]]: toArray(pkg?.outcome_rubric).map(rule => ({
+      id: rule?.id || capabilityId(rule?.criterion || rule),
+      weight: rule?.weight ?? null,
+      criterion: rule?.criterion || String(rule),
+    })),
+    [BLUEPRINT_KEYS[6]]: pkg?.memory_seed || {},
+    [BLUEPRINT_KEYS[7]]: {
+      policy: pkg?.dream_policy || {},
+      trigger: "post-task",
+    },
+    [BLUEPRINT_KEYS[8]]: {
+      ...(pkg?.workbench_profile || {}),
+      first_trial: smoke
+        ? {
+            id: smoke.id,
+            task: smoke.task,
+            acceptance: toArray(smoke.acceptance),
+          }
+        : null,
+    },
   };
 }
 
 function smokeDescriptor(pkg) {
-  const smoke =
-    (Array.isArray(pkg?.eval_suite?.smoke_tests) &&
-      pkg.eval_suite.smoke_tests[0]) ||
-    (Array.isArray(pkg?.eval_suite) && pkg.eval_suite[0]);
-
+  const smoke = Array.isArray(pkg?.eval_suite?.smoke_tests)
+    ? pkg.eval_suite.smoke_tests[0]
+    : null;
   return {
-    id: smoke?.id || "research-seed-2.1",
-    name: "Seed 2.1 OpenWork eval trial",
-    seed: "Seed 2.1",
-    task:
-      smoke?.task ||
-      "Research Seed 2.1 and decide whether it is suitable for CrewClaw.",
-    acceptance: toArray(smoke?.acceptance),
+    ok: false,
+    reason: "openwork_contract_unconfigured",
+    id: smoke?.id || null,
+    task: smoke?.task || null,
     runtime: "openwork",
-    trial_type: "eval",
     dry_run: true,
-  };
-}
-
-function openworkCapabilities() {
-  return {
-    tools: true,
-    events: true,
-    memory: true,
-    permissions: true,
-    artifacts: "full",
-    outcome: true,
-    outcome_level: "full",
-    workspace: true,
-    long_running: true,
-    tasks: true,
-    logs: true,
-    doctor: true,
-    basic_acceptance: true,
-    hire: true,
-    onboard: true,
-    workbench: true,
-    artifact: true,
-    dream: true,
-    search: true,
-    browser: true,
-    source: true,
-    evidence: true,
-    shell: true,
-    capabilities: [...OPENWORK_CAPABILITY_LIST],
   };
 }
 
@@ -234,75 +231,75 @@ export const openworkAdapter = defineAdapter({
   name: "OpenWork Adapter",
   targetLevel: "L4",
 
-  capabilities: openworkCapabilities,
+  detect() {
+    return {
+      ok: false,
+      status: "contract_required",
+      version: null,
+      reason:
+        "The owner's OpenWork contract and endpoint are not configured; no third-party OpenWork API is assumed.",
+    };
+  },
+
+  capabilities() {
+    return structuredClone(UNPROBED_CAPABILITIES);
+  },
 
   validate(pkg) {
     const delegated = validateEmployeePackage(pkg);
     const errors = new Set(delegated.errors || []);
-    if (!hasValue(pkg?.runtime_requirements)) {
+    if (!hasValue(pkg?.runtime_requirements))
       errors.add("Missing required OpenWork field: runtime_requirements");
-    }
     return { ok: errors.size === 0, errors: [...errors] };
   },
 
-  compile(pkg) {
-    return {
-      [BLUEPRINT_KEYS[0]]: employeeCard(pkg),
-      [BLUEPRINT_KEYS[1]]: workspaceInstructions(pkg),
-      [BLUEPRINT_KEYS[2]]: toolBindings(pkg),
-      [BLUEPRINT_KEYS[3]]: permissionGatewayRules(pkg),
-      [BLUEPRINT_KEYS[4]]: artifactTemplates(pkg),
-      [BLUEPRINT_KEYS[5]]: taskAcceptanceRules(pkg),
-      [BLUEPRINT_KEYS[6]]: pkg?.memory_seed || {},
-      [BLUEPRINT_KEYS[7]]: {
-        policy: pkg?.dream_policy || {},
-        trigger: "post-task",
-      },
-      [BLUEPRINT_KEYS[8]]: pkg?.workbench_profile || {},
-    };
+  compile: compileBlueprint,
+  install() {
+    return { ok: false, reason: "openwork_contract_unconfigured" };
   },
 
   doctor(pkg) {
     const validation = this.validate(pkg);
     const compatibility = computeCompatibility(pkg, this.capabilities());
-    const blueprint = validation.ok ? this.compile(pkg) : null;
-    const checks = [
-      {
-        id: "employee_package",
-        status: validation.ok ? "pass" : "fail",
-        detail: validation.ok
-          ? "Employee package validates for OpenWork."
-          : validation.errors.join("; "),
-      },
-      {
-        id: "compatibility",
-        status: compatibility.level === "L4" ? "pass" : "warn",
-        detail: `OpenWork compatibility computed as ${compatibility.level}.`,
-      },
-      {
-        id: "workspace_blueprint",
-        status:
-          blueprint && Object.keys(blueprint).length === BLUEPRINT_KEYS.length
-            ? "pass"
-            : "skip",
-        detail: blueprint
-          ? Object.keys(blueprint).join(", ")
-          : "Skipped because validation failed.",
-      },
-    ];
-
     return {
-      status: checks.every(check => check.status === "pass")
-        ? "ok"
-        : "needs_attention",
+      status: "needs_attention",
       target_level: "L4",
-      checks,
-      fixes: validation.ok ? compatibility.reasons : validation.errors,
+      observed_level: compatibility.level,
+      checks: [
+        {
+          id: "employee_package",
+          status: validation.ok ? "pass" : "fail",
+          detail: validation.ok
+            ? "Employee package is valid."
+            : validation.errors.join("; "),
+        },
+        {
+          id: "runtime_contract",
+          status: "fail",
+          detail:
+            "Owner OpenWork contract and live endpoint are required before capability claims.",
+        },
+      ],
+      fixes: [
+        ...(validation.errors || []),
+        "Configure the owner's OpenWork contract, implementation path, and live endpoint.",
+      ],
     };
   },
 
-  runSmokeTest(pkg) {
-    return smokeDescriptor(pkg);
+  runSmokeTest: smokeDescriptor,
+  collectEvents() {
+    return { ok: false, reason: "openwork_contract_unconfigured", events: [] };
+  },
+  collectArtifacts() {
+    return {
+      ok: false,
+      reason: "openwork_contract_unconfigured",
+      artifacts: [],
+    };
+  },
+  uninstall() {
+    return { ok: false, reason: "openwork_contract_unconfigured" };
   },
 });
 

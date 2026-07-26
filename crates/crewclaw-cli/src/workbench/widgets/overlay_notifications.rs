@@ -53,6 +53,8 @@ fn top_right_rect(frame_area: Rect) -> Rect {
 }
 
 pub(crate) fn render_notifications(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState) {
+    // 通知中心会吞掉导航键，交互上属于 modal；与其它 modal 统一使用全帧暗幕布。
+    crate::workbench::ui::render_modal_backdrop(frame);
     let area = top_right_rect(frame.area());
     frame.render_widget(Clear, area);
 

@@ -303,6 +303,16 @@ describe("crewclaw Rust CLI", () => {
     cliTestTimeout
   );
 
+  it("installs the product crew command as an alias of the compatibility bin", async () => {
+    const manifest = JSON.parse(
+      await readFile(join(repoRoot, "package.json"), "utf8")
+    ) as { bin?: Record<string, string> };
+    expect(manifest.bin).toMatchObject({
+      "chaogeek-hermes": "./packages/cli/bin/chaogeek-hermes.cjs",
+      crew: "./packages/cli/bin/chaogeek-hermes.cjs",
+    });
+  });
+
   it(
     "lists registry experts without invoking Hermes",
     async () => {
@@ -362,7 +372,7 @@ describe("crewclaw Rust CLI", () => {
 
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout).toContain(
-        "Choose a ChaoGeek-certified Hermes expert"
+        "Choose a C1 package-validated Hermes expert"
       );
       expect(result.stdout).toContain("Choose an expert number or slug:");
       expect(

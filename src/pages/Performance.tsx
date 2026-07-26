@@ -1,26 +1,25 @@
-import { useEffect, useMemo } from "react";
-import type { ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { Link } from "react-router";
+import type { LocalEmployeePerformance } from "@contracts/local-performance";
 import {
   Activity,
   ArrowLeft,
+  BadgeCheck,
   BarChart3,
-  BriefcaseBusiness,
-  Clock3,
   HeartPulse,
+  History,
   Users,
 } from "lucide-react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,48 +31,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getEmployee, type Employee } from "@/data/employees";
-import {
-  type AnalyticsEvent,
-  readAnalyticsEvents,
-  track,
-} from "@/hooks/use-analytics";
+import { getEmployee } from "@/data/employees";
+import { track } from "@/hooks/use-analytics";
 import { useTeam } from "@/hooks/use-team";
+import { fetchLocalEmployeePerformance } from "@/lib/local-api";
+import { loadSettledRecords } from "@/lib/performance-load";
 
-type EmployeePerformance = {
-  employee: Employee;
-  health: "healthy" | "warning" | "broken";
-  marketplaceHires: number;
-  taskCount: number;
-  responseSeconds: number;
-  contributionScore: number;
-};
-
-function countEvents(events: AnalyticsEvent[], employeeId: string) {
-  return events.filter(event => event.props.employee_id === employeeId).length;
-}
-
-function responseSeconds(employee: Employee, index: number) {
-  const base = 1.1 + index * 0.18;
-  const skillAdjustment = Math.min(employee.skills.length * 0.04, 0.3);
-  return Number((base + skillAdjustment).toFixed(1));
-}
-
-// Demo constant like responseSeconds above — there is no real hire telemetry yet and the page
-// labels these columns as mock. The fabricated employee.hire_count/rating fields are gone.
-function mockMarketplaceHires(index: number) {
-  return 240 + index * 130;
-}
+const numberFormat = new Intl.NumberFormat("en", { maximumFractionDigits: 4 });
 
 function percent(value: number, total: number) {
-  if (total === 0) return "0%";
+  if (total === 0) return "—";
   return `${Math.round((value / total) * 100)}%`;
-}
-
-function healthLabel(health: EmployeePerformance["health"]) {
-  if (health === "healthy") return "Healthy";
-  if (health === "warning") return "Needs attention";
-  return "Broken";
 }
 
 function StatCard({
@@ -91,52 +59,120 @@ function StatCard({
     <Card className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
       <CardContent className="pt-6">
         <div className="flex items-center gap-2 text-crew-muted">
-          <Icon className="size-4 text-crew-copper" />
+          <Icon aria-hidden="true" className="size-4 text-crew-copper" />
           <span className="font-mono text-xs uppercase tracking-[0.14em]">
             {label}
           </span>
         </div>
-        <p className="mt-4 text-3xl font-semibold text-crew-heading">{value}</p>
+        <p className="mt-4 text-3xl font-semibold tabular-nums text-crew-heading">
+          {value}
+        </p>
         <p className="mt-3 text-sm leading-6 text-crew-body">{description}</p>
       </CardContent>
     </Card>
   );
 }
 
+function evaluationLabel(performance: LocalEmployeePerformance | undefined) {
+  const evaluation = performance?.evaluation;
+  if (!evaluation || evaluation.state === "absent") return "Not evaluated";
+  if (evaluation.state === "invalid") return "Invalid local record";
+  if (evaluation.mock) return `MOCK ${evaluation.score} · not certified`;
+  return `Stored ${evaluation.score} · pending verification`;
+}
+
 export default function Performance() {
-  const { getReport, list } = useTeam();
+  const team = useTeam();
   const activeTeam = useMemo(
-    () => list().filter(employee => employee.status === "active"),
-    [list]
+    () => team.list().filter(employee => employee.status === "active"),
+    [team]
   );
-  const events = useMemo(() => readAnalyticsEvents(), []);
+  const employeeKey = activeTeam
+    .map(item => item.employee_id)
+    .sort()
+    .join("|");
+  const [performanceState, setPerformanceState] = useState<{
+    key: string;
+    records: Record<string, LocalEmployeePerformance>;
+    loadError: string | null;
+  }>({ key: "", records: {}, loadError: null });
+  const loading = performanceState.key !== employeeKey;
+  const records = loading ? {} : performanceState.records;
+  const loadError = loading ? null : performanceState.loadError;
 
-  const rows = useMemo<EmployeePerformance[]>(
-    () =>
-      activeTeam
-        .map((workspaceEmployee, index) => {
-          const employee = getEmployee(workspaceEmployee.employee_id);
-          if (!employee) return null;
+  useEffect(() => {
+    let cancelled = false;
+    const employeeIds = employeeKey ? employeeKey.split("|") : [];
+    void loadSettledRecords(employeeIds, fetchLocalEmployeePerformance).then(
+      ({ records, failedIds }) => {
+        if (!cancelled) {
+          setPerformanceState({
+            key: employeeKey,
+            records,
+            loadError:
+              failedIds.length > 0
+                ? `Local performance data is unavailable for ${failedIds.length} employee(s): ${failedIds.join(", ")}.`
+                : null,
+          });
+        }
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeKey]);
 
-          const report = getReport(employee.employee_id);
-          const taskCount = countEvents(events, employee.employee_id);
-          const response = responseSeconds(employee, index);
-
-          return {
-            employee,
-            health: report.health_status,
-            marketplaceHires: mockMarketplaceHires(index),
-            taskCount,
-            responseSeconds: response,
-            contributionScore: Math.min(
-              100,
-              70 + taskCount * 5 + employee.skills.length * 3
-            ),
-          };
-        })
-        .filter((row): row is EmployeePerformance => Boolean(row)),
-    [activeTeam, events, getReport]
+  const rows = activeTeam.flatMap(workspaceEmployee => {
+    const employee = getEmployee(workspaceEmployee.employee_id);
+    if (!employee) return [];
+    return [
+      {
+        employee,
+        health: team.getReport(employee.employee_id).health_status,
+        performance: records[employee.employee_id],
+      },
+    ];
+  });
+  const kpis = rows
+    .map(row => row.performance?.kpi)
+    .filter(kpi => kpi?.state === "available");
+  const totalTasks = kpis.reduce((sum, kpi) => sum + (kpi?.tasks ?? 0), 0);
+  const acceptedTasks = kpis.reduce(
+    (sum, kpi) => sum + (kpi?.accepted ?? 0),
+    0
   );
+  const autoAcceptedTasks = kpis.reduce(
+    (sum, kpi) => sum + (kpi?.auto_accepted ?? 0),
+    0
+  );
+  const correctlyBlockedTasks = kpis.reduce(
+    (sum, kpi) => sum + (kpi?.correctly_blocked ?? 0),
+    0
+  );
+  const legacyUnclassifiedTasks = kpis.reduce(
+    (sum, kpi) => sum + (kpi?.legacy_unclassified_tasks ?? 0),
+    0
+  );
+  const legacyAcceptedClaims = kpis.reduce(
+    (sum, kpi) => sum + (kpi?.legacy_accepted_claims ?? 0),
+    0
+  );
+  const legacyTotalCost = kpis.reduce(
+    (sum, kpi) => sum + (kpi?.legacy_total_cost ?? 0),
+    0
+  );
+  const realStoredEvals = rows.filter(
+    row =>
+      row.performance?.evaluation.state === "available" &&
+      row.performance.evaluation.mock === false
+  ).length;
+  const chartData = rows.map(row => ({
+    name: row.employee.name,
+    tasks: row.performance?.kpi.tasks ?? 0,
+    accepted: row.performance?.kpi.accepted ?? 0,
+    autoAccepted: row.performance?.kpi.auto_accepted ?? 0,
+    correctlyBlocked: row.performance?.kpi.correctly_blocked ?? 0,
+  }));
 
   useEffect(() => {
     track("team_viewed", {
@@ -145,235 +181,202 @@ export default function Performance() {
     });
   }, [rows.length]);
 
-  const healthyCount = rows.filter(row => row.health === "healthy").length;
-  const totalTasks = rows.reduce((sum, row) => sum + row.taskCount, 0);
-  const averageResponse =
-    rows.length === 0
-      ? "0.0s"
-      : `${(rows.reduce((sum, row) => sum + row.responseSeconds, 0) / rows.length).toFixed(1)}s`;
-  const chartData = rows.map(row => ({
-    name: row.employee.name.replace(" Specialist", "").replace(" Reviewer", ""),
-    tasks: row.taskCount,
-    contribution: row.contributionScore,
-    response: row.responseSeconds,
-  }));
-
   return (
     <main className="min-h-screen bg-crew-bg px-4 py-10 text-crew-heading sm:px-6 md:py-14">
       <section className="mx-auto max-w-6xl">
         <Button
           asChild
-          className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
+          className="rounded-[8px] border-white/15"
           variant="outline"
         >
           <Link to="/marketplace">
-            <ArrowLeft className="size-4" />
-            Marketplace
+            <ArrowLeft aria-hidden="true" className="size-4" /> Marketplace
           </Link>
         </Button>
 
-        <div className="mt-8 flex flex-col gap-6 border-b border-white/10 pb-8 md:flex-row md:items-end md:justify-between">
-          <div className="max-w-3xl">
-            <Badge className="gap-1 border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
-              <BarChart3 className="size-3" />
-              Performance
-            </Badge>
-            <h1 className="mt-5 text-4xl font-light leading-tight md:text-6xl">
-              See how your AI employees are doing
-            </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              Demo performance combines local analytics, Doctor health, hiring
-              signals, task contribution, and mock response speed for every
-              active employee.
-            </p>
-          </div>
-          <p className="max-w-sm text-sm leading-6 text-crew-muted">
-            North Star: hired AI employees that completed at least one useful
-            task in the last 7 days.
+        <div className="mt-8 border-b border-white/10 pb-8">
+          <Badge className="gap-1 border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
+            <BarChart3 aria-hidden="true" className="size-3" /> Performance
+          </Badge>
+          <h1 className="mt-5 text-balance text-4xl font-light leading-tight md:text-6xl">
+            Verified local work signals
+          </h1>
+          <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
+            Formal task outcomes and acceptance provenance come directly from
+            the Runtime KPI v2 ledger. Chat turns are tracked separately and
+            never inflate task counts. Evaluation records retain their MOCK or
+            pending-verification status; this page does not fabricate
+            reputation.
           </p>
         </div>
 
-        <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {loading || loadError ? (
+          <Alert
+            aria-live="polite"
+            className="mt-6 border-white/10 bg-white/[0.03]"
+          >
+            <AlertTitle>
+              {loading ? "Loading local evidence…" : "Evidence unavailable"}
+            </AlertTitle>
+            <AlertDescription className="text-crew-body">
+              {loadError ?? "Reading .crewclaw/kpi and .crewclaw/eval records."}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <StatCard
-            description="Employees currently active in your crew."
             icon={Users}
-            label="Hired employees"
+            label="Active employees"
             value={String(rows.length)}
+            description="Employees active in the durable local roster."
           />
           <StatCard
-            description="Doctor reports that say employees are ready to work."
-            icon={HeartPulse}
-            label="Doctor health"
-            value={percent(healthyCount, rows.length)}
-          />
-          <StatCard
-            description="Local events tied to active employees, including crew plans and Doctor checks."
             icon={Activity}
-            label="Task events"
+            label="Formal tasks"
             value={String(totalTasks)}
+            description="Formal work outcomes; chat turns and artifact actions are excluded."
           />
           <StatCard
-            description="Mock response speed for a teammate-ready status update."
-            icon={Clock3}
-            label="Avg response"
-            value={averageResponse}
+            icon={HeartPulse}
+            label="User accepted"
+            value={`${acceptedTasks} · ${percent(acceptedTasks, totalTasks)}`}
+            description="Deliverables explicitly accepted by the local user only."
+          />
+          <StatCard
+            icon={HeartPulse}
+            label="Policy accepted"
+            value={String(autoAcceptedTasks)}
+            description="Trust-policy decisions shown separately from user acceptance."
+          />
+          <StatCard
+            icon={BadgeCheck}
+            label="Correct stops"
+            value={String(correctlyBlockedTasks)}
+            description="Tasks that stopped at a declared tool, budget, or permission boundary."
+          />
+          <StatCard
+            icon={BadgeCheck}
+            label="Stored real evals"
+            value={String(realStoredEvals)}
+            description="Non-MOCK records shown as pending verification, never reputation."
+          />
+          <StatCard
+            icon={History}
+            label="Legacy / unclassified"
+            value={String(legacyUnclassifiedTasks)}
+            description="Pre-v2 counters retained as history and excluded from formal task metrics."
           />
         </section>
 
-        <section className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <Card className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl font-semibold">
-                <BriefcaseBusiness className="size-5 text-crew-copper" />
-                Task contribution
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-72">
-                <ResponsiveContainer height="100%" width="100%">
-                  <BarChart data={chartData}>
-                    <CartesianGrid
-                      stroke="rgba(255,255,255,0.08)"
-                      vertical={false}
-                    />
-                    <XAxis dataKey="name" stroke="#B8ADA3" tickLine={false} />
-                    <YAxis
-                      allowDecimals={false}
-                      stroke="#B8ADA3"
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: "#17120F",
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: 8,
-                        color: "#F2EDE6",
-                      }}
-                    />
-                    <Bar
-                      dataKey="tasks"
-                      fill="#C87941"
-                      name="Task events"
-                      radius={[6, 6, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl font-semibold">
-                <Clock3 className="size-5 text-crew-copper" />
-                Response mock
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-72">
-                <ResponsiveContainer height="100%" width="100%">
-                  <LineChart data={chartData}>
-                    <CartesianGrid
-                      stroke="rgba(255,255,255,0.08)"
-                      vertical={false}
-                    />
-                    <XAxis dataKey="name" stroke="#B8ADA3" tickLine={false} />
-                    <YAxis stroke="#B8ADA3" tickLine={false} unit="s" />
-                    <Tooltip
-                      contentStyle={{
-                        background: "#17120F",
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: 8,
-                        color: "#F2EDE6",
-                      }}
-                    />
-                    <Line
-                      dataKey="response"
-                      dot={{ fill: "#F2EDE6", r: 4 }}
-                      name="Response"
-                      stroke="#F2EDE6"
-                      strokeWidth={2}
-                      type="monotone"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
+        {legacyUnclassifiedTasks > 0 ? (
+          <Alert className="mt-6 border-crew-copper/30 bg-crew-copper/[0.06]">
+            <History aria-hidden="true" className="size-4" />
+            <AlertTitle>Legacy history is kept separate</AlertTitle>
+            <AlertDescription className="text-crew-body">
+              {legacyUnclassifiedTasks} old task counters are unclassified.
+              Their {legacyAcceptedClaims} historical acceptance claims and $
+              {numberFormat.format(legacyTotalCost)} cost are preserved, but
+              never counted as verified v2 outcomes.
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
-            <CardTitle className="text-xl font-semibold">
-              Employee performance
-            </CardTitle>
+            <CardTitle>Formal outcomes & acceptance provenance</CardTitle>
           </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              <ResponsiveContainer height="100%" width="100%">
+                <BarChart data={chartData}>
+                  <CartesianGrid
+                    stroke="rgba(255,255,255,0.08)"
+                    vertical={false}
+                  />
+                  <XAxis dataKey="name" stroke="#B8ADA3" tickLine={false} />
+                  <YAxis
+                    allowDecimals={false}
+                    stroke="#B8ADA3"
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "#17120F",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      borderRadius: 8,
+                      color: "#F2EDE6",
+                    }}
+                  />
+                  <Bar dataKey="tasks" fill="#6B5E55" name="Formal tasks" />
+                  <Bar dataKey="accepted" fill="#C87941" name="User accepted" />
+                  <Bar
+                    dataKey="autoAccepted"
+                    fill="#9E744E"
+                    name="Policy accepted"
+                  />
+                  <Bar
+                    dataKey="correctlyBlocked"
+                    fill="#6E8B74"
+                    name="Correct stops"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardContent className="p-0">
             <Table>
               <TableHeader>
-                <TableRow className="border-white/10 hover:bg-transparent">
-                  <TableHead className="px-5 text-crew-muted">
-                    Employee
+                <TableRow className="border-white/10">
+                  <TableHead>Employee</TableHead>
+                  <TableHead>Health</TableHead>
+                  <TableHead className="text-right">Formal tasks</TableHead>
+                  <TableHead className="text-right">
+                    User / policy accepted
                   </TableHead>
-                  <TableHead className="px-5 text-crew-muted">Doctor</TableHead>
-                  <TableHead className="px-5 text-right text-crew-muted">
-                    Hires
+                  <TableHead className="text-right">Correct stops</TableHead>
+                  <TableHead className="text-right">
+                    Legacy / unclassified
                   </TableHead>
-                  <TableHead className="px-5 text-right text-crew-muted">
-                    Tasks
-                  </TableHead>
-                  <TableHead className="px-5 text-right text-crew-muted">
-                    Response
-                  </TableHead>
-                  <TableHead className="px-5 text-right text-crew-muted">
-                    Contribution
-                  </TableHead>
+                  <TableHead className="text-right">Cost</TableHead>
+                  <TableHead>Evaluation</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.length === 0 ? (
-                  <TableRow className="border-white/10 hover:bg-transparent">
-                    <TableCell className="px-5 py-8 text-crew-body" colSpan={6}>
-                      Hire an employee to start building a performance record.
+                {rows.map(row => (
+                  <TableRow
+                    className="border-white/10"
+                    key={row.employee.employee_id}
+                  >
+                    <TableCell className="font-medium">
+                      {row.employee.name}
                     </TableCell>
+                    <TableCell>{row.health}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {row.performance?.kpi.tasks ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {row.performance?.kpi.accepted ?? "—"} /{" "}
+                      {row.performance?.kpi.auto_accepted ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {row.performance?.kpi.correctly_blocked ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {row.performance?.kpi.legacy_unclassified_tasks ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs">
+                      {row.performance?.kpi.total_cost === null ||
+                      row.performance?.kpi.total_cost === undefined
+                        ? "—"
+                        : `$${numberFormat.format(row.performance.kpi.total_cost)}`}
+                    </TableCell>
+                    <TableCell>{evaluationLabel(row.performance)}</TableCell>
                   </TableRow>
-                ) : (
-                  rows.map(row => (
-                    <TableRow
-                      className="border-white/10 hover:bg-white/[0.025]"
-                      key={row.employee.employee_id}
-                    >
-                      <TableCell className="px-5 py-4">
-                        <p className="font-medium text-crew-heading">
-                          {row.employee.name}
-                        </p>
-                        <p className="mt-1 text-xs text-crew-muted">
-                          {row.employee.role}
-                        </p>
-                      </TableCell>
-                      <TableCell className="px-5 py-4">
-                        <Badge
-                          className="rounded-[6px] border-white/10 bg-white/[0.04] text-crew-muted"
-                          variant="outline"
-                        >
-                          {healthLabel(row.health)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="px-5 py-4 text-right text-crew-heading">
-                        {row.marketplaceHires}
-                      </TableCell>
-                      <TableCell className="px-5 py-4 text-right text-crew-heading">
-                        {row.taskCount}
-                      </TableCell>
-                      <TableCell className="px-5 py-4 text-right text-crew-heading">
-                        {row.responseSeconds.toFixed(1)}s
-                      </TableCell>
-                      <TableCell className="px-5 py-4 text-right text-crew-heading">
-                        {row.contributionScore}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
+                ))}
               </TableBody>
             </Table>
           </CardContent>

@@ -7,6 +7,10 @@ const COMMANDS = [
   ["/help", "Show available slash commands."],
   ["/tools", "List available runtime tools."],
   ["/model", "Show the current model."],
+  [
+    "/permissions [clear]",
+    "List or revoke permission leases granted for this session.",
+  ],
   ["/clear, /reset", "Clear chat context."],
   ["/crew", "List available CrewClaw experts."],
   ["/agent <id>, /switch <id>", "Switch to an available expert."],
@@ -21,11 +25,21 @@ export function isCommand(line) {
 // v0.8 M3: the catalog broadcast on session.ready caps.commands so ANY front-end can offer
 // slash completion without hardcoding the list. Each entry's primary name (the token before the
 // first comma/space) drives the popup; aliases stay in the human description.
-export function commandCatalog() {
-  return COMMANDS.map(([names, desc]) => {
+export function commandCatalog(skillCatalog = []) {
+  const builtins = COMMANDS.map(([names, desc]) => {
     const name = String(names).split(",")[0].trim().split(/\s+/)[0];
     return { name, desc };
   });
+  const builtinNames = new Set(builtins.map(item => item.name));
+  const skills = skillCatalog
+    .filter(skill => skill?.userInvocable !== false)
+    .map(skill => ({
+      name: `/${skill.id}`,
+      desc: `Skill · ${String(skill.description || "").trim()}`,
+    }))
+    .filter(skill => !builtinNames.has(skill.name))
+    .sort((left, right) => left.name.localeCompare(right.name, "en"));
+  return [...builtins, ...skills];
 }
 
 export function runCommand(line, ctx = {}) {
@@ -36,11 +50,18 @@ export function runCommand(line, ctx = {}) {
   const [command, ...args] = trimmed.split(/\s+/);
   const id = args[0] ?? "";
 
-  if (command === "/help") return { handled: true, text: helpText(color) };
+  if (command === "/help")
+    return { handled: true, text: helpText(color, ctx.skillCatalog) };
   if (command === "/tools")
     return { handled: true, text: toolsText(ctx, color) };
   if (command === "/model")
     return { handled: true, text: modelText(ctx, color) };
+  if (command === "/permissions") {
+    if (id === "clear" || id === "revoke") {
+      return { handled: true, action: { type: "permission_leases_clear" } };
+    }
+    return { handled: true, text: permissionsText(ctx, color) };
+  }
   if (command === "/clear" || command === "/reset")
     return { handled: true, action: { type: "clear" } };
   if (command === "/crew") return { handled: true, text: crewText(ctx, color) };
@@ -59,18 +80,36 @@ export function runCommand(line, ctx = {}) {
   if (command === "/exit" || command === "/quit")
     return { handled: true, action: { type: "exit" } };
 
+  const skill = (Array.isArray(ctx.skillCatalog) ? ctx.skillCatalog : []).find(
+    item => item?.userInvocable !== false && `/${item.id}` === command
+  );
+  if (skill) {
+    return {
+      handled: true,
+      action: {
+        type: "skill",
+        skill: skill.id,
+        arguments: args.join(" "),
+      },
+    };
+  }
+
   return {
     handled: true,
     text: `${c.warn("Unknown command:", color)} ${command}\nType ${c.info("/help", color)} for available commands.`,
   };
 }
 
-function helpText(color) {
+function helpText(color, skillCatalog = []) {
+  const skillRows = commandCatalog(skillCatalog)
+    .filter(item => item.desc.startsWith("Skill · "))
+    .map(item => `  ${c.info(item.name, color)}  ${item.desc}`);
   return [
     c.accent("Slash commands", color),
     ...COMMANDS.map(
       ([name, description]) => `  ${c.info(name, color)}  ${description}`
     ),
+    ...skillRows,
   ].join("\n");
 }
 
@@ -134,7 +173,7 @@ function toolsText(ctx, color) {
   if (!rows.length) {
     rows.push(
       c.warn(
-        "  No resolved employee tools are available; run onboarding doctor.",
+        "  No resolved employee tools are available. Press 3 to open HIRE, then d to run Doctor; or run `crew doctor`.",
         color
       )
     );
@@ -144,6 +183,23 @@ function toolsText(ctx, color) {
 
 function modelText(ctx, color) {
   return `${c.accent("Model", color)} ${ctx.model || "unknown-model"}`;
+}
+
+function permissionsText(ctx, color) {
+  const leases = Array.isArray(ctx.permissionLeases)
+    ? ctx.permissionLeases.filter(Boolean)
+    : [];
+  if (!leases.length) {
+    return c.dim(
+      "No session permission leases. Future protected actions will ask again.",
+      color
+    );
+  }
+  return [
+    c.accent("Session permission leases", color),
+    ...leases.map(lease => `  ✓ ${c.info(lease, color)}`),
+    c.dim("  /permissions clear  Revoke all session leases.", color),
+  ].join("\n");
 }
 
 function crewText(ctx, color) {

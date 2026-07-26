@@ -191,8 +191,32 @@ try {
       }),
       error =>
         /HTTP 403/.test(error.message) &&
+        error.code === "forbidden" &&
+        error.httpStatus === 403 &&
         !error.message.includes(echoedSecret) &&
         !error.message.includes("Authorization")
+    );
+    restore();
+  }
+
+  // Transport errors carry a stable provider code instead of leaking undici internals.
+  {
+    stubFetch(() => {
+      throw new TypeError("fetch failed");
+    });
+    await assert.rejects(
+      callModel({
+        baseUrl: "https://z/api/v1",
+        apiKey: "k",
+        model: "x/y",
+        temperature: 0,
+        system: "test",
+        messages: [{ role: "user", content: "ping" }],
+        stream: false,
+      }),
+      error =>
+        error.code === "network_error" &&
+        /network request failed/.test(error.message)
     );
     restore();
   }

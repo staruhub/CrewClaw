@@ -62,8 +62,8 @@ export function Hero({ onGetStarted }: HeroProps) {
         <ScrollReveal delay={0.1} className="relative z-10">
           <p className="mx-auto mt-5 max-w-[calc(100vw-2rem)] px-1 text-[15px] leading-7 text-[#D8CEC5] drop-shadow-[0_4px_18px_rgba(0,0,0,0.95)] sm:max-w-[560px] md:text-[16px]">
             {installCommand
-              ? "Hire ChaoGeek-certified Hermes experts in 60 seconds. Skip hand-writing SOUL.md, stitching skills, and wiring MCP from scratch."
-              : "Explore ChaoGeek-certified Hermes experts. Public package distribution is pending, so setup remains source-based and explicit."}
+              ? "Hire validated Hermes employee packages in 60 seconds. Signed lab certification is displayed separately when evidence exists."
+              : "Explore validated Hermes employee packages. Public package distribution is pending, so setup remains source-based and explicit."}
           </p>
         </ScrollReveal>
 
@@ -73,13 +73,13 @@ export function Hero({ onGetStarted }: HeroProps) {
         >
           <Link
             to="/marketplace"
-            className="inline-flex w-full max-w-[260px] items-center justify-center rounded-[8px] bg-gradient-to-r from-crew-copper to-crew-bronze px-8 py-3.5 font-mono text-sm font-semibold text-white shadow-[0_18px_48px_rgba(0,0,0,0.28)] transition-all hover:-translate-y-0.5 hover:brightness-110 sm:w-auto"
+            className="inline-flex w-full max-w-[260px] items-center justify-center rounded-[8px] bg-gradient-to-r from-crew-copper to-crew-bronze px-8 py-3.5 font-mono text-sm font-semibold text-white shadow-[0_18px_48px_rgba(0,0,0,0.28)] transition-[filter,transform] hover:-translate-y-0.5 hover:brightness-110 sm:w-auto"
           >
             Hire AI employees / 进入市场
           </Link>
           <button
             onClick={onGetStarted}
-            className="w-full max-w-[240px] rounded-[8px] border border-crew-border bg-black/20 px-8 py-3.5 font-mono text-sm text-crew-muted shadow-[0_18px_48px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-all hover:border-crew-copper hover:text-crew-heading sm:w-auto"
+            className="w-full max-w-[240px] rounded-[8px] border border-crew-border bg-black/20 px-8 py-3.5 font-mono text-sm text-crew-muted shadow-[0_18px_48px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-[border-color,color] hover:border-crew-copper hover:text-crew-heading sm:w-auto"
           >
             Hire your first expert
           </button>
@@ -93,7 +93,7 @@ export function Hero({ onGetStarted }: HeroProps) {
                 window.scrollTo({ top, behavior: "smooth" });
               }
             }}
-            className="w-full max-w-[240px] rounded-[8px] border border-crew-border bg-black/20 px-8 py-3.5 font-mono text-sm text-crew-muted shadow-[0_18px_48px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-all hover:border-crew-copper hover:text-crew-heading sm:w-auto"
+            className="w-full max-w-[240px] rounded-[8px] border border-crew-border bg-black/20 px-8 py-3.5 font-mono text-sm text-crew-muted shadow-[0_18px_48px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-[border-color,color] hover:border-crew-copper hover:text-crew-heading sm:w-auto"
           >
             View expert crew
           </button>

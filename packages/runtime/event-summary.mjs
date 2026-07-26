@@ -1,51 +1,31 @@
-export function hostOf(url) {
-  if (typeof url !== "string") {
-    return url;
-  }
+export const TOOL_DETAIL_LIMIT = 4096;
 
-  const marker = url.indexOf("//");
-  if (marker < 0) {
-    return url;
-  }
-
-  const start = marker + 2;
-  const end = url.indexOf("/", start);
-  if (end < 0 || end === start) {
-    return url;
-  }
-
-  return url.slice(start, end);
-}
-
-export function summarizeAction({ tool, args = {}, status, decision }) {
-  if (decision === "deny") {
-    return "已拦截越权操作：" + (tool || "未知工具");
-  }
-
-  let line;
-  if (tool === "web_search") {
-    line = "正在搜索来源：" + (args.query || "");
-  } else if (tool === "web_fetch") {
-    line = "正在阅读 " + hostOf(args.url);
-  } else if (tool === "read_file") {
-    line = "正在读取 " + (args.path || "文件");
-  } else if (tool === "search") {
-    line = "正在检索本地：" + (args.query || "");
-  } else if (tool === "bash") {
-    line = "正在执行命令";
-  } else if (tool === "edit_file" || tool === "write_file") {
-    line = "正在写入 " + (args.path || "文件");
+export function truncateToolDetail(value, limit = TOOL_DETAIL_LIMIT) {
+  let text;
+  if (typeof value === "string") {
+    text = value;
   } else {
-    line = "正在调用 " + (tool || "工具");
+    try {
+      text = JSON.stringify(value, null, 2);
+    } catch {
+      text = String(value ?? "");
+    }
   }
 
-  if (status === "blocked") {
-    line = line + "（已跳过）";
+  const max = Math.max(0, Math.trunc(Number(limit) || 0));
+  if (text.length <= max) {
+    return { detail: text, truncated: false, originalChars: text.length };
   }
 
-  return line;
+  const marker = `\n…（工具详情已截断；原始 ${text.length} 字符）`;
+  const head = text.slice(0, Math.max(0, max - marker.length));
+  return {
+    detail: `${head}${marker}`.slice(0, max),
+    truncated: true,
+    originalChars: text.length,
+  };
 }
 
-export function summarizeEvents(events = []) {
-  return events.map(summarizeAction);
-}
+// Tool semantics live in ui-tools.mjs. Keep these exports so older consumers retain the same
+// import path while every renderer and TaskEvent source shares one canonical presenter.
+export { hostOf, summarizeAction, summarizeEvents } from "./ui-tools.mjs";

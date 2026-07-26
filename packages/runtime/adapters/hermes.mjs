@@ -130,6 +130,10 @@ function compileAgents(pkg) {
     `# ${pkg?.identity?.name || pkg?.identity?.id || "CrewClaw Employee"} AGENTS`,
     "",
     renderSection("Role Contract", pkg?.role_contract),
+    "## Playbooks and Skills",
+    "- Playbooks are orchestration flows from crewclaw.employee.yaml; they describe the process CrewClaw supervises.",
+    "- Skills are separate executable instruction guides. Hermes may load only explicitly mapped skill paths; a playbook id is never guessed to be a skill directory.",
+    "",
     renderSection("Playbooks", pkg?.playbooks),
     renderSection("Failure Playbooks", pkg?.failure_playbooks),
     renderSection("Deliverables", pkg?.deliverables),
@@ -166,7 +170,7 @@ function renderSkill(path, pkg) {
   return [
     "---",
     `name: ${name}`,
-    `description: Hermes skill compiled for ${pkg?.identity?.name || pkg?.identity?.id || "CrewClaw employee"}.`,
+    `description: Use when applying the ${name} execution guide as ${pkg?.identity?.name || pkg?.identity?.id || "a CrewClaw employee"}.`,
     "---",
     "",
     `# ${name}`,
@@ -181,10 +185,10 @@ function renderSkill(path, pkg) {
 
 function compileSkills(pkg) {
   const hintPaths = toArray(pkg?.adapter_hints?.Hermes?.skills);
-  const fallbackPaths = toArray(pkg?.playbooks).map(
-    playbook => `skills/${playbook?.id || "playbook"}/SKILL.md`
-  );
-  return (hintPaths.length > 0 ? hintPaths : fallbackPaths).map(path => ({
+  // A playbook is a supervised process, not a filesystem skill. The old fallback guessed
+  // `skills/<playbook-id>/SKILL.md`, which produced paths that did not exist in the employee
+  // package. Fail honestly when adapter hints are absent instead of fabricating skill files.
+  return unique(hintPaths).map(path => ({
     path,
     content: renderSkill(path, pkg),
   }));

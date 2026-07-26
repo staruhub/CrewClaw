@@ -308,6 +308,7 @@ dependencies = [
  "libc",
  "nucleo-matcher",
  "ratatui",
+ "semver",
  "serde",
  "serde-saphyr",
  "serde_json",

@@ -110,6 +110,8 @@ export function newEvidenceCard({
   field,
   value,
   sourceUrl,
+  sourceRef,
+  sourceType,
   officialDomains,
   confidence,
   snippet,
@@ -118,7 +120,10 @@ export function newEvidenceCard({
     field,
     value,
     source_url: sourceUrl,
-    source_type: verifySourceType(sourceUrl, { officialDomains }),
+    source_ref: sourceRef,
+    source_type:
+      sourceType ||
+      (sourceUrl ? verifySourceType(sourceUrl, { officialDomains }) : "file"),
     confidence: confidence ?? "medium",
     snippet: snippet ?? "",
     ts: new Date().toISOString(),
@@ -138,10 +143,11 @@ export function addEvidence(root, taskRunId, card) {
           throw new Error("evidence state must be a JSON array");
         }
         const list = cards;
-        const duplicate = list.some(
-          item =>
-            item?.field === card?.field && item?.source_url === card?.source_url
-        );
+        const identity = card?.source_url || card?.source_ref;
+        const duplicate = list.some(item => {
+          const existing = item?.source_url || item?.source_ref;
+          return item?.field === card?.field && existing === identity;
+        });
 
         if (!duplicate) list.push(card);
 
@@ -182,10 +188,10 @@ export function assembleSources(cards) {
   const seen = new Set();
 
   for (const card of cards || []) {
-    const sourceUrl = card?.source_url;
-    if (!sourceUrl || seen.has(sourceUrl)) continue;
-    seen.add(sourceUrl);
-    out.push(sourceUrl);
+    const source = card?.source_url || card?.source_ref;
+    if (!source || seen.has(source)) continue;
+    seen.add(source);
+    out.push(source);
   }
 
   return out;

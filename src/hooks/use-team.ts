@@ -1,65 +1,133 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DoctorReport, WorkspaceEmployee } from "@contracts/types";
-import { getEmployee, type Employee } from "@/data/employees";
+import type { OffboardingReceipt } from "@contracts/offboarding";
+import { WorkspaceEmployeeSchema, type OffboardingMode } from "@contracts/team";
+import { getEmployee } from "@/data/employees";
 import { validateCapabilityGrantTokens } from "@/lib/capability-grants";
+import {
+  fetchLocalTeam,
+  fireLocalTeamEmployee,
+  hireLocalTeamEmployee,
+} from "@/lib/local-api";
 
 const TEAM_STORAGE_KEY = "crewclaw.team.v1";
-const WORKSPACE_ID = "local-demo-workspace";
-const HIRED_BY = "local-demo-owner";
+const WORKSPACE_ID = "local-workspace";
 
 export type TeamActionResult = {
   ok: boolean;
   message: string;
   employee?: WorkspaceEmployee;
+  offboardingReceipt?: OffboardingReceipt;
 };
 
-function readStoredTeam(): WorkspaceEmployee[] {
-  if (typeof window === "undefined") return [];
+export type TeamSyncState = "loading" | "synced" | "error";
 
+function canonicalCachedRecord(value: unknown) {
+  if (!value || typeof value !== "object") return value;
+  const source = value as Record<string, unknown>;
+  return {
+    workspace_employee_id: source.workspace_employee_id,
+    employee_id: source.employee_id,
+    version: source.version,
+    ...(source.package_sha256 !== undefined
+      ? { package_sha256: source.package_sha256 }
+      : {}),
+    ...(source.hire_source !== undefined
+      ? { hire_source: source.hire_source }
+      : {}),
+    status: source.status,
+    hired_at: source.hired_at,
+    fired_at: source.fired_at ?? null,
+    permissions_granted: source.permissions_granted,
+  };
+}
+
+function readStoredTeam() {
+  if (typeof window === "undefined") {
+    return { team: [] as WorkspaceEmployee[], warning: null as string | null };
+  }
   const raw = window.localStorage.getItem(TEAM_STORAGE_KEY);
-  if (!raw) return [];
-
+  if (!raw) return { team: [], warning: null };
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as WorkspaceEmployee[]) : [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) throw new Error("not an array");
+    const team = parsed
+      .map(canonicalCachedRecord)
+      .map(item => WorkspaceEmployeeSchema.parse(item));
+    return { team, warning: null };
   } catch {
-    return [];
+    return {
+      team: [] as WorkspaceEmployee[],
+      warning:
+        "The browser team cache was invalid. CrewClaw will reload the durable local roster.",
+    };
   }
 }
 
 function writeStoredTeam(team: WorkspaceEmployee[]) {
   if (typeof window === "undefined") return;
+  if (team.length === 0) {
+    window.localStorage.removeItem(TEAM_STORAGE_KEY);
+    return;
+  }
   window.localStorage.setItem(TEAM_STORAGE_KEY, JSON.stringify(team));
 }
 
-function createWorkspaceEmployee(
-  employee: Employee,
-  capabilityTokens: string[]
-): WorkspaceEmployee {
-  const now = new Date().toISOString();
-
-  return {
-    workspace_employee_id: `${WORKSPACE_ID}:${employee.employee_id}`,
-    workspace_id: WORKSPACE_ID,
-    employee_id: employee.employee_id,
-    version: employee.version,
-    status: "active",
-    hired_by: HIRED_BY,
-    hired_at: now,
-    fired_at: null,
-    permissions_granted: capabilityTokens,
-  };
+function errorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : "The local CrewClaw service is unavailable.";
 }
 
 export function useTeam() {
-  const [team, setTeam] = useState<WorkspaceEmployee[]>(() => readStoredTeam());
+  const cached = useMemo(() => readStoredTeam(), []);
+  const [team, setTeam] = useState<WorkspaceEmployee[]>(cached.team);
+  const [syncState, setSyncState] = useState<TeamSyncState>("loading");
+  const [syncMessage, setSyncMessage] = useState<string | null>(cached.warning);
 
   useEffect(() => {
     writeStoredTeam(team);
   }, [team]);
 
-  const list = useCallback(() => team, [team]);
+  const refresh = useCallback(async () => {
+    setSyncState("loading");
+    try {
+      const response = await fetchLocalTeam();
+      setTeam(response.team);
+      setSyncState("synced");
+      setSyncMessage("Roster synchronized with .crewclaw/team.json.");
+      return response.team;
+    } catch (error) {
+      setSyncState("error");
+      setSyncMessage(
+        `${errorMessage(error)} The browser cache is read-only until synchronization recovers.`
+      );
+      return null;
+    }
+  }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetchLocalTeam()
+      .then(response => {
+        if (cancelled) return;
+        setTeam(response.team);
+        setSyncState("synced");
+        setSyncMessage("Roster synchronized with .crewclaw/team.json.");
+      })
+      .catch(error => {
+        if (cancelled) return;
+        setSyncState("error");
+        setSyncMessage(
+          `${errorMessage(error)} The browser cache is read-only until synchronization recovers.`
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const list = useCallback(() => team, [team]);
   const isHired = useCallback(
     (id: string) =>
       team.some(
@@ -69,20 +137,7 @@ export function useTeam() {
   );
 
   const hire = useCallback(
-    (id: string, grants: string[]): TeamActionResult => {
-      if (isHired(id)) {
-        const existing = team.find(
-          employee =>
-            employee.employee_id === id && employee.status === "active"
-        );
-
-        return {
-          ok: false,
-          message: "This employee has already joined your crew.",
-          employee: existing,
-        };
-      }
-
+    async (id: string, grants: string[]): Promise<TeamActionResult> => {
       const employee = getEmployee(id);
       if (!employee) {
         return {
@@ -104,64 +159,64 @@ export function useTeam() {
             "This employee's capability authorization is incomplete or invalid.",
         };
       }
-      const nextEmployee = createWorkspaceEmployee(
-        employee,
-        validation.capabilityTokens
-      );
-
-      setTeam(currentTeam => {
-        const existingIndex = currentTeam.findIndex(
-          employee => employee.employee_id === id
-        );
-
-        if (existingIndex === -1) return [...currentTeam, nextEmployee];
-
-        return currentTeam.map((employee, index) =>
-          index === existingIndex ? nextEmployee : employee
-        );
-      });
-
-      return {
-        ok: true,
-        message: "Your new AI employee has joined the crew.",
-        employee: nextEmployee,
-      };
+      setSyncState("loading");
+      setSyncMessage("Synchronizing this hire with the local CrewClaw roster…");
+      try {
+        const response = await hireLocalTeamEmployee({
+          employee_id: employee.employee_id,
+          version: employee.version,
+          permissions_granted: validation.capabilityTokens,
+        });
+        setTeam(response.team);
+        setSyncState("synced");
+        setSyncMessage(response.message);
+        return {
+          ok: true,
+          message: response.message,
+          employee: response.employee,
+        };
+      } catch (error) {
+        const message = `${errorMessage(error)} No browser-only hire was recorded.`;
+        setSyncState("error");
+        setSyncMessage(message);
+        return { ok: false, message };
+      }
     },
-    [isHired, team]
+    []
   );
 
-  const fire = useCallback((id: string): TeamActionResult => {
-    const now = new Date().toISOString();
-    let firedEmployee: WorkspaceEmployee | undefined;
-
-    setTeam(currentTeam =>
-      currentTeam.map(employee => {
-        if (employee.employee_id !== id || employee.status === "fired")
-          return employee;
-
-        firedEmployee = {
-          ...employee,
-          status: "fired",
-          fired_at: now,
+  const fire = useCallback(
+    async (
+      id: string,
+      mode: OffboardingMode,
+      successorEmployeeId?: string | null
+    ): Promise<TeamActionResult> => {
+      setSyncState("loading");
+      setSyncMessage("Preparing the offboarding receipt…");
+      try {
+        const response = await fireLocalTeamEmployee(
+          id,
+          mode,
+          successorEmployeeId
+        );
+        setTeam(response.team);
+        setSyncState("synced");
+        setSyncMessage(response.message);
+        return {
+          ok: true,
+          message: response.message,
+          employee: response.employee,
+          offboardingReceipt: response.offboarding_receipt,
         };
-
-        return firedEmployee;
-      })
-    );
-
-    if (!firedEmployee) {
-      return {
-        ok: false,
-        message: "This employee is not active in your crew.",
-      };
-    }
-
-    return {
-      ok: true,
-      message: "This employee has left your crew, but history was kept.",
-      employee: firedEmployee,
-    };
-  }, []);
+      } catch (error) {
+        const message = `${errorMessage(error)} The durable roster was not changed unless an offboarding receipt says otherwise.`;
+        setSyncState("error");
+        setSyncMessage(message);
+        return { ok: false, message };
+      }
+    },
+    []
+  );
 
   const getReport = useCallback(
     (id: string): DoctorReport => {
@@ -170,7 +225,6 @@ export function useTeam() {
       );
       const employee = getEmployee(id);
       const checkedAt = new Date().toISOString();
-
       if (!workspaceEmployee || workspaceEmployee.status === "fired") {
         return {
           report_id: `doctor:${id}:${checkedAt}`,
@@ -182,7 +236,6 @@ export function useTeam() {
           checked_at: checkedAt,
         };
       }
-
       if (!employee) {
         return {
           report_id: `doctor:${id}:${checkedAt}`,
@@ -193,7 +246,6 @@ export function useTeam() {
           checked_at: checkedAt,
         };
       }
-
       const validation = validateCapabilityGrantTokens(
         employee.tool_capabilities,
         workspaceEmployee.permissions_granted
@@ -206,7 +258,6 @@ export function useTeam() {
           token => `Invalid capability authorization: ${token}`
         ),
       ];
-
       return {
         report_id: `doctor:${id}:${checkedAt}`,
         workspace_employee_id: workspaceEmployee.workspace_employee_id,
@@ -217,10 +268,8 @@ export function useTeam() {
             : ["This employee is healthy and ready to work."],
         suggestions:
           issues.length > 0
-            ? [
-                "Review the capability authorization before assigning more tasks.",
-              ]
-            : ["Start with a demo task or inspect the employee resume."],
+            ? ["Review capability authorization before assigning more tasks."]
+            : ["Start with a task or inspect the employee resume."],
         checked_at: checkedAt,
       };
     },
@@ -233,5 +282,8 @@ export function useTeam() {
     list,
     isHired,
     getReport,
+    refresh,
+    syncState,
+    syncMessage,
   };
 }

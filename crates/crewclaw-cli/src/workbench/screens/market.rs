@@ -11,7 +11,8 @@ use ratatui::{
 };
 
 use super::super::config;
-use super::super::state::{AppState, MarketEntry, UiState};
+use super::super::flow_state;
+use super::super::state::{AppState, MarketEntry, UiState, autonomy_projection};
 use super::super::widgets::workbench_panels::titled_block;
 use super::{pad_left, section};
 
@@ -66,7 +67,7 @@ fn render_list(frame: &mut Frame<'_>, ui_state: &UiState, filtered: &[&MarketEnt
     let n = filtered.len();
     let total = ui_state.market.len();
     // 短文案——44 列窄栏放不下设计稿原句(`[x] 对比 · [p] 发布员工 · N employees`),
-    // 会被 ratatui 的 Block 标题截断，故压成 `cmp N/2`。
+    // 会被 ratatui 的 Block 标题截断，故压成 `cmp N/3`。
     let count_label = if ui_state.market_filter.is_empty() {
         format!(" {n} employees")
     } else {
@@ -76,7 +77,7 @@ fn render_list(frame: &mut Frame<'_>, ui_state: &UiState, filtered: &[&MarketEnt
     let cmp_label = if ui_state.compare_selection.is_empty() {
         " · [x] 对比 ".to_string()
     } else {
-        format!(" · 对比{}/2[c]查看 ", ui_state.compare_selection.len())
+        format!(" · 对比{}/3[c]查看 ", ui_state.compare_selection.len())
     };
     let block = titled_block("MARKETPLACE", config::yellow()).title_bottom(Line::from(vec![
         Span::styled(count_label, Style::default().fg(config::dim())),
@@ -200,7 +201,13 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
 
     // v0.16 W5.1：顶部信息 + stat 瓦片 + (可选)SKILLS + 运行要求 + 行动条,用 Layout 纵向分段
     // (而非手拼 Rect 坐标——之前那版手算 y 容易越界/重叠,改用 ratatui 的布局引擎更稳)。
-    let desc_lines = 3 + e.description.split('\n').count() as u16;
+    let show_avatar = !e.avatar.is_empty() && padded.width >= 54;
+    let avatar_height = if show_avatar {
+        e.avatar.len().min(8) as u16
+    } else {
+        0
+    };
+    let desc_lines = (3 + e.description.split('\n').count() as u16).max(avatar_height);
     let mut constraints = vec![
         Constraint::Length(desc_lines), // 名/认证/状态/简介
         Constraint::Length(3),          // stat 瓦片
@@ -208,7 +215,7 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
     if has_tags {
         constraints.push(Constraint::Length(3)); // SKILLS 标题+chips
     }
-    constraints.push(Constraint::Length(3)); // 运行要求
+    constraints.push(Constraint::Length(4)); // 运行要求 + L0-L4 兼容性
     constraints.push(Constraint::Length(2)); // v0.17 P2 C1：累计 KPI(真值,启动时读盘)
     constraints.push(Constraint::Min(1)); // 行动条(吃剩余)
     let rows = Layout::default()
@@ -250,9 +257,31 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
     for row in e.description.split('\n') {
         lines.push(Line::from(Span::styled(row.to_string(), fg)));
     }
+    let info_area = if show_avatar {
+        let header_cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(20), Constraint::Min(20)])
+            .spacing(1)
+            .split(rows[0]);
+        let avatar = e
+            .avatar
+            .iter()
+            .take(8)
+            .map(|line| {
+                Line::from(Span::styled(
+                    line.clone(),
+                    Style::default().fg(config::aqua()),
+                ))
+            })
+            .collect::<Vec<_>>();
+        frame.render_widget(Paragraph::new(Text::from(avatar)), header_cols[0]);
+        header_cols[1]
+    } else {
+        rows[0]
+    };
     frame.render_widget(
         Paragraph::new(Text::from(lines)).wrap(Wrap { trim: true }),
-        rows[0],
+        info_area,
     );
 
     render_stat_tiles(frame, e, rows[1]);
@@ -293,6 +322,19 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
             Span::styled(e.hermes_req.clone(), fg),
         ]),
         Line::from(vec![Span::styled("Env    ", dim), Span::styled(env, fg)]),
+        Line::from(vec![
+            Span::styled("Compat ", dim),
+            Span::styled(
+                e.compatibility_level
+                    .map(|level| format!("L{level}/L4 · {}", e.compatibility_reason))
+                    .unwrap_or_else(|| format!("— · {}", e.compatibility_reason)),
+                Style::default().fg(if e.compatibility_level.is_some() {
+                    config::aqua()
+                } else {
+                    config::dim()
+                }),
+            ),
+        ]),
     ];
     frame.render_widget(Paragraph::new(Text::from(env_lines)), rows[next]);
     next += 1;
@@ -335,11 +377,34 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
             ),
         ])
     };
-    frame.render_widget(Paragraph::new(kpi_line), rows[next]);
+    let autonomy = autonomy_projection(e.kpi_cumulative);
+    let autonomy_line = Line::from(vec![
+        Span::styled(
+            "成长 ",
+            Style::default()
+                .fg(config::dim())
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(autonomy.label, Style::default().fg(config::aqua())),
+        Span::styled(format!(" · {}", autonomy.progress), dim),
+    ]);
+    frame.render_widget(
+        Paragraph::new(Text::from(vec![kpi_line, autonomy_line])),
+        rows[next],
+    );
     next += 1;
 
     // 行动条：可雇员工提示 h/Enter 进体检(设计稿 `[H] HIRE` 绿虚线征募条的对应)。
-    let action_line = if available {
+    let active = flow_state::snapshot(&e.name)
+        .is_some_and(|snapshot| matches!(snapshot.stage, flow_state::HireStage::Active));
+    let action_line = if active {
+        Line::from(Span::styled(
+            "[h/Enter] 查看入职状态 · [f] 解雇",
+            Style::default()
+                .fg(config::orange())
+                .add_modifier(Modifier::BOLD),
+        ))
+    } else if available {
         Line::from(Span::styled(
             "[h/Enter] 体检并雇佣 →",
             Style::default()
@@ -379,12 +444,10 @@ fn render_stat_tiles(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
         ),
         ("TAGS", e.tags.len().to_string(), config::yellow()),
         (
-            "HERMES",
-            if e.hermes_req.is_empty() {
-                "—".to_string()
-            } else {
-                e.hermes_req.clone()
-            },
+            "COMPAT",
+            e.compatibility_level
+                .map(|level| format!("L{level}/L4"))
+                .unwrap_or_else(|| "—".to_string()),
             config::aqua(),
         ),
     ];

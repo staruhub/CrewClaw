@@ -16,6 +16,7 @@ import {
   computeEdit,
   computeWrite,
   fsToolSchemas,
+  listFiles,
   readFileSafe,
 } from "../tools-fs.mjs";
 
@@ -29,11 +30,36 @@ try {
   const file = join(root, "sample.txt");
   writeFileSync(file, "alpha\nbeta\ngamma\n", "utf8");
 
-  assert.equal(fsToolSchemas.length, 3);
+  assert.equal(fsToolSchemas.length, 4);
   assert.deepEqual(
     fsToolSchemas.map(tool => tool.function.name),
-    ["read_file", "edit_file", "write_file"]
+    ["list_files", "read_file", "edit_file", "write_file"]
   );
+
+  mkdirSync(join(root, "docs"));
+  mkdirSync(join(root, "docs", "nested"));
+  writeFileSync(join(root, "docs", "guide.md"), "guide", "utf8");
+  writeFileSync(join(root, "docs", "nested", "deep.md"), "deep", "utf8");
+  writeFileSync(join(root, "docs", "nested", "skip.txt"), "skip", "utf8");
+  const listed = listFiles("docs", {
+    root,
+    pattern: "*.md",
+    recursive: true,
+  });
+  assert.equal(listed.ok, true, listed.error);
+  assert.deepEqual(listed.entries, ["guide.md", "nested/deep.md"]);
+  assert.deepEqual(
+    listFiles("docs", { root, pattern: "**.md", recursive: true }).entries,
+    ["guide.md"],
+    "a doubled star without a following slash must not cross directories"
+  );
+  assert.deepEqual(
+    listFiles("docs", { root, pattern: "**/*.md" }).entries,
+    ["guide.md", "nested/deep.md"],
+    "only an explicit globstar segment crosses directories"
+  );
+  assert.equal(listFiles(join(outside), { root }).ok, false);
+  assert.equal(listFiles("docs", { root, maxResults: 1 }).truncated, true);
 
   const read = readFileSafe("sample.txt", { root });
   assert.equal(read.ok, true);
@@ -116,6 +142,11 @@ try {
   assert.equal(guardedWrite.ok, true);
   renameSync(guardedDir, join(root, "guarded-original"));
   symlinkSync(outside, guardedDir, "junction");
+  assert.equal(
+    listFiles("guarded", { root }).ok,
+    false,
+    "directory listing rejects a junction that escapes the workspace"
+  );
   const raced = applyWrite("guarded/target.txt", "changed", {
     root,
     guard: guardedWrite.guard,

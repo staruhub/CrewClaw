@@ -53,7 +53,7 @@ test("Node event registry contains the cross-runtime lifecycle events", () => {
   );
 });
 
-test("dream/v1 freezes exactly nine events", () => {
+test("dream/v1 freezes exactly ten events", () => {
   const dreamEvents = Object.values(EVENTS).filter(type =>
     type.startsWith("dream.")
   );
@@ -62,6 +62,7 @@ test("dream/v1 freezes exactly nine events", () => {
     "dream.approved",
     "dream.blocked",
     "dream.candidate_ready",
+    "dream.morning_report",
     "dream.recommended",
     "dream.rejected",
     "dream.rolled_back",
@@ -119,6 +120,10 @@ test("critical payload validators enforce canonical correlation fields", () => {
       },
     ],
     [EVENTS.DREAM_RECOMMENDED, { dream_id: "dream-1", employee_id: "whale" }],
+    [
+      EVENTS.DREAM_MORNING_REPORT,
+      { dream_id: "dream-1", employee_id: "whale" },
+    ],
   ];
   for (const [type, data] of valid) {
     assert.deepEqual(
@@ -153,6 +158,45 @@ test("critical payload validators enforce canonical correlation fields", () => {
     }).ok,
     false,
     "deliverable acceptance cannot masquerade as tool authorization"
+  );
+});
+
+test("tool presentation fields are additive, typed, and legacy-compatible", () => {
+  assert.deepEqual(
+    validateTaskEventPayload(EVENTS.TOOL_SUCCEEDED, {
+      id: "tool-1",
+      tool: "read_file",
+      name: "read_file",
+      args_summary: "api/boot.ts",
+      result_summary: "123 行",
+      truncated: false,
+    }),
+    { ok: true, errors: [] }
+  );
+  assert.deepEqual(
+    validateTaskEventPayload(EVENTS.TOOL_SUCCEEDED, {
+      id: "tool-legacy",
+      tool: "read_file",
+      summary: "done",
+    }),
+    { ok: true, errors: [] },
+    "v1 producers may omit the additive presentation fields"
+  );
+  assert.equal(
+    validateTaskEventPayload(EVENTS.TOOL_SUCCEEDED, {
+      id: "tool-invalid",
+      tool: "read_file",
+      result_summary: { lines: 123 },
+    }).ok,
+    false
+  );
+  assert.equal(
+    validateTaskEventPayload(EVENTS.TOOL_SUCCEEDED, {
+      id: "tool-invalid-debug",
+      tool: "read_file",
+      debug_ref: "",
+    }).ok,
+    false
   );
 });
 

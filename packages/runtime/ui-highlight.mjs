@@ -1,5 +1,6 @@
 const ANSI = {
-  reset: "\x1b[0m",
+  // Reset only attributes owned here; SGR 0 also resets Ratatui's inherited background.
+  reset: "\x1b[22;23;24;29;39m",
   comment: "\x1b[2m",
   string: "\x1b[32m",
   keyword: "\x1b[35m",

@@ -30,13 +30,33 @@ function makeRoot({ approval, accepted } = {}) {
   }
   if (accepted !== undefined) {
     fs.mkdirSync(path.join(root, ".crewclaw", "kpi"), { recursive: true });
+    // KPI v2 is an append-only formal-outcome ledger. Trust is earned from real
+    // user-accepted formal outcomes, not the legacy chat counter shape.
+    const outcomes = Array.from({ length: accepted }, (_, index) => ({
+      id: `seed-outcome-${index + 1}`,
+      task_run_id: `seed-task-${index + 1}`,
+      task_kind: "formal",
+      outcome: "accepted",
+      acceptance_source: "user",
+      cost_usd: 0,
+      duration_ms: 1,
+      evidence_count: 1,
+      permission_violations: 0,
+      safety_violations: 0,
+      ts: index + 1,
+    }));
     fs.writeFileSync(
       path.join(root, ".crewclaw", "kpi", "policy-agent.json"),
       JSON.stringify({
-        tasks: accepted,
-        accepted,
-        total_cost: 0,
+        contract: "crewclaw.kpi/v2",
+        employee_id: "policy-agent",
         first_hired_ts: 1,
+        legacy: {
+          unclassified_tasks: 0,
+          accepted_claims: 0,
+          total_cost: 0,
+        },
+        outcomes,
       })
     );
   }

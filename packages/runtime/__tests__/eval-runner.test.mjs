@@ -284,14 +284,69 @@ async function failedRuntimeLifecycleIsNeverJudged() {
         },
       ],
       artifactText: "",
-      terminal: { type: "task.blocked" },
+      terminal: {
+        type: "task.blocked",
+        data: { reason: "required tool denied by policy" },
+      },
     }),
   });
   assert.equal(judgeCalls, 0);
   assert.equal(result.score, 0);
   assert.equal(result.verdict, "FAIL");
   assert.equal(result.per_test[0].passed, false);
-  console.log("  ✓ failed runtime lifecycles receive zero without judge calls");
+  assert.match(
+    result.per_test[0].dimensions[0].reason,
+    /task\.blocked: required tool denied by policy/
+  );
+  console.log(
+    "  ✓ genuine task lifecycle failures receive zero without judge calls"
+  );
+}
+
+async function providerOutagesAreNeverScored() {
+  let judgeCalls = 0;
+  await assert.rejects(
+    runEval("ai-adoption-whale", {
+      root: REPO_ROOT,
+      mock: false,
+      judge: async () => {
+        judgeCalls++;
+        return { passed: true, reason: "must not be used" };
+      },
+      smokeRunner: async () => ({
+        events: [
+          {
+            protocol_version: 1,
+            type: "task.rejected",
+            ts: 1,
+            data: {
+              id: "task-fixture",
+              status: "failed",
+              reason_code: "network_error",
+              reason: "model provider network request failed",
+            },
+          },
+        ],
+        artifactText: "",
+        terminal: {
+          type: "task.rejected",
+          data: {
+            status: "failed",
+            reason_code: "network_error",
+            reason: "model provider network request failed",
+          },
+        },
+      }),
+    }),
+    error =>
+      error?.code === "CREW_EVAL_INFRASTRUCTURE" &&
+      error?.provider?.status === "unavailable" &&
+      /was not graded/.test(error.message)
+  );
+  assert.equal(judgeCalls, 0);
+  console.log(
+    "  ✓ provider outages abort evaluation without producing a score"
+  );
 }
 
 function persistSyntheticEval(root, result, options = {}) {
@@ -1257,6 +1312,7 @@ async function main() {
   await smokeRunnerIsEventDrivenAndFailClosed();
   await acceptanceCriteriaAreHardGates();
   await failedRuntimeLifecycleIsNeverJudged();
+  await providerOutagesAreNeverScored();
   loadsRealWhaleSpec();
   refusesUnknownEmployee();
   persistGuardProtectsRealScores();

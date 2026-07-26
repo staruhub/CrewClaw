@@ -35,6 +35,7 @@ use self::{
 
 pub mod actions;
 pub mod config;
+mod flow_state;
 pub mod fuzzy;
 pub mod input;
 pub mod insights;
@@ -88,6 +89,8 @@ struct EngineBootState {
 const POLL_BUSY_MS: u64 = 33;
 const POLL_IDLE_MS: u64 = 50;
 const RUNTIME_GRACEFUL_EXIT_MS: u64 = 1_500;
+/// busy 首次 Ctrl+C 请求优雅取消；同一任务在此短窗内再次 Ctrl+C 直接退出。
+const BUSY_CANCEL_FORCE_EXIT_MS: u64 = 750;
 
 struct RuntimeProcessTree {
     pid: u32,
@@ -262,7 +265,7 @@ pub fn run_workbench_live(runtime_args: &[String], root: &Path) -> Result<i32, S
     // v0.11 M1：在基底主题上按员工 slug 派生 accent——不同数字员工进来 chrome 主色不同。
     let tui_config = config::TuiConfig::load(root);
     let mut theme = tui_config.theme.theme();
-    theme.accent = config::employee_accent(&runtime_args[0]);
+    theme.accent = config::employee_accent_for_theme(&runtime_args[0], theme);
     config::set_theme(theme);
     let script = root.join("packages/runtime/run.mjs");
     let mut runtime = Command::new("node");
@@ -477,6 +480,7 @@ fn run_loop(terminal: &mut TuiTerminal, demo: bool) -> Result<LiveLoopExit, Stri
             avatar: Vec::new(),
             kpi_cumulative: state::KpiCumulative::default(),
             eval: None,
+            growth_card: None,
         });
         state.mode = "Trial".to_string();
     }
@@ -696,16 +700,19 @@ fn run_live_loop(
     let (market, hire_reports) = load_marketplace(root);
     ui_state.market = market;
     ui_state.hire_reports = hire_reports;
+    flow_state::initialize(root);
     let mut input = InputBuffer::with_history_path(prompt_history_path(root));
     // v0.20 P0：把 boot 阶段已收到的事件（protocol.ready/session.ready）先灌入状态，
     // 让工作台一进屏就带着员工头信息与工具目录，而不是空白再逐帧补。
     for event in &seed_events {
+        flow_state::reduce_dream_event(event);
         state.reduce(event);
     }
     refresh_persisted_insights(root, employee_id, &mut state, &mut ui_state);
     let mut next_persisted_refresh = Instant::now() + Duration::from_secs(2);
     // client.ready 若已在 boot 阶段发出（响应 protocol.ready），此处不再重发。
     let mut client_ready_sent = client_ready_sent;
+    let mut last_render_content_width = None;
 
     loop {
         if crate::cancel_requested() {
@@ -729,6 +736,15 @@ fn run_live_loop(
             })
             .map_err(|error| format!("Failed to draw live workbench: {error}"))?;
 
+        let render_content_width = ui_state.render_content_width.get();
+        if render_content_width > 0 && last_render_content_width != Some(render_content_width) {
+            write_user_action(
+                child_stdin,
+                &UserAction::viewport_resize(render_content_width),
+            )?;
+            last_render_content_width = Some(render_content_width);
+        }
+
         if event::poll(poll_interval(&state))
             .map_err(|error| format!("Failed to poll terminal events: {error}"))?
         {
@@ -742,6 +758,14 @@ fn run_live_loop(
                         }
                         let decision = match key.code {
                             KeyCode::Char('a') | KeyCode::Char('y') => Some("accept"),
+                            KeyCode::Char('s')
+                                if state
+                                    .approval
+                                    .as_ref()
+                                    .is_some_and(|approval| approval.session_lease.is_some()) =>
+                            {
+                                Some("allow_session")
+                            }
                             // v0.13 M4：设计规范键位 [a]/[r]；d/n 保留兼容。
                             KeyCode::Char('r') | KeyCode::Char('d') | KeyCode::Char('n') => {
                                 Some("reject")
@@ -848,6 +872,7 @@ fn run_live_loop(
                             | "memory.saved"
                             | "approval.accepted"
                     );
+                    flow_state::reduce_dream_event(&event);
                     state.reduce(&event);
                     ui_state.persisted_refresh_requested |= refresh;
                 }
@@ -862,6 +887,7 @@ fn run_live_loop(
                     state.debug.push(line);
                 }
                 WorkbenchMessage::Event(event) => {
+                    flow_state::reduce_dream_event(&event);
                     state.reduce(&event);
                     ui_state.persisted_refresh_requested = true;
                 }
@@ -962,6 +988,10 @@ fn read_kpi_cumulative(root: &Path, agent_id: &str) -> state::KpiCumulative {
             .get("accepted")
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0),
+        auto_accepted: value
+            .get("auto_accepted")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
         total_cost: value
             .get("total_cost")
             .and_then(serde_json::Value::as_f64)
@@ -989,9 +1019,42 @@ fn refresh_persisted_insights(
     }
     // Never promote a direct Rust disk read to the session trust channel. employee.eval is owned
     // by Node session.ready after readEvalResult has rebound the record to the current
-    // subject/spec/dependency/runtime/execution context. Disk insights remain non-certified.
+    // subject/spec/dependency/runtime/execution context. This proves an eval, not formal C2.
     ui_state.persisted_state_active = true;
     ui_state.persisted_insights = insights;
+}
+
+fn read_market_avatar(root: &Path, expert: &crate::Expert) -> Vec<String> {
+    let Some(local_source) = expert.local_source.as_deref() else {
+        return Vec::new();
+    };
+    let Ok(source) = crate::manifest::resolve_local_source(root, &expert.name, local_source) else {
+        return Vec::new();
+    };
+    let path = source.join("avatar.txt");
+    let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+        return Vec::new();
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 8 * 1024 {
+        return Vec::new();
+    }
+    let Ok(bytes) = std::fs::read(path) else {
+        return Vec::new();
+    };
+    let Ok(text) = String::from_utf8(bytes) else {
+        return Vec::new();
+    };
+    let lines = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| {
+            line.chars()
+                .all(|ch| ch == ' ' || (!ch.is_control() && ch != '\u{7f}'))
+        })
+        .take(16)
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    if lines.is_empty() { Vec::new() } else { lines }
 }
 
 /// v0.12 M2+M3：从 registry/experts.json 读**真实**员工，并为每个员工跑 doctor 体检。
@@ -1011,7 +1074,21 @@ fn load_marketplace(root: &Path) -> (Vec<state::MarketEntry>, Vec<state::HireHea
             .as_deref()
             .ok_or_else(|| "no local package".to_string())
             .and_then(|ls| crate::manifest::read_manifest(root, &e.name, ls));
+        let package_available = manifest.is_ok();
         let report = crate::doctor::build_report(e, manifest, &team);
+        let active = crate::team::active_employee(&team, &e.name).is_some();
+        let (compatibility_level, compatibility_reason) =
+            if !package_available || !e.status.eq_ignore_ascii_case("available") {
+                (Some(0), "L0 · 本地员工包不可用".to_string())
+            } else {
+                match report.health_status.as_str() {
+                    "broken" => (Some(0), "L0 · Doctor 存在阻塞项".to_string()),
+                    "warning" => (Some(2), "L2 · 可运行但环境仍有提醒".to_string()),
+                    "healthy" if active => (Some(4), "L4 · 体检通过且已在岗".to_string()),
+                    "healthy" => (Some(3), "L3 · 体检通过，尚未入职".to_string()),
+                    _ => (Some(0), "L0 · Doctor 状态不可验证".to_string()),
+                }
+            };
         reports.push(state::HireHealth {
             status: report.health_status.as_str().to_string(),
             issues: report.issues,
@@ -1021,13 +1098,16 @@ fn load_marketplace(root: &Path) -> (Vec<state::MarketEntry>, Vec<state::HireHea
             name: e.name.clone(),
             display_name: e.display_name.clone(),
             status: e.status.clone(),
-            certification: e.certification.clone(),
+            certification: crate::expert_evidence_label_zh(e),
             category: e.category.clone(),
             description: e.description.clone(),
             tags: e.tags.clone(),
             hermes_req: e.requires.hermes.clone(),
             env_reqs: e.requires.env.clone(),
             first_task: e.first_task.clone(),
+            avatar: read_market_avatar(root, e),
+            compatibility_level,
+            compatibility_reason,
             kpi_cumulative: read_kpi_cumulative(root, &e.name),
         });
     }
@@ -1087,6 +1167,31 @@ fn nav_session_cursor(state: &AppState, ui_state: &mut UiState, delta: i32) {
     ui_state.follow = false;
 }
 
+fn set_fire_feedback(
+    ui_state: &mut UiState,
+    employee_id: &str,
+    mode: crate::OffboardingMode,
+    result: Result<(), String>,
+) {
+    ui_state.action_feedback = Some(match result {
+        Ok(()) => (
+            true,
+            match mode {
+                crate::OffboardingMode::ExportMemory => {
+                    format!("✓ 已解雇 {employee_id}；记忆包与审计记录已保留")
+                }
+                crate::OffboardingMode::Handoff => {
+                    format!("✓ 已解雇 {employee_id}；交接草案与记忆包已创建")
+                }
+                crate::OffboardingMode::Purge => {
+                    format!("✓ 已解雇 {employee_id}；可召回状态已逻辑清除，审计记录保留")
+                }
+            },
+        ),
+        Err(error) => (false, format!("✗ 解雇 {employee_id} 失败：{error}")),
+    });
+}
+
 fn handle_key_event(
     state: &mut AppState,
     ui_state: &mut UiState,
@@ -1094,6 +1199,8 @@ fn handle_key_event(
     _is_narrow: bool,
     key: KeyEvent,
 ) -> Result<TerminalAction, String> {
+    // 本地动作反馈保留到用户下一次按键；当前按键若产生新结果，会在对应分支重新写入。
+    ui_state.action_feedback = None;
     // v0.10：Enter 突发启发式。Windows Terminal 拦截 Ctrl+V 后把剪贴板按键序列注入（应用永远
     // 收不到 Ctrl+V/Event::Paste），多行内容的换行以 <10ms 间隔的裸 Enter 到达 → 视为粘贴换行
     // 插 `\n`，不提交。仅对裸 Enter 生效；浮层/抽屉打开时不干预（那里的 Enter 是选择键）。
@@ -1111,13 +1218,46 @@ fn handle_key_event(
         input.insert_char('\n');
         return Ok(TerminalAction::Continue);
     }
-    // Ctrl+C always quits, regardless of focus/overlay/drawer state.
-    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+    let ctrl_c = key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
+    if !state.is_busy() {
+        // A completed/cancelled generation must never arm a later task's first Ctrl+C.
+        ui_state.busy_cancel_armed = None;
+    } else if !ctrl_c {
+        // Require an actual Ctrl+C double-press; Esc/other keys break the force-exit chord.
+        ui_state.busy_cancel_armed = None;
+    }
+    // Busy Esc/Ctrl+C cancels the current generation but keeps the cockpit alive. If the runtime
+    // hangs and cannot acknowledge cancellation, a second Ctrl+C within the short window exits
+    // locally. Esc remains a cancel-only key and never arms force-exit.
+    if state.is_busy() && (key.code == KeyCode::Esc || ctrl_c) {
+        if ctrl_c {
+            let now = Instant::now();
+            let task_id = state.active_task_session_id.clone();
+            let force_exit =
+                ui_state
+                    .busy_cancel_armed
+                    .as_ref()
+                    .is_some_and(|(armed_task_id, armed_at)| {
+                        armed_task_id == &task_id
+                            && now.saturating_duration_since(*armed_at)
+                                <= Duration::from_millis(BUSY_CANCEL_FORCE_EXIT_MS)
+                    });
+            if force_exit {
+                ui_state.busy_cancel_armed = None;
+                return Ok(TerminalAction::Quit);
+            }
+            ui_state.busy_cancel_armed = Some((task_id, now));
+        }
+        return Ok(TerminalAction::SendAction(UserAction::generation_cancel()));
+    }
+    // Idle Ctrl+C quits, regardless of focus/overlay/drawer state.
+    if ctrl_c {
         return Ok(TerminalAction::Quit);
     }
     // Ctrl+O toggles the panel drawer, and always closes any transient overlay first.
     if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        ui_state.overlay = None;
+        ui_state.close_overlay();
+        ui_state.preview_focused = false;
         ui_state.toggle_drawer();
         state.sync_focus(ui_state);
         return Ok(TerminalAction::Continue);
@@ -1126,9 +1266,9 @@ fn handle_key_event(
     // ── v0.12 多屏：模式/切屏键处理（在 drawer/overlay/chat 分发之前）─────────────────────
     // v0.15 P1-5：产物预览浮层是最内层——Esc/q 关闭；[ ] 换产物（联动预览）；其余吞掉。
     // v0.16 W4.1：补 j/k 滚动正文（设计稿"j/k 滚动 · [ ] 切换文件 · Esc 关闭"）；换产物时滚动归零。
-    if ui_state.preview_open {
+    if ui_state.preview_open() {
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => ui_state.preview_open = false,
+            KeyCode::Esc | KeyCode::Char('q') => ui_state.close_overlay(),
             KeyCode::Char('[') => {
                 state.select_previous_artifact();
                 ui_state.preview_scroll = 0;
@@ -1153,16 +1293,51 @@ fn handle_key_event(
         }
         return Ok(TerminalAction::Continue);
     }
+    // 宽/中屏的内联 PREVIEW 拥有独立滚动焦点；窄屏继续使用上面的全屏浮层。
+    if ui_state.preview_focused && ui_state.screen == Screen::Workbench {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('p') => {
+                ui_state.preview_focused = false;
+            }
+            KeyCode::Char('[') => {
+                state.select_previous_artifact();
+                ui_state.preview_scroll = 0;
+            }
+            KeyCode::Char(']') => {
+                state.select_next_artifact();
+                ui_state.preview_scroll = 0;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                ui_state.preview_scroll = ui_state.preview_scroll.saturating_add(1);
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                ui_state.preview_scroll = ui_state.preview_scroll.saturating_sub(1);
+            }
+            KeyCode::PageDown => {
+                ui_state.preview_scroll = ui_state.preview_scroll.saturating_add(10);
+            }
+            KeyCode::PageUp => {
+                ui_state.preview_scroll = ui_state.preview_scroll.saturating_sub(10);
+            }
+            KeyCode::Enter => {
+                ui_state.preview_focused = false;
+                ui_state.open_overlay(Overlay::Preview);
+                ui_state.preview_scroll = 0;
+            }
+            _ => {}
+        }
+        return Ok(TerminalAction::Continue);
+    }
     // v0.15 P1-4：PUBLISH 发布浮层——Enter 推进/末步完成关闭；Esc/q 取消。
-    if let Some(step) = ui_state.publish_step {
+    if let Some(step) = ui_state.publish_step() {
         use crate::workbench::widgets::overlay_publish::STEP_COUNT;
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => ui_state.publish_step = None,
+            KeyCode::Esc | KeyCode::Char('q') => ui_state.set_publish_step(None),
             KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => {
                 if step + 1 >= STEP_COUNT {
-                    ui_state.publish_step = None; // 末步 → 完成关闭
+                    ui_state.set_publish_step(None); // 末步 → 完成关闭
                 } else {
-                    ui_state.publish_step = Some(step + 1);
+                    ui_state.set_publish_step(Some(step + 1));
                 }
             }
             _ => {}
@@ -1170,13 +1345,11 @@ fn handle_key_event(
         return Ok(TerminalAction::Continue);
     }
     // v0.15 P1-1：SETTINGS 浮层——j/k 选、h/l/Enter 改值、Esc/q/, 关。改值即持久化。
-    if ui_state.settings_open {
+    if ui_state.settings_open() {
         use crate::workbench::widgets::overlay_settings::{ROW_COUNT, cycle};
         let mut changed = false;
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => {
-                ui_state.settings_open = false
-            }
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => ui_state.close_overlay(),
             KeyCode::Char('j') | KeyCode::Down => {
                 ui_state.settings_cursor = (ui_state.settings_cursor + 1).min(ROW_COUNT - 1);
             }
@@ -1193,10 +1366,10 @@ fn handle_key_event(
         return Ok(TerminalAction::Continue);
     }
     // v0.15 P1-2：通知中心浮层——j/k 选、Enter 跳转并已读、R 全读、Esc/q/n 关。
-    if ui_state.notif_open {
+    if ui_state.notif_open() {
         let n = state.notices.len();
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('n') => ui_state.notif_open = false,
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('n') => ui_state.close_overlay(),
             KeyCode::Char('j') | KeyCode::Down => {
                 if n > 0 {
                     ui_state.notif_cursor = (ui_state.notif_cursor + 1).min(n - 1);
@@ -1217,7 +1390,7 @@ fn handle_key_event(
                     state,
                     ui_state.notif_cursor,
                 );
-                ui_state.notif_open = false;
+                ui_state.close_overlay();
                 let target = match kind {
                     Some(crate::workbench::state::NoticeKind::Accepted) => Screen::Eval,
                     _ => Screen::Workbench, // Approval/Delivered/Rejected 都指向任务详情,在 WORKBENCH
@@ -1229,12 +1402,12 @@ fn handle_key_event(
         return Ok(TerminalAction::Continue);
     }
     // v0.17 P1-B2：COMPARE 对比浮层打开时——Esc/q/c 关，其它键吞掉。
-    if ui_state.compare_open {
+    if ui_state.compare_open() {
         if matches!(
             key.code,
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('c')
         ) {
-            ui_state.compare_open = false;
+            ui_state.close_overlay();
         }
         return Ok(TerminalAction::Continue);
     }
@@ -1265,26 +1438,88 @@ fn handle_key_event(
         return Ok(TerminalAction::Continue);
     }
     // v0.15 P1-3：TASK DETAIL 全屏浮层打开时，Esc/q/o 关闭；其它键吞掉（不穿透到工作台）。
-    if ui_state.task_detail_open {
+    if ui_state.task_detail_open() {
         if matches!(
             key.code,
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('o')
         ) {
-            ui_state.task_detail_open = false;
+            ui_state.close_overlay();
+        }
+        return Ok(TerminalAction::Continue);
+    }
+    // MARKET/HIRE 的解雇确认复用互斥 Overlay 模式；只有显式确认才触碰 owner-locked roster。
+    if let Some((index, mode)) = ui_state.fire_confirmation() {
+        match key.code {
+            KeyCode::Enter | KeyCode::Char('y') => {
+                if let Some(employee_id) =
+                    ui_state.market.get(index).map(|entry| entry.name.clone())
+                {
+                    let result = flow_state::fire_employee(&employee_id, mode).map(|_| ());
+                    set_fire_feedback(ui_state, &employee_id, mode, result);
+                }
+                ui_state.close_overlay();
+            }
+            KeyCode::Char('1') | KeyCode::Char('e') => {
+                ui_state.open_overlay(Overlay::FireConfirm {
+                    market_index: index,
+                    mode: crate::OffboardingMode::ExportMemory,
+                });
+            }
+            KeyCode::Char('2') | KeyCode::Char('h') => {
+                ui_state.open_overlay(Overlay::FireConfirm {
+                    market_index: index,
+                    mode: crate::OffboardingMode::Handoff,
+                });
+            }
+            KeyCode::Char('3') | KeyCode::Char('p') => {
+                ui_state.open_overlay(Overlay::FireConfirm {
+                    market_index: index,
+                    mode: crate::OffboardingMode::Purge,
+                });
+            }
+            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => ui_state.close_overlay(),
+            _ => {}
         }
         return Ok(TerminalAction::Continue);
     }
     // 入职仪式浮层优先吃键：Enter 下一步 / Esc 跳过。
-    if let Some(ob) = ui_state.onboarding {
+    if let Some(ob) = ui_state.onboarding() {
+        let employee_id = ui_state
+            .market
+            .get(ui_state.hire_cursor)
+            .map(|employee| employee.name.clone());
         match key.code {
             KeyCode::Enter => {
-                ui_state.onboarding = if ob.step + 1 >= 3 {
+                let next = if ob.step + 1 >= 3 {
+                    if let Some(employee_id) = employee_id.as_deref() {
+                        flow_state::finish_onboarding(employee_id);
+                    }
+                    if let Some(first_task) = ui_state
+                        .market
+                        .get(ui_state.hire_cursor)
+                        .map(|employee| employee.first_task.trim())
+                        .filter(|task| !task.is_empty())
+                    {
+                        input.clear();
+                        input.insert_str(first_task);
+                        ui_state.mode = InputMode::Insert;
+                        ui_state.set_screen(Screen::Workbench);
+                    }
                     None
                 } else {
+                    if let Some(employee_id) = employee_id.as_deref() {
+                        flow_state::set_onboarding_step(employee_id, ob.step + 1);
+                    }
                     Some(state::OnboardingState { step: ob.step + 1 })
                 };
+                ui_state.set_onboarding(next);
             }
-            KeyCode::Esc => ui_state.onboarding = None,
+            KeyCode::Esc => {
+                if let Some(employee_id) = employee_id.as_deref() {
+                    flow_state::finish_onboarding(employee_id);
+                }
+                ui_state.set_onboarding(None);
+            }
             _ => {}
         }
         return Ok(TerminalAction::Continue);
@@ -1326,14 +1561,51 @@ fn handle_key_event(
         {
             if let Some(idx) = ui_state.market_selected_index() {
                 ui_state.hire_cursor = idx;
+                if let Some(employee) = ui_state.market.get(idx) {
+                    let _ = flow_state::refresh(&employee.name);
+                }
                 ui_state.set_screen(Screen::Hire);
+            }
+            return Ok(TerminalAction::Continue);
+        }
+        if ui_state.screen == Screen::Hire && key.code == KeyCode::Char('d') {
+            if let Some(employee) = ui_state.market.get(ui_state.hire_cursor) {
+                let _ = flow_state::refresh(&employee.name);
+            }
+            return Ok(TerminalAction::Continue);
+        }
+        if ui_state.screen == Screen::Hire && key.code == KeyCode::Enter {
+            if let Some(employee) = ui_state.market.get(ui_state.hire_cursor)
+                && flow_state::begin_trial(&employee.name).is_ok()
+            {
+                ui_state.set_onboarding(Some(state::OnboardingState { step: 0 }));
+            }
+            return Ok(TerminalAction::Continue);
+        }
+        if matches!(ui_state.screen, Screen::Market | Screen::Hire)
+            && key.code == KeyCode::Char('f')
+        {
+            let index = if ui_state.screen == Screen::Market {
+                ui_state.market_selected_index()
+            } else {
+                Some(ui_state.hire_cursor).filter(|idx| *idx < ui_state.market.len())
+            };
+            if let Some(index) = index
+                && let Some(employee) = ui_state.market.get(index)
+                && flow_state::snapshot(&employee.name)
+                    .is_some_and(|snapshot| matches!(snapshot.stage, flow_state::HireStage::Active))
+            {
+                ui_state.open_overlay(Overlay::FireConfirm {
+                    market_index: index,
+                    mode: crate::OffboardingMode::ExportMemory,
+                });
             }
             return Ok(TerminalAction::Continue);
         }
         // v0.15 P1-4：MARKET 上 p → 打开发布浮层（对选中员工;步骤1真校验,2-4 MOCK）。
         if ui_state.screen == Screen::Market && key.code == KeyCode::Char('p') {
             if ui_state.market_selected_index().is_some() {
-                ui_state.publish_step = Some(0);
+                ui_state.set_publish_step(Some(0));
             }
             return Ok(TerminalAction::Continue);
         }
@@ -1344,15 +1616,15 @@ fn handle_key_event(
             ui_state.market_cursor = 0;
             return Ok(TerminalAction::Continue);
         }
-        // v0.17 P1-B2：MARKET 上 `x` 勾选/取消当前员工进对比候选(≤2 个)。
+        // MARKET 上 `x` 勾选/取消当前员工进对比候选(≤3 个)。
         if ui_state.screen == Screen::Market && key.code == KeyCode::Char('x') {
             ui_state.toggle_compare_selection();
             return Ok(TerminalAction::Continue);
         }
-        // v0.17 P1-B2：MARKET 上 `c` 打开对比浮层——须先勾满 2 个候选。
+        // MARKET 上 `c` 打开对比浮层——2-3 个真实候选均可比较。
         if ui_state.screen == Screen::Market && key.code == KeyCode::Char('c') {
-            if ui_state.compare_selection.len() == 2 {
-                ui_state.compare_open = true;
+            if (2..=3).contains(&ui_state.compare_selection.len()) {
+                ui_state.open_overlay(Overlay::Compare);
             }
             return Ok(TerminalAction::Continue);
         }
@@ -1371,6 +1643,11 @@ fn handle_key_event(
                 ui_state.set_screen(ui_state.screen.prev());
                 return Ok(TerminalAction::Continue);
             }
+            KeyCode::Char('T') if ui_state.screen == Screen::Workbench => {
+                ui_state.task_queue_expanded = !ui_state.task_queue_expanded;
+                return Ok(TerminalAction::Continue);
+            }
+            // 小写 t 始终切主题；WORKBENCH 的大写 T 专用于展开/收起真实任务队列。
             KeyCode::Char('t') => {
                 let idx = ui_state.cycle_theme();
                 // 保留员工派生 accent（当前 THEME.accent 即员工色），只换底/命名色。
@@ -1391,9 +1668,31 @@ fn handle_key_event(
                     "inspect", None,
                 )));
             }
+            KeyCode::Enter if ui_state.screen == Screen::Dream => {
+                return Ok(TerminalAction::SendAction(UserAction::dream(
+                    "approve", None,
+                )));
+            }
+            KeyCode::Char('x') if ui_state.screen == Screen::Dream => {
+                return Ok(TerminalAction::SendAction(UserAction::dream(
+                    "reject", None,
+                )));
+            }
+            KeyCode::Char('u') if ui_state.screen == Screen::Dream => {
+                return Ok(TerminalAction::SendAction(UserAction::dream(
+                    "rollback", None,
+                )));
+            }
             KeyCode::Char('i') => {
                 ui_state.mode = InputMode::Insert;
                 // 回输入即回到跟随流（清事件游标）。
+                ui_state.session_cursor = None;
+                ui_state.follow = true;
+                return Ok(TerminalAction::Continue);
+            }
+            KeyCode::Char('z') if ui_state.screen == Screen::Workbench => {
+                ui_state.focus_mode = !ui_state.focus_mode;
+                ui_state.preview_focused = false;
                 ui_state.session_cursor = None;
                 ui_state.follow = true;
                 return Ok(TerminalAction::Continue);
@@ -1414,13 +1713,13 @@ fn handle_key_event(
             }
             // v0.15 P1-2：n 打开通知中心（任意屏可开）。
             KeyCode::Char('n') => {
-                ui_state.notif_open = true;
+                ui_state.open_overlay(Overlay::Notifications);
                 ui_state.notif_cursor = 0;
                 return Ok(TerminalAction::Continue);
             }
             // v0.15 P1-1：, 打开偏好设置。
             KeyCode::Char(',') => {
-                ui_state.settings_open = true;
+                ui_state.open_overlay(Overlay::Settings);
                 ui_state.settings_cursor = 0;
                 return Ok(TerminalAction::Continue);
             }
@@ -1428,9 +1727,13 @@ fn handle_key_event(
                 // v0.15 P1-3：WORKBENCH 上裸 o = 打开 TASK DETAIL 全屏详情（设计稿键位）；
                 // 其它屏保留入职仪式浮层（Ctrl+O 是抽屉，已在前面拦截）。
                 if ui_state.screen == Screen::Workbench {
-                    ui_state.task_detail_open = true;
-                } else {
-                    ui_state.onboarding = Some(state::OnboardingState { step: 0 });
+                    ui_state.open_overlay(Overlay::TaskDetail);
+                } else if let Some(employee) = ui_state.market.get(ui_state.hire_cursor)
+                    && flow_state::snapshot(&employee.name)
+                        .is_some_and(|flow| flow.workspace_employee_id.is_some())
+                {
+                    flow_state::set_onboarding_step(&employee.name, 0);
+                    ui_state.set_onboarding(Some(state::OnboardingState { step: 0 }));
                 }
                 return Ok(TerminalAction::Continue);
             }
@@ -1456,7 +1759,7 @@ fn handle_key_event(
                 if ui_state.screen == Screen::Workbench && !state.timeline.is_empty() {
                     ui_state.session_cursor = Some(0);
                     ui_state.follow = false;
-                    ui_state.messages_scroll = 0;
+                    ui_state.messages_scroll.set(0);
                 }
                 return Ok(TerminalAction::Continue);
             }
@@ -1467,13 +1770,48 @@ fn handle_key_event(
                 }
                 return Ok(TerminalAction::Continue);
             }
+            KeyCode::Char('{') if ui_state.screen == Screen::Workbench => {
+                ui_state.jump_turn(-1);
+                return Ok(TerminalAction::Continue);
+            }
+            KeyCode::Char('}') if ui_state.screen == Screen::Workbench => {
+                ui_state.jump_turn(1);
+                return Ok(TerminalAction::Continue);
+            }
             // v0.13 M4：[ ] 循环切换选中 artifact（右栏/抽屉预览联动）。
             KeyCode::Char('[') => {
                 state.select_previous_artifact();
+                ui_state.preview_scroll = 0;
                 return Ok(TerminalAction::Continue);
             }
             KeyCode::Char(']') => {
                 state.select_next_artifact();
+                ui_state.preview_scroll = 0;
+                return Ok(TerminalAction::Continue);
+            }
+            // p = preview：比 Enter 更可发现（Enter 在 INSERT 是发送，NORMAL 也容易误解）。
+            KeyCode::Char('p')
+                if ui_state.screen == Screen::Workbench && state.selected_artifact().is_some() =>
+            {
+                if ui_state.terminal_width.get() >= 100 {
+                    ui_state.preview_focused = true;
+                } else {
+                    ui_state.open_overlay(Overlay::Preview);
+                }
+                ui_state.preview_scroll = 0;
+                return Ok(TerminalAction::Continue);
+            }
+            // 选中的工具/思考轨道行用 Enter 展开/折叠；只在行本身可折叠时抢占 Enter。
+            KeyCode::Enter
+                if ui_state.screen == Screen::Workbench
+                    && ui_state
+                        .session_cursor
+                        .and_then(|index| state.timeline.get(index))
+                        .is_some_and(|entry| entry.collapsible) =>
+            {
+                if let Some(index) = ui_state.session_cursor {
+                    state.toggle_timeline_entry(index);
+                }
                 return Ok(TerminalAction::Continue);
             }
             // v0.15 P1-5：WORKBENCH 上有选中产物时 Enter → 打开预览浮层（真读文件）。
@@ -1481,7 +1819,11 @@ fn handle_key_event(
             KeyCode::Enter
                 if ui_state.screen == Screen::Workbench && state.selected_artifact().is_some() =>
             {
-                ui_state.preview_open = true;
+                if ui_state.terminal_width.get() >= 100 {
+                    ui_state.preview_focused = true;
+                } else {
+                    ui_state.open_overlay(Overlay::Preview);
+                }
                 ui_state.preview_scroll = 0; // v0.16 W4.1：每次打开从顶部看起。
                 return Ok(TerminalAction::Continue);
             }
@@ -1549,6 +1891,8 @@ fn handle_drawer_key(
         KeyCode::Up => {
             if ui_state.drawer == Some(state::FocusPanel::Artifacts) {
                 state.select_previous_artifact();
+            } else if ui_state.drawer == Some(state::FocusPanel::Tasks) {
+                ui_state.move_task_session_cursor(-1, state.task_sessions.len());
             } else {
                 ui_state.scroll_drawer(-1);
             }
@@ -1556,6 +1900,8 @@ fn handle_drawer_key(
         KeyCode::Down => {
             if ui_state.drawer == Some(state::FocusPanel::Artifacts) {
                 state.select_next_artifact();
+            } else if ui_state.drawer == Some(state::FocusPanel::Tasks) {
+                ui_state.move_task_session_cursor(1, state.task_sessions.len());
             } else {
                 ui_state.scroll_drawer(1);
             }
@@ -1563,7 +1909,9 @@ fn handle_drawer_key(
         KeyCode::PageUp => ui_state.scroll_drawer(-10),
         KeyCode::PageDown => ui_state.scroll_drawer(10),
         KeyCode::Enter => {
-            if ui_state.drawer == Some(state::FocusPanel::Artifacts)
+            if ui_state.drawer == Some(state::FocusPanel::Tasks) {
+                ui_state.activate_task_session(state);
+            } else if ui_state.drawer == Some(state::FocusPanel::Artifacts)
                 && let Some(action) = artifact_action_for_selected(state, "artifact.preview")
             {
                 return Ok(TerminalAction::SendAction(action));
@@ -1598,7 +1946,7 @@ fn handle_drawer_key(
 /// 命令面板 / 帮助浮层打开时的键位：Esc / Enter 关闭。
 fn handle_overlay_key(ui_state: &mut UiState, key: KeyEvent) -> Result<TerminalAction, String> {
     if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
-        ui_state.overlay = None;
+        ui_state.close_overlay();
     }
     Ok(TerminalAction::Continue)
 }
@@ -1619,7 +1967,7 @@ fn handle_chat_key(
             // input with "/" and open the fuzzy command popup, so typing filters and Enter runs
             // the same engine-executed command path as a typed slash command.
             if state.commands.is_empty() {
-                ui_state.overlay = Some(Overlay::CommandPalette);
+                ui_state.open_overlay(Overlay::CommandPalette);
             } else {
                 input.clear();
                 input.insert_char('/');
@@ -1632,7 +1980,7 @@ fn handle_chat_key(
             state.toggle_last_tool();
         }
         KeyCode::F(1) => {
-            ui_state.overlay = Some(Overlay::Help);
+            ui_state.open_overlay(Overlay::Help);
         }
         KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             input.move_line_start();
@@ -1680,7 +2028,7 @@ fn handle_chat_key(
                 state.move_ref_picker(-1);
             } else if state.command_picker.is_some() {
                 state.move_command_picker(-1);
-            } else if input.cursor_at_first_line_start() {
+            } else if input.is_replaying_history() || input.cursor_at_first_line_start() {
                 input.history_previous();
             } else {
                 input.move_line_up();
@@ -1691,7 +2039,7 @@ fn handle_chat_key(
                 state.move_ref_picker(1);
             } else if state.command_picker.is_some() {
                 state.move_command_picker(1);
-            } else if input.cursor_at_end() {
+            } else if input.is_replaying_history() || input.cursor_at_end() {
                 input.history_next();
             } else {
                 input.move_line_down();
@@ -2183,6 +2531,38 @@ where
 mod tests {
     use super::*;
 
+    #[test]
+    fn fire_feedback_preserves_success_and_failure_truth() {
+        let mut ui = UiState::default();
+        set_fire_feedback(
+            &mut ui,
+            "docs-octopus",
+            crate::OffboardingMode::ExportMemory,
+            Ok(()),
+        );
+        assert_eq!(
+            ui.action_feedback,
+            Some((
+                true,
+                "✓ 已解雇 docs-octopus；记忆包与审计记录已保留".to_string()
+            ))
+        );
+
+        set_fire_feedback(
+            &mut ui,
+            "docs-octopus",
+            crate::OffboardingMode::Purge,
+            Err("owner lock rejected".to_string()),
+        );
+        assert_eq!(
+            ui.action_feedback,
+            Some((
+                false,
+                "✗ 解雇 docs-octopus 失败：owner lock rejected".to_string()
+            ))
+        );
+    }
+
     // ── v0.20 P0：await_engine_boot / startup_failure_message 回归守卫 ──────────────────
     // 这些锁住"启动失败要显错、不要闪退"的契约，是 crew chat 闪退修复的核心不变量。
 
@@ -2532,13 +2912,14 @@ mod tests {
         std::fs::create_dir_all(&kpi_dir).expect("mkdir");
         std::fs::write(
             kpi_dir.join("whale.json"),
-            r#"{"tasks":9,"accepted":6,"total_cost":3.5,"first_hired_ts":1700000000000}"#,
+            r#"{"tasks":9,"accepted":6,"auto_accepted":2,"total_cost":3.5,"first_hired_ts":1700000000000}"#,
         )
         .expect("write kpi file");
 
         let cum = read_kpi_cumulative(&tmp, "whale");
         assert_eq!(cum.tasks, 9);
         assert_eq!(cum.accepted, 6);
+        assert_eq!(cum.auto_accepted, 2);
         assert_eq!(cum.total_cost, 3.5);
         assert_eq!(cum.first_hired_ts, Some(1_700_000_000_000));
 
@@ -2666,15 +3047,15 @@ mod tests {
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
         let mut input = InputBuffer::default();
-        assert!(!ui.task_detail_open);
+        assert!(!ui.task_detail_open());
         press(&mut state, &mut ui, &mut input, KeyCode::Char('o'));
-        assert!(ui.task_detail_open, "o opens TASK DETAIL on WORKBENCH");
+        assert!(ui.task_detail_open(), "o opens TASK DETAIL on WORKBENCH");
         press(&mut state, &mut ui, &mut input, KeyCode::Esc);
-        assert!(!ui.task_detail_open, "Esc closes it");
+        assert!(!ui.task_detail_open(), "Esc closes it");
         press(&mut state, &mut ui, &mut input, KeyCode::Char('o'));
-        assert!(ui.task_detail_open, "o reopens");
+        assert!(ui.task_detail_open(), "o reopens");
         press(&mut state, &mut ui, &mut input, KeyCode::Char('q'));
-        assert!(!ui.task_detail_open, "q closes it");
+        assert!(!ui.task_detail_open(), "q closes it");
     }
 
     /// v0.15 P1-5：WORKBENCH 上有选中产物时 Enter 开预览浮层；无产物时 Enter 不开；Esc/q 关。
@@ -2689,7 +3070,7 @@ mod tests {
         // 无产物：Enter 不开。
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
         assert!(
-            !ui.preview_open,
+            !ui.preview_open(),
             "no artifact → Enter does not open preview"
         );
 
@@ -2709,13 +3090,13 @@ mod tests {
             created_ts: 0,
         });
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
-        assert!(ui.preview_open, "selected artifact → Enter opens preview");
+        assert!(ui.preview_open(), "selected artifact → Enter opens preview");
         press(&mut state, &mut ui, &mut input, KeyCode::Esc);
-        assert!(!ui.preview_open, "Esc closes preview");
+        assert!(!ui.preview_open(), "Esc closes preview");
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
-        assert!(ui.preview_open, "reopens");
+        assert!(ui.preview_open(), "reopens");
         press(&mut state, &mut ui, &mut input, KeyCode::Char('q'));
-        assert!(!ui.preview_open, "q closes preview");
+        assert!(!ui.preview_open(), "q closes preview");
     }
 
     /// v0.16 W4.1：预览浮层 j/k/PageDown/PageUp 滚动正文,`[`/`]` 换产物时滚动归零
@@ -2745,7 +3126,7 @@ mod tests {
         let mut input = InputBuffer::default();
 
         press(&mut state, &mut ui, &mut input, KeyCode::Enter); // open preview
-        assert!(ui.preview_open);
+        assert!(ui.preview_open());
         assert_eq!(ui.preview_scroll, 0, "opens at top");
 
         press(&mut state, &mut ui, &mut input, KeyCode::Char('j'));
@@ -2813,7 +3194,7 @@ mod tests {
     }
 
     #[test]
-    fn dream_g_and_v_emit_dedicated_actions_without_stealing_refresh() {
+    fn dream_lifecycle_keys_emit_dedicated_actions_without_stealing_refresh() {
         let mut state = AppState::default();
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
@@ -2845,6 +3226,25 @@ mod tests {
             action,
             TerminalAction::SendAction(UserAction { action_type, .. }) if action_type == "dream.inspect"
         ));
+
+        for (key, expected) in [
+            (KeyCode::Enter, "dream.approve"),
+            (KeyCode::Char('x'), "dream.reject"),
+            (KeyCode::Char('u'), "dream.rollback"),
+        ] {
+            let action = handle_key_event(
+                &mut state,
+                &mut ui,
+                &mut input,
+                false,
+                KeyEvent::new(key, KeyModifiers::NONE),
+            )
+            .expect("dream lifecycle key handled");
+            assert!(matches!(
+                action,
+                TerminalAction::SendAction(UserAction { action_type, .. }) if action_type == expected
+            ));
+        }
 
         ui.persisted_refresh_requested = false;
         press(&mut state, &mut ui, &mut input, KeyCode::Char('r'));
@@ -2893,18 +3293,18 @@ mod tests {
         let mut input = InputBuffer::default();
 
         press(&mut state, &mut ui, &mut input, KeyCode::Char('n'));
-        assert!(ui.notif_open, "n opens notifications");
+        assert!(ui.notif_open(), "n opens notifications");
         press(&mut state, &mut ui, &mut input, KeyCode::Char('j'));
         assert_eq!(ui.notif_cursor, 1, "j moves cursor down");
         press(&mut state, &mut ui, &mut input, KeyCode::Char('R'));
         assert_eq!(state.unread_notices(), 0, "R marks all read");
         press(&mut state, &mut ui, &mut input, KeyCode::Esc);
-        assert!(!ui.notif_open, "Esc closes");
+        assert!(!ui.notif_open(), "Esc closes");
 
         // Enter 跳工作台并关闭（选中的是 Delivered 通知——去看任务详情，在 WORKBENCH）。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('n'));
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
-        assert!(!ui.notif_open, "Enter closes");
+        assert!(!ui.notif_open(), "Enter closes");
         assert_eq!(ui.screen, Screen::Workbench, "Enter jumps to workbench");
     }
 
@@ -2955,7 +3355,7 @@ mod tests {
         let mut input = InputBuffer::default();
 
         press(&mut state, &mut ui, &mut input, KeyCode::Char(','));
-        assert!(ui.settings_open, ", opens SETTINGS");
+        assert!(ui.settings_open(), ", opens SETTINGS");
 
         // theme 行（cursor 0）l 循环 → theme_index 前进。
         let before = ui.theme_index;
@@ -2979,7 +3379,7 @@ mod tests {
         assert_eq!(reloaded.theme_index, ui.theme_index, "theme persisted");
 
         press(&mut state, &mut ui, &mut input, KeyCode::Esc);
-        assert!(!ui.settings_open, "Esc closes SETTINGS");
+        assert!(!ui.settings_open(), "Esc closes SETTINGS");
         let _ = std::fs::remove_dir_all(&root);
         // v0.16：主题是进程级 RwLock,`l` 循环过 theme 行真的 set_theme 了——收尾恢复默认,
         // 避免污染后续按 Theme::DARK 断言底色的测试(被 W6.1 eval 测试发现的真串扰)。
@@ -3002,23 +3402,27 @@ mod tests {
         let mut input = InputBuffer::default();
 
         press(&mut state, &mut ui, &mut input, KeyCode::Char('p'));
-        assert_eq!(ui.publish_step, Some(0), "p opens publish at step 0");
+        assert_eq!(ui.publish_step(), Some(0), "p opens publish at step 0");
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
-        assert_eq!(ui.publish_step, Some(1), "Enter advances");
+        assert_eq!(ui.publish_step(), Some(1), "Enter advances");
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
-        assert_eq!(ui.publish_step, Some(3), "at last step");
+        assert_eq!(ui.publish_step(), Some(3), "at last step");
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
-        assert_eq!(ui.publish_step, None, "Enter on last step finishes/closes");
+        assert_eq!(
+            ui.publish_step(),
+            None,
+            "Enter on last step finishes/closes"
+        );
 
         // Esc 取消。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('p'));
         press(&mut state, &mut ui, &mut input, KeyCode::Esc);
-        assert_eq!(ui.publish_step, None, "Esc cancels");
+        assert_eq!(ui.publish_step(), None, "Esc cancels");
         // p 在非 MARKET 屏不开。
         ui.set_screen(Screen::Workbench);
         press(&mut state, &mut ui, &mut input, KeyCode::Char('p'));
-        assert_eq!(ui.publish_step, None, "p does nothing off MARKET");
+        assert_eq!(ui.publish_step(), None, "p does nothing off MARKET");
     }
 
     /// v0.17 P1-B2：MARKET `x` 勾选 ≤2 员工，`c` 打开 COMPARE 浮层；Esc/q/c 关闭。
@@ -3052,7 +3456,7 @@ mod tests {
 
         // c 在选够 2 个之前不开。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('c'));
-        assert!(!ui.compare_open, "c does nothing until 2 are selected");
+        assert!(!ui.compare_open(), "c does nothing until 2 are selected");
 
         // 勾选 market[0]（cursor 0）。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('x'));
@@ -3063,25 +3467,25 @@ mod tests {
         press(&mut state, &mut ui, &mut input, KeyCode::Char('x'));
         assert_eq!(ui.compare_selection, vec![0, 1]);
 
-        // 已选满：对第三个按 x 无效。
+        // 第三个候选可加入设计稿的三人对比。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('j'));
         press(&mut state, &mut ui, &mut input, KeyCode::Char('x'));
         assert_eq!(
             ui.compare_selection,
-            vec![0, 1],
-            "x is a no-op once 2 are already selected"
+            vec![0, 1, 2],
+            "x adds a third comparison candidate"
         );
 
         // c 打开对比浮层。
         press(&mut state, &mut ui, &mut input, KeyCode::Char('c'));
-        assert!(ui.compare_open, "c opens the overlay once 2 are selected");
+        assert!(ui.compare_open(), "c opens the overlay once 2 are selected");
 
         // Esc 关闭浮层（不清空选择——只是关窗）。
         press(&mut state, &mut ui, &mut input, KeyCode::Esc);
-        assert!(!ui.compare_open, "Esc closes the overlay");
+        assert!(!ui.compare_open(), "Esc closes the overlay");
         assert_eq!(
             ui.compare_selection,
-            vec![0, 1],
+            vec![0, 1, 2],
             "closing the overlay keeps the selection"
         );
 
@@ -3091,7 +3495,7 @@ mod tests {
         press(&mut state, &mut ui, &mut input, KeyCode::Char('x'));
         assert_eq!(
             ui.compare_selection,
-            vec![1],
+            vec![1, 2],
             "x on an already-selected entry deselects it"
         );
     }
@@ -3200,21 +3604,27 @@ mod tests {
         let mut state = AppState::default();
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
-        // v0.15 P1-3：WORKBENCH 的 o 已改为 TASK DETAIL；入职仪式在非工作台屏用 o 触发。
+        // v0.15 P1-3：WORKBENCH 的 o 已改为 TASK DETAIL；入职仪式在非工作台屏用 o 触发，
+        // 且只对已雇佣（workspace_employee_id 存在）的员工打开。
         ui.set_screen(Screen::Market);
         let mut input = InputBuffer::default();
         press(&mut state, &mut ui, &mut input, KeyCode::Char('o'));
         assert_eq!(
-            ui.onboarding.map(|o| o.step),
-            Some(0),
-            "o opens onboarding at step 0"
+            ui.onboarding(),
+            None,
+            "o without a hired employee must not open onboarding"
         );
+
+        // 直接走 set_onboarding 验证统一弹层路径上的 Enter 推进/关闭语义。
+        ui.set_onboarding(Some(state::OnboardingState { step: 0 }));
+        assert_eq!(ui.onboarding().map(|o| o.step), Some(0));
         press(&mut state, &mut ui, &mut input, KeyCode::Enter);
-        assert_eq!(ui.onboarding.map(|o| o.step), Some(1), "Enter advances");
+        assert_eq!(ui.onboarding().map(|o| o.step), Some(1), "Enter advances");
         press(&mut state, &mut ui, &mut input, KeyCode::Enter); // step 2
         press(&mut state, &mut ui, &mut input, KeyCode::Enter); // past last → close
         assert_eq!(
-            ui.onboarding, None,
+            ui.onboarding(),
+            None,
             "Enter past last step closes onboarding"
         );
     }
@@ -3235,19 +3645,23 @@ mod tests {
     /// v0.13 M4：WORKBENCH NORMAL j/k 选 SESSION 事件；Esc 清游标恢复跟随；g 顶 / G 回跟随。
     #[test]
     fn session_cursor_jk_esc_g_capital_g() {
-        use crate::workbench::protocol::TaskEvent;
+        use crate::workbench::state::{SYM_OK, TimelineEntry};
+        // 多任务 session 路由会把“当前查看”时间线收成单会话快照；本测试只验证
+        // WORKBENCH 事件游标导航，因此直接构造 ≥2 条 timeline 条目。
         let mut state = AppState::default();
         for i in 0..3 {
-            state.reduce(&TaskEvent::from_parts(
-                "task.started",
-                1_000 + i,
-                json!({"id": format!("t{i}"), "title": format!("任务{i}"), "mode": "Chat"}),
-            ));
-            state.reduce(&TaskEvent::from_parts(
-                "task.completed",
-                2_000 + i,
-                json!({"id": format!("t{i}"), "taskRunId": format!("t{i}")}),
-            ));
+            state.timeline.push(TimelineEntry {
+                id: format!("ev{i}"),
+                status: SYM_OK.to_string(),
+                label: format!("事件{i}"),
+                detail: String::new(),
+                collapsible: false,
+                expanded: false,
+                task_meta: None,
+                ts: 1_000 + i,
+                event_type: "task.completed",
+                detail_kv: Vec::new(),
+            });
         }
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
@@ -3476,6 +3890,7 @@ mod tests {
             tool: Some("tool".to_string()),
             reason: Some("confirm".to_string()),
             scope: None,
+            session_lease: None,
         });
 
         assert!(!should_route_pending_action_digit(
@@ -3636,6 +4051,111 @@ mod tests {
     }
 
     #[test]
+    fn busy_escape_and_ctrl_c_send_generation_cancel() {
+        let mut state = AppState::default();
+        state.reduce(&TaskEvent::from_parts(
+            "task.started",
+            1,
+            serde_json::json!({"id":"task-cancel"}),
+        ));
+        state.reduce(&TaskEvent::from_parts(
+            "generation.started",
+            2,
+            serde_json::json!({"id":"generation-cancel","taskRunId":"task-cancel"}),
+        ));
+        assert!(state.is_busy());
+        let mut ui_state = UiState::default();
+        let mut input = InputBuffer::default();
+        for key in [
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        ] {
+            let action = handle_key_event(&mut state, &mut ui_state, &mut input, false, key)
+                .expect("busy cancel handled");
+            match action {
+                TerminalAction::SendAction(action) => {
+                    assert_eq!(action.action_type, "generation.cancel")
+                }
+                _ => panic!("busy cancel must send generation.cancel"),
+            }
+        }
+    }
+
+    #[test]
+    fn busy_second_ctrl_c_force_quits_without_runtime_ack() {
+        let mut state = AppState::default();
+        state.reduce(&TaskEvent::from_parts(
+            "task.started",
+            1,
+            serde_json::json!({"id":"task-force-cancel"}),
+        ));
+        state.reduce(&TaskEvent::from_parts(
+            "generation.started",
+            2,
+            serde_json::json!({"id":"generation-force-cancel","taskRunId":"task-force-cancel"}),
+        ));
+        let mut ui_state = UiState::default();
+        let mut input = InputBuffer::default();
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+
+        let first = handle_key_event(&mut state, &mut ui_state, &mut input, false, ctrl_c)
+            .expect("first ctrl-c handled");
+        assert!(matches!(
+            first,
+            TerminalAction::SendAction(UserAction { action_type, .. })
+                if action_type == "generation.cancel"
+        ));
+        assert!(state.is_busy(), "test intentionally withholds runtime ack");
+
+        let second = handle_key_event(&mut state, &mut ui_state, &mut input, false, ctrl_c)
+            .expect("second ctrl-c handled");
+        assert!(matches!(second, TerminalAction::Quit));
+        assert!(ui_state.busy_cancel_armed.is_none());
+    }
+
+    #[test]
+    fn busy_ctrl_c_force_exit_arm_is_task_scoped_and_expires() {
+        let mut state = AppState::default();
+        state.reduce(&TaskEvent::from_parts(
+            "task.started",
+            1,
+            serde_json::json!({"id":"task-expired-cancel"}),
+        ));
+        state.reduce(&TaskEvent::from_parts(
+            "generation.started",
+            2,
+            serde_json::json!({"id":"generation-expired-cancel","taskRunId":"task-expired-cancel"}),
+        ));
+        let mut ui_state = UiState::default();
+        ui_state.busy_cancel_armed = Some((
+            state.active_task_session_id.clone(),
+            Instant::now() - Duration::from_millis(BUSY_CANCEL_FORCE_EXIT_MS.saturating_add(1)),
+        ));
+        let mut input = InputBuffer::default();
+
+        let action = handle_key_event(
+            &mut state,
+            &mut ui_state,
+            &mut input,
+            false,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        )
+        .expect("expired ctrl-c handled");
+        assert!(matches!(
+            action,
+            TerminalAction::SendAction(UserAction { action_type, .. })
+                if action_type == "generation.cancel"
+        ));
+        assert_eq!(
+            ui_state
+                .busy_cancel_armed
+                .as_ref()
+                .map(|(task_id, _)| task_id),
+            Some(&state.active_task_session_id)
+        );
+    }
+
+    #[test]
     fn ctrl_o_toggles_the_panel_drawer() {
         let mut state = AppState::default();
         let mut ui_state = UiState::default();
@@ -3712,6 +4232,34 @@ mod tests {
     }
 
     #[test]
+    fn reanchor_preserves_viewport_when_line_count_grows_while_detached() {
+        let ui = UiState::default();
+        // Seed a previous frame: 20 physical lines, body height 10 → max_scroll=10.
+        ui.reanchor_messages_scroll(20, 10);
+        // Detach and pin near the top of the stream.
+        let mut detached = ui;
+        detached.follow = false;
+        detached.messages_scroll.set(4);
+        detached.last_message_line_count.set(20);
+
+        // Finalized markdown grows the stream by 6 lines.
+        let scroll = detached.reanchor_messages_scroll(26, 10);
+        assert_eq!(
+            scroll, 10,
+            "absolute offset shifts with the height delta so the same content stays in view"
+        );
+        assert_eq!(detached.messages_scroll.get(), 10);
+        assert_eq!(detached.content_max_scroll.get(), 16);
+        assert_eq!(detached.last_message_line_count.get(), 26);
+
+        // follow=true still sticks to the bottom after growth.
+        let following = UiState::default();
+        following.reanchor_messages_scroll(20, 10);
+        let bottom = following.reanchor_messages_scroll(30, 10);
+        assert_eq!(bottom, 20, "follow remains sticky-bottom after growth");
+    }
+
+    #[test]
     fn wheel_up_detaches_follow_and_wheel_down_to_bottom_resumes() {
         use crossterm::event::MouseEventKind;
         let mut ui_state = UiState::default();
@@ -3730,11 +4278,12 @@ mod tests {
 
         // A drawer captures the wheel: message flow stays put.
         ui_state.follow = false;
-        ui_state.messages_scroll = 3;
+        ui_state.messages_scroll.set(3);
         ui_state.drawer = Some(state::FocusPanel::Timeline);
         handle_mouse_scroll(&mut ui_state, MouseEventKind::ScrollUp);
         assert_eq!(
-            ui_state.messages_scroll, 3,
+            ui_state.messages_scroll.get(),
+            3,
             "drawer open → wheel leaves message flow"
         );
     }
@@ -3746,7 +4295,7 @@ mod tests {
         let mut input = InputBuffer::default();
         ui_state.content_max_scroll.set(30);
         ui_state.follow = false;
-        ui_state.messages_scroll = 5;
+        ui_state.messages_scroll.set(5);
 
         handle_key_event(
             &mut state,
@@ -3770,6 +4319,7 @@ mod tests {
             avatar: Vec::new(),
             kpi_cumulative: state::KpiCumulative::default(),
             eval: None,
+            growth_card: None,
         });
         state.task = Some(state::Task {
             id: Some("task1".to_string()),
@@ -4191,7 +4741,7 @@ mod tests {
         let mut state = AppState::default();
         let mut ui_state = UiState::default();
         ui_state.mode = InputMode::Insert; // v0.15：焦点输入历史导航测,显式 INSERT。
-        let original_scroll = ui_state.messages_scroll;
+        let original_scroll = ui_state.messages_scroll.get();
         let mut input = InputBuffer::default();
         input.insert_str("/run roi-demo");
         assert_eq!(input.submit(), "/run roi-demo");
@@ -4209,7 +4759,7 @@ mod tests {
 
         assert!(matches!(action, TerminalAction::Continue));
         assert_eq!(input.as_str(), "/doctor");
-        assert_eq!(ui_state.messages_scroll, original_scroll);
+        assert_eq!(ui_state.messages_scroll.get(), original_scroll);
 
         handle_key_event(
             &mut state,
@@ -4218,8 +4768,8 @@ mod tests {
             false,
             crossterm::event::KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
         )
-        .expect("up at history line end is line movement, not history");
-        assert_eq!(input.as_str(), "/doctor");
+        .expect("continuous history replay");
+        assert_eq!(input.as_str(), "/run roi-demo");
 
         input.move_home();
         handle_key_event(

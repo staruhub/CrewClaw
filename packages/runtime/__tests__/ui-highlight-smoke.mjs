@@ -34,22 +34,35 @@ function assertTokenized(lang, code) {
 for (const [lang, code] of samples) assertTokenized(lang, code);
 
 const js = highlightCode(samples[0][1], "node");
-assert.match(js, /\x1b\[35mconst\x1b\[0m/, "js keyword should be magenta");
 assert.match(
   js,
-  /\x1b\[32m"return false"\x1b\[0m/,
+  /\x1b\[35mconst\x1b\[22;23;24;29;39m/,
+  "js keyword should be magenta"
+);
+assert.match(
+  js,
+  /\x1b\[32m"return false"\x1b\[22;23;24;29;39m/,
   "js string should be green"
 );
-assert.match(js, /\x1b\[2m\/\/ comment\x1b\[0m/, "js comment should be dim");
+assert.match(
+  js,
+  /\x1b\[2m\/\/ comment\x1b\[22;23;24;29;39m/,
+  "js comment should be dim"
+);
 assert.doesNotMatch(
   js,
-  /\x1b\[35mreturn\x1b\[0m false"\x1b\[0m/,
+  /\x1b\[35mreturn\x1b\[22;23;24;29;39m false"/,
   "keyword inside string should not be recolored"
 );
-assert.match(js, /\x1b\[36m42\x1b\[0m/, "number should be cyan");
+assert.match(js, /\x1b\[36m42\x1b\[22;23;24;29;39m/, "number should be cyan");
+assert.doesNotMatch(js, /\x1b\[0m/, "highlighter must not reset inherited bg");
 
 const json = highlightCode(samples[1][1], "json");
-assert.match(json, /\x1b\[33mtrue\x1b\[0m/, "json boolean should be yellow");
+assert.match(
+  json,
+  /\x1b\[33mtrue\x1b\[22;23;24;29;39m/,
+  "json boolean should be yellow"
+);
 
 const plain = highlightCode(samples[0][1], "js", { color: false });
 assert.equal(plain, samples[0][1], "color=false should return original text");

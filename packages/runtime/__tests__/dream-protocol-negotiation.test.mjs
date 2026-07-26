@@ -10,7 +10,13 @@ import {
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 
+import { buildIndexedSystem } from "../context-runtime.mjs";
+import {
+  assessDreamFromWorkspace,
+  generateDreamCandidate,
+} from "../dream-controller.mjs";
 import { dreamJobPath, reflectionsDir } from "../dream-paths.mjs";
+import { computeMemoryStateHash } from "../memory-hash.mjs";
 import { buildReflection, writeReflection } from "../reflect.mjs";
 import { recordSpend } from "../spend.mjs";
 import { startJsonlBridge } from "../tui/jsonl-bridge.mjs";
@@ -38,7 +44,12 @@ function seedReflections(root, employeeId, count = 8) {
   }
 }
 
-function startBridge(root, employeeId, dreamPolicy = { mode: "recommended" }) {
+function startBridge(
+  root,
+  employeeId,
+  dreamPolicy = { mode: "recommended" },
+  options = {}
+) {
   const input = new Readable({ read() {} });
   const events = [];
   const output = new Writable({
@@ -50,8 +61,15 @@ function startBridge(root, employeeId, dreamPolicy = { mode: "recommended" }) {
     },
   });
   const done = startJsonlBridge({
-    agentLoop: async () => "unused",
-    meta: { mode: "Chat", agentId: employeeId, dreamPolicy },
+    agentLoop: options.agentLoop || (async () => "unused"),
+    agentLoopDeps: options.agentLoopDeps,
+    refreshAgentContext: options.refreshAgentContext,
+    meta: {
+      mode: "Chat",
+      agentId: employeeId,
+      dreamPolicy,
+      ...(options.meta || {}),
+    },
     input,
     output,
     root,
@@ -292,6 +310,185 @@ async function liveBudgetChangeBlocksDream() {
   }
 }
 
+async function activationAndRollbackRefreshTheNextModelTurn() {
+  const root = createRuntimeTestRoot("crew-dream-context-refresh-");
+  const employeeId = "dream-context-refresh-agent";
+  const now = Date.parse("2026-07-17T08:00:00.000Z");
+  seedReflections(root, employeeId);
+  let harness;
+  try {
+    const assessment = assessDreamFromWorkspace(root, employeeId, { now });
+    assert.equal(assessment.recommended, true);
+    const baseline = {
+      score: 80,
+      verdict: "PASS",
+      mock: false,
+      provider_status: "verified",
+      memory_state_hash: assessment.base_memory_hash,
+      evaluated_at: now,
+      model: "deterministic-baseline",
+    };
+    const generated = await generateDreamCandidate(root, assessment, {
+      dreamId: "dream-context-refresh",
+      curate: async input => ({
+        value: {
+          summary: "沉淀上下文刷新回归记忆。",
+          entries: [
+            {
+              op: "add",
+              reason: "accepted task evidence",
+              confidence: "high",
+              source_task_ids: [input.reflections[0].task_id],
+              evidence_ids: input.reflections[0].evidence_ids,
+              item: {
+                category: "project_facts",
+                confidence: "high",
+                text: "Dream refresh marker is ACTIVE_MEMORY_7429.",
+              },
+            },
+          ],
+        },
+        actual_cost_usd: 0.01,
+      }),
+      modelId: "deterministic-curator",
+      baseline,
+      evaluateCandidate: async items => ({
+        score: 90,
+        verdict: "PASS",
+        mock: false,
+        provider_status: "verified",
+        memory_state_hash: computeMemoryStateHash(items).memory_state_hash,
+        evaluated_at: now,
+        model: "deterministic-candidate-evaluator",
+      }),
+      now,
+    });
+    assert.equal(generated.ok, true);
+    assert.equal(generated.job.state, "REVIEW_REQUIRED");
+
+    const rebuildContext = () => {
+      const indexed = buildIndexedSystem({
+        soul: "You are the context refresh test employee.",
+        root,
+        employeeId,
+      });
+      return {
+        system: indexed.system,
+        contextIndex: {
+          skills: indexed.skillIndex,
+          memory: indexed.memoryIndex,
+        },
+        memoryStateHash: indexed.memoryState.memory_state_hash,
+      };
+    };
+    const initialContext = rebuildContext();
+    const agentLoopDeps = { system: initialContext.system };
+    const systemsSeenByModel = [];
+    harness = startBridge(
+      root,
+      employeeId,
+      { mode: "recommended" },
+      {
+        agentLoopDeps,
+        refreshAgentContext: rebuildContext,
+        meta: {
+          contextIndex: initialContext.contextIndex,
+          memoryStateHash: initialContext.memoryStateHash,
+        },
+        agentLoop: async options => {
+          systemsSeenByModel.push(options.system);
+          options.onDelta("context refresh verified");
+          return "context refresh verified";
+        },
+      }
+    );
+    await waitUntilReady(harness);
+    const ready = harness.events.find(
+      event => event.type === EVENTS.SESSION_READY
+    );
+    assert.equal(ready.data.context_index.epoch, 0);
+    assert.equal(
+      ready.data.context_index.memory_state_hash,
+      assessment.base_memory_hash
+    );
+    assert.doesNotMatch(agentLoopDeps.system, /ACTIVE_MEMORY_7429/);
+
+    sendAction(harness, "client.ready", {
+      event_families: ["core/v1", "dream/v1"],
+    });
+    await barrier(harness);
+    const activationFrom = harness.events.length;
+    sendAction(harness, "dream.approve", {
+      dream_id: generated.dreamId,
+    });
+    const activated = await waitFor(harness, EVENTS.DREAM_ACTIVATED, {
+      from: activationFrom,
+    });
+    assert.equal(activated.data.context_refresh.status, "applied");
+    assert.equal(activated.data.context_refresh.epoch, 1);
+    assert.equal(
+      activated.data.context_refresh.memory_state_hash,
+      generated.job.candidate_memory_hash
+    );
+    assert.match(agentLoopDeps.system, /ACTIVE_MEMORY_7429/);
+    const activeMorning = await waitFor(harness, EVENTS.DREAM_MORNING_REPORT, {
+      from: activationFrom,
+    });
+    assert.equal(activeMorning.data.state, "ACTIVE");
+    assert.equal(activeMorning.data.added_count, 1);
+    assert.equal(activeMorning.data.activated, true);
+
+    sendAction(harness, "user.message", { text: "verify activated context" });
+    await waitFor(harness, EVENTS.TASK_COMPLETED, {
+      from: activationFrom,
+    });
+    assert.match(systemsSeenByModel.at(-1), /ACTIVE_MEMORY_7429/);
+
+    const rollbackFrom = harness.events.length;
+    sendAction(harness, "dream.rollback", {
+      dream_id: generated.dreamId,
+    });
+    const rolledBack = await waitFor(harness, EVENTS.DREAM_ROLLED_BACK, {
+      from: rollbackFrom,
+    });
+    assert.equal(rolledBack.data.context_refresh.status, "applied");
+    assert.equal(rolledBack.data.context_refresh.epoch, 2);
+    assert.equal(
+      rolledBack.data.context_refresh.memory_state_hash,
+      assessment.base_memory_hash
+    );
+    assert.doesNotMatch(agentLoopDeps.system, /ACTIVE_MEMORY_7429/);
+    const rolledBackMorning = await waitFor(
+      harness,
+      EVENTS.DREAM_MORNING_REPORT,
+      { from: rollbackFrom }
+    );
+    assert.equal(rolledBackMorning.data.state, "ROLLED_BACK");
+    assert.equal(rolledBackMorning.data.activated, false);
+
+    sendAction(harness, "user.message", { text: "verify rolled back context" });
+    await waitFor(harness, EVENTS.TASK_COMPLETED, { from: rollbackFrom });
+    assert.doesNotMatch(systemsSeenByModel.at(-1), /ACTIVE_MEMORY_7429/);
+
+    await harness.close();
+    harness = startBridge(root, employeeId);
+    await waitUntilReady(harness);
+    sendAction(harness, "client.ready", {
+      event_families: ["core/v1", "dream/v1"],
+    });
+    const restartedMorning = await waitFor(
+      harness,
+      EVENTS.DREAM_MORNING_REPORT
+    );
+    assert.equal(restartedMorning.data.dream_id, generated.dreamId);
+    assert.equal(restartedMorning.data.state, "ROLLED_BACK");
+    assert.equal(restartedMorning.data.reviewed_count, 1);
+  } finally {
+    await harness?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 await recommendationSurvivesRestart();
 await unsupportedClientStaysSilent();
 await manualModeRunsOnlyOnCommand();
@@ -305,5 +502,6 @@ await invalidReflectionFailsClosed("schema-corrupt", employeeId =>
   })
 );
 await liveBudgetChangeBlocksDream();
+await activationAndRollbackRefreshTheNextModelTurn();
 
-console.log("dream protocol negotiation tests passed (6 scenarios)");
+console.log("dream protocol negotiation tests passed (7 scenarios)");

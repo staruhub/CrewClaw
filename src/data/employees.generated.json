@@ -15,7 +15,7 @@
       "creator_id": "chaogeek",
       "description": "审查 PR 与本地 diff——按严重级别分层报告问题，扫描安全风险，输出团队可用的评审摘要和明确的合并建议。",
       "status": "published",
-      "verified": true,
+      "verified": false,
       "categories": [
         "engineering"
       ],
@@ -25,10 +25,16 @@
         "security",
         "pr"
       ],
-      "created_at": "2026-05-26T00:00:00Z",
-      "updated_at": "2026-05-26T00:00:00Z",
+      "created_at": "2026-07-15T00:00:00Z",
+      "updated_at": "2026-07-15T00:00:00Z",
       "version": "0.1.0",
-      "certification": "C2",
+      "certification": "C1",
+      "evidence_state": {
+        "package_status": "validated",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "certified_evaluation": null,
       "pricing": "free-preview",
       "repo": "github.com/ChaoGeek/hermes-code-review-shrimp",
       "local_source": "experts/code-review-shrimp",
@@ -147,10 +153,9 @@
               "provider": "mcp.github",
               "tools": [
                 "search_code",
-                "list_issues",
-                "get_issue",
-                "list_pull_requests",
-                "get_pull_request"
+                "get_file_contents",
+                "issue_read",
+                "pull_request_read"
               ]
             }
           ],
@@ -211,15 +216,15 @@
           "limits": null,
           "on_unavailable": "fail",
           "capability_version": "1.0.0",
-          "invocation": "engine",
+          "invocation": "model",
           "operation": "write",
           "risk_tier": "P1",
-          "runtime_tool": null,
+          "runtime_tool": "artifact_write",
           "provider_bindings": [
             {
               "provider": "crewclaw.artifacts",
               "tools": [
-                "report_write"
+                "artifact_write"
               ]
             }
           ],
@@ -235,7 +240,7 @@
             "TOOL_INVALID_INPUT",
             "TOOL_EXECUTION_FAILED"
           ],
-          "availability": "engine_service"
+          "availability": "runtime_implementation"
         },
         {
           "capability": "test.run",
@@ -463,7 +468,7 @@
         "审查这个 PR 的鉴权、输入验证、密钥泄露、错误处理和不安全副作用。"
       ],
       "changelog": [
-        "0.1.0: Initial ChaoGeek Certified MVP profile."
+        "0.1.0: Initial package-validated MVP profile."
       ],
       "safety_notes": [
         "合并、部署、删除文件、改动密钥、扩大工具权限前必须人工确认。",
@@ -477,7 +482,7 @@
       "creator_id": "chaogeek",
       "description": "评审 PRD——检查用户目标、范围与验收标准是否清楚，补边界条件和失败流程，把需求变成工程可实现、可测试的文档。",
       "status": "published",
-      "verified": true,
+      "verified": false,
       "categories": [
         "product"
       ],
@@ -487,10 +492,16 @@
         "requirements",
         "metrics"
       ],
-      "created_at": "2026-05-26T00:00:00Z",
-      "updated_at": "2026-05-26T00:00:00Z",
+      "created_at": "2026-07-15T00:00:00Z",
+      "updated_at": "2026-07-15T00:00:00Z",
       "version": "0.1.0",
-      "certification": "C2",
+      "certification": "C1",
+      "evidence_state": {
+        "package_status": "validated",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "certified_evaluation": null,
       "pricing": "free-preview",
       "repo": "github.com/ChaoGeek/hermes-product-prd-crab",
       "local_source": "experts/product-prd-crab",
@@ -559,15 +570,15 @@
           "limits": null,
           "on_unavailable": "fail",
           "capability_version": "1.0.0",
-          "invocation": "engine",
+          "invocation": "model",
           "operation": "write",
           "risk_tier": "P1",
-          "runtime_tool": null,
+          "runtime_tool": "artifact_write",
           "provider_bindings": [
             {
               "provider": "crewclaw.artifacts",
               "tools": [
-                "report_write"
+                "artifact_write"
               ]
             }
           ],
@@ -583,7 +594,7 @@
             "TOOL_INVALID_INPUT",
             "TOOL_EXECUTION_FAILED"
           ],
-          "availability": "engine_service"
+          "availability": "runtime_implementation"
         },
         {
           "capability": "web.search",
@@ -834,7 +845,7 @@
         "把这个功能想法拆成用户故事、边界情况、验收标准和事件建议。"
       ],
       "changelog": [
-        "0.1.0: Initial ChaoGeek Certified MVP profile."
+        "0.1.0: Initial package-validated MVP profile."
       ],
       "safety_notes": [
         "假设、定价、合规、市场判断在人工确认前一律不当成结论。",
@@ -848,7 +859,7 @@
       "creator_id": "chaogeek",
       "description": "帮企业把大模型从 PoC 推到生产——模型选型、Agent 工作流设计、落地路线图与 ROI 评估，少踩坑、可上线。",
       "status": "published",
-      "verified": true,
+      "verified": false,
       "categories": [
         "ai-advisory",
         "engineering",
@@ -860,10 +871,16 @@
         "enterprise",
         "adoption"
       ],
-      "created_at": "2026-05-26T00:00:00Z",
-      "updated_at": "2026-05-26T00:00:00Z",
+      "created_at": "2026-07-15T00:00:00Z",
+      "updated_at": "2026-07-15T00:00:00Z",
       "version": "0.2.0",
-      "certification": "C2",
+      "certification": "C1",
+      "evidence_state": {
+        "package_status": "validated",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "certified_evaluation": null,
       "pricing": "free-preview",
       "repo": null,
       "local_source": "experts/ai-adoption-whale",
@@ -1081,15 +1098,15 @@
           "limits": null,
           "on_unavailable": "fail",
           "capability_version": "1.0.0",
-          "invocation": "engine",
+          "invocation": "model",
           "operation": "write",
           "risk_tier": "P1",
-          "runtime_tool": null,
+          "runtime_tool": "artifact_write",
           "provider_bindings": [
             {
               "provider": "crewclaw.artifacts",
               "tools": [
-                "report_write"
+                "artifact_write"
               ]
             }
           ],
@@ -1105,7 +1122,7 @@
             "TOOL_INVALID_INPUT",
             "TOOL_EXECUTION_FAILED"
           ],
-          "availability": "engine_service"
+          "availability": "runtime_implementation"
         },
         {
           "capability": "shell.run",
@@ -1292,7 +1309,7 @@
         "把人工对账流程设计成一个多 Agent 工作流，标出人审节点。"
       ],
       "changelog": [
-        "0.1.0: Initial ChaoGeek Certified MVP profile.",
+        "0.1.0: Initial package-validated MVP profile.",
         "0.2.0: Runtime deep spec (crewclaw.employee.yaml) with eval_suite/outcome_rubric; version aligned across registry/hire/distribution/spec."
       ],
       "safety_notes": [
@@ -1307,7 +1324,7 @@
       "creator_id": "chaogeek",
       "description": "帮你把一个线上社群从\"拉人进群\"做到\"持续活跃、自然增长、有归属感\"——内容排期、互动玩法、新人引导、健康度复盘。",
       "status": "published",
-      "verified": true,
+      "verified": false,
       "categories": [
         "community",
         "marketing",
@@ -1319,10 +1336,16 @@
         "retention",
         "content"
       ],
-      "created_at": "2026-05-26T00:00:00Z",
-      "updated_at": "2026-05-26T00:00:00Z",
+      "created_at": "2026-07-15T00:00:00Z",
+      "updated_at": "2026-07-15T00:00:00Z",
       "version": "0.1.0",
-      "certification": "C2",
+      "certification": "C1",
+      "evidence_state": {
+        "package_status": "validated",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "certified_evaluation": null,
       "pricing": "free-preview",
       "repo": null,
       "local_source": "experts/zeneth",
@@ -1391,15 +1414,15 @@
           "limits": null,
           "on_unavailable": "fail",
           "capability_version": "1.0.0",
-          "invocation": "engine",
+          "invocation": "model",
           "operation": "write",
           "risk_tier": "P1",
-          "runtime_tool": null,
+          "runtime_tool": "artifact_write",
           "provider_bindings": [
             {
               "provider": "crewclaw.artifacts",
               "tools": [
-                "report_write"
+                "artifact_write"
               ]
             }
           ],
@@ -1415,7 +1438,7 @@
             "TOOL_INVALID_INPUT",
             "TOOL_EXECUTION_FAILED"
           ],
-          "availability": "engine_service"
+          "availability": "runtime_implementation"
         },
         {
           "capability": "web.search",
@@ -1743,7 +1766,7 @@
         "群里活跃度下降，给三个立刻能用的互动玩法。"
       ],
       "changelog": [
-        "0.1.0: Initial ChaoGeek Certified MVP profile."
+        "0.1.0: Initial package-validated MVP profile."
       ],
       "safety_notes": [
         "群发/广播类动作必须人工确认后才执行。",
@@ -1757,7 +1780,7 @@
       "creator_id": "chaogeek",
       "description": "Helps founders, BD teams, investors, and event organizers discover Macao events, map local leads, research organizations, and draft human-reviewed outreach.",
       "status": "published",
-      "verified": true,
+      "verified": false,
       "categories": [
         "local-expert",
         "sales",
@@ -1769,10 +1792,16 @@
         "sales",
         "research"
       ],
-      "created_at": "2026-05-26T00:00:00Z",
-      "updated_at": "2026-05-26T00:00:00Z",
+      "created_at": "2026-07-15T00:00:00Z",
+      "updated_at": "2026-07-15T00:00:00Z",
       "version": "0.1.0",
-      "certification": "C2",
+      "certification": "C1",
+      "evidence_state": {
+        "package_status": "validated",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "certified_evaluation": null,
       "pricing": "free-preview",
       "repo": null,
       "local_source": "experts/macao-networking-agent",
@@ -1949,15 +1978,15 @@
           "limits": null,
           "on_unavailable": "fail",
           "capability_version": "1.0.0",
-          "invocation": "engine",
+          "invocation": "model",
           "operation": "write",
           "risk_tier": "P1",
-          "runtime_tool": null,
+          "runtime_tool": "artifact_write",
           "provider_bindings": [
             {
               "provider": "crewclaw.artifacts",
               "tools": [
-                "report_write"
+                "artifact_write"
               ]
             }
           ],
@@ -1973,7 +2002,7 @@
             "TOOL_INVALID_INPUT",
             "TOOL_EXECUTION_FAILED"
           ],
-          "availability": "engine_service"
+          "availability": "runtime_implementation"
         },
         {
           "capability": "browser.render",
@@ -2273,7 +2302,7 @@
         "Organize Macao AI startup-related institutions with background and possible entry points."
       ],
       "changelog": [
-        "0.1.0: Initial ChaoGeek Certified MVP profile."
+        "0.1.0: Initial package-validated MVP profile."
       ],
       "safety_notes": [
         "Use public sources for research unless the user explicitly provides private context.",

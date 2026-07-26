@@ -367,7 +367,7 @@ export default function CreatorConsole() {
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
               Create drafts, complete the employee manifest, and send it into
-              review before it can become a Verified Employee.
+              review before it can become a published employee.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -434,7 +434,7 @@ export default function CreatorConsole() {
               title="Review status"
             />
             <SubmissionTable
-              empty="No Verified Employees published from this console yet."
+              empty="No employees published from this console yet."
               onSelect={setActiveId}
               submissions={published}
               title="Published employees"

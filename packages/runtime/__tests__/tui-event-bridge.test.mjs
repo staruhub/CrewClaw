@@ -66,13 +66,22 @@ r3.sink.onThinking("先分析");
 r3.sink.onToolEvent({
   id: "call-1",
   toolName: "web_search",
+  name: "web_search",
+  args: { query: "CrewClaw" },
+  args_summary: '"CrewClaw"',
+  label: 'web_search · "CrewClaw"',
   phase: "requested",
 });
 r3.sink.onToolEvent({ id: "call-1", toolName: "web_search", phase: "running" });
 r3.sink.onToolEvent({
   id: "call-1",
   toolName: "web_search",
+  name: "web_search",
+  args_summary: '"CrewClaw"',
+  result_summary: "3 条",
+  label: 'web_search · "CrewClaw"',
   phase: "succeeded",
+  detail: "result",
 });
 r3.sink.onToolEvent({ id: "call-1", toolName: "web_search", phase: "failed" });
 r3.complete();
@@ -83,6 +92,11 @@ r3.sink.onThinking("late-thinking");
 r3.sink.onToolEvent({ id: "late", toolName: "bash", phase: "requested" });
 assert.equal(r3.get().thinking, "先分析");
 assert.equal(r3.get().tools["call-1"].status, "succeeded");
+assert.equal(r3.get().tools["call-1"].summary, "3 条");
+assert.equal(
+  r3.get().timeline.find(line => line.id === "call-1")?.label,
+  'web_search · "CrewClaw"'
+);
 assert.equal(r3.get().answer, "");
 assert.equal(r3.get().tools.late, undefined);
 assert.equal(r3.get().debug.length, debugBeforeLate);

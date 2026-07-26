@@ -27,15 +27,52 @@ const employeePolicy = {
       necessity: "disabled",
       permission: "disabled",
     },
+    mcp_call: {
+      capability: "mcp.read",
+      necessity: "required",
+      permission: "readonly",
+      granted: true,
+    },
+    todo_write: {
+      capability: "task.todo.write",
+      necessity: "required",
+      permission: "readonly",
+      granted: true,
+    },
+    ask_user: {
+      capability: "task.ask_user",
+      necessity: "required",
+      permission: "readonly",
+      granted: true,
+    },
   },
 };
 
 const gateway = makeGateway({ employeePolicy });
 
+assert.equal(gateway.check("todo_write", { todos: [] }).decision, "allow");
+assert.equal(
+  gateway.check("ask_user", { question: "Proceed?" }).decision,
+  "allow"
+);
+
 const requiredRead = gateway.check("web_search", { query: "CrewClaw" });
 assert.equal(requiredRead.decision, "allow");
 assert.equal(requiredRead.capability, "web.search");
 assert.equal(requiredRead.employee_permission, "readonly");
+
+const declaredMcpRead = gateway.check("mcp_call", {
+  server: "github",
+  tool: "get_file_contents",
+});
+assert.equal(
+  declaredMcpRead.decision,
+  "confirm",
+  "an employee readonly declaration cannot downgrade the host MCP confirmation tier"
+);
+assert.equal(declaredMcpRead.level, "L3");
+assert.equal(declaredMcpRead.scope, "external_mcp");
+assert.equal(declaredMcpRead.decision_source, "platform_policy");
 
 const undeclared = gateway.check("read_file", { path: "README.md" });
 assert.equal(

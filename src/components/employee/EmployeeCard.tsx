@@ -18,7 +18,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { Employee } from "@/data/employees";
+import {
+  employeeEvidenceBadge,
+  employeeEvidenceLevel,
+  type Employee,
+} from "@/data/employees";
 import { track } from "@/hooks/use-analytics";
 import { useSavedEmployees } from "@/hooks/use-saved";
 import { cn } from "@/lib/utils";
@@ -102,12 +106,19 @@ export function EmployeeCard({
               </Button>
               <Badge className="gap-1 border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
                 <BadgeCheck className="size-3" />
-                {employee.verified ? "Verified" : "Review"}
+                {employeeEvidenceBadge(employee)}
               </Badge>
             </div>
           </CardAction>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Badge
+            className="border-crew-copper/25 bg-crew-copper/[0.07] text-crew-body"
+            title="Every hire starts in manual-review mode. Three explicit acceptances unlock trust-auto eligibility; tool permissions remain governed by P0-P4."
+            variant="outline"
+          >
+            Growth start · Apprentice
+          </Badge>
           {employee.tags.slice(0, 4).map(tag => (
             <Badge
               className="border-white/10 bg-white/[0.04] text-crew-muted"
@@ -129,7 +140,7 @@ export function EmployeeCard({
         <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/10 pt-4 font-mono text-xs text-crew-muted">
           <span className="flex min-w-0 items-center gap-1.5">
             <ShieldCheck className="size-3.5 text-crew-copper" />
-            {employee.certification}
+            {employeeEvidenceLevel(employee)}
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
             <Tag className="size-3.5 text-crew-copper" />v{employee.version}

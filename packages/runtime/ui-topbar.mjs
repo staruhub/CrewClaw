@@ -12,6 +12,14 @@ const DEFAULT_PRICING = Object.freeze({
   ctx: 200000,
 });
 
+// Context limits are capability metadata, not pricing. Gateway-qualified ids and provider ids
+// must resolve through the same table so prompt budgeting and the TUI percentage stay aligned.
+export const MODEL_CONTEXT_TOKENS = Object.freeze({
+  "grok-4.5": 500_000,
+  "grok-4.5-latest": 500_000,
+  "grok-build-latest": 500_000,
+});
+
 export const PRICING = Object.freeze({
   "anthropic/claude-opus-4.8": DEFAULT_PRICING,
 });
@@ -29,10 +37,21 @@ export function costFor(model, promptTokens, completionTokens) {
   );
 }
 
+export function contextTokensForModel(model) {
+  const id = String(model || "")
+    .trim()
+    .toLowerCase();
+  const providerId = id.split("/").at(-1) || id;
+  return (
+    MODEL_CONTEXT_TOKENS[id] ||
+    MODEL_CONTEXT_TOKENS[providerId] ||
+    DEFAULT_PRICING.ctx
+  );
+}
+
 export function ctxPercent(promptTokens, model) {
-  const pricing = PRICING[model] || DEFAULT_PRICING;
   const prompt = Math.max(0, Number(promptTokens) || 0);
-  const percent = Math.round((prompt / pricing.ctx) * 100);
+  const percent = Math.round((prompt / contextTokensForModel(model)) * 100);
   return Math.min(100, Math.max(0, percent));
 }
 

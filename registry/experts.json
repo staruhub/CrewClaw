@@ -1,14 +1,20 @@
 {
   "version": "0.1.0",
-  "updated_at": "2026-05-26T00:00:00Z",
+  "updated_at": "2026-07-15T00:00:00Z",
   "experts": [
     {
       "name": "code-review-shrimp",
       "display_name": "Code Review Shrimp",
       "status": "available",
-      "certification": "C2",
+      "certification": "C1",
+      "evidence_state": {
+        "package_status": "validated",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "evaluation": null,
       "category": "engineering",
-      "description": "ChaoGeek-certified Hermes expert for PR review, security risk scanning, and merge-readiness summaries.",
+      "description": "Validated Hermes employee package for PR review, security risk scanning, and merge-readiness summaries; formal lab certification is not yet published.",
       "repo": "github.com/ChaoGeek/hermes-code-review-shrimp",
       "local_source": "experts/code-review-shrimp",
       "version": "0.1.0",
@@ -26,9 +32,15 @@
       "name": "product-prd-crab",
       "display_name": "Product PRD Crab",
       "status": "available",
-      "certification": "C2",
+      "certification": "C1",
+      "evidence_state": {
+        "package_status": "validated",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "evaluation": null,
       "category": "product",
-      "description": "ChaoGeek-certified Hermes expert for PRD review, edge cases, acceptance criteria, and metrics.",
+      "description": "Validated Hermes employee package for PRD review, edge cases, acceptance criteria, and metrics; formal lab certification is not yet published.",
       "repo": "github.com/ChaoGeek/hermes-product-prd-crab",
       "local_source": "experts/product-prd-crab",
       "version": "0.1.0",
@@ -46,7 +58,13 @@
       "name": "ai-adoption-whale",
       "display_name": "AI 落地鲸",
       "status": "available",
-      "certification": "C2",
+      "certification": "C1",
+      "evidence_state": {
+        "package_status": "validated",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "evaluation": null,
       "category": "ai-advisory",
       "description": "企业大模型落地顾问，帮你做模型选型、Agent 工作流设计、落地路线图与 ROI 评估。",
       "repo": null,
@@ -66,7 +84,13 @@
       "name": "zeneth",
       "display_name": "社群运营美人鱼 Zeneth",
       "status": "available",
-      "certification": "C2",
+      "certification": "C1",
+      "evidence_state": {
+        "package_status": "validated",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "evaluation": null,
       "category": "community",
       "description": "社群运营专家美人鱼，帮你做内容排期、互动玩法、新人引导和社群健康度复盘。",
       "repo": null,
@@ -86,7 +110,13 @@
       "name": "macao-networking-agent",
       "display_name": "Macao Networking Agent",
       "status": "available",
-      "certification": "C2",
+      "certification": "C1",
+      "evidence_state": {
+        "package_status": "validated",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "evaluation": null,
       "category": "local-expert",
       "description": "澳门人脉拓展助手，帮你整理澳门本地活动、人脉线索、行业信息和外联建议。",
       "repo": null,
@@ -106,7 +136,13 @@
       "name": "hermes-onboarding-conch",
       "display_name": "Hermes Onboarding Conch",
       "status": "coming-soon",
-      "certification": "C1",
+      "certification": "C0",
+      "evidence_state": {
+        "package_status": "draft",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "evaluation": null,
       "category": "starter",
       "description": "Free onboarding expert for first-time Hermes users.",
       "repo": null,
@@ -126,7 +162,13 @@
       "name": "docs-octopus",
       "display_name": "Docs Octopus",
       "status": "coming-soon",
-      "certification": "C1",
+      "certification": "C0",
+      "evidence_state": {
+        "package_status": "draft",
+        "lab_status": "untested",
+        "field_status": "insufficient"
+      },
+      "evaluation": null,
       "category": "documentation",
       "description": "Hermes expert for README, API docs, and changelog generation.",
       "repo": null,

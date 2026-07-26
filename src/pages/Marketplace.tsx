@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { availableEmployees, byCategory } from "@/data/employees";
+import { availableEmployees, byCategory, getEmployee } from "@/data/employees";
 import { track } from "@/hooks/use-analytics";
 import { useSavedEmployees } from "@/hooks/use-saved";
 import {
@@ -65,11 +65,14 @@ function SectionHeading({
 }
 
 export default function Marketplace() {
+  const [searchParams] = useSearchParams();
   const [sortBy, setSortBy] = useState<EmployeeSort>("recommended");
+  const handoffFrom = searchParams.get("handoff_from");
+  const departingEmployee = handoffFrom ? getEmployee(handoffFrom) : undefined;
+  const handoffQuery = departingEmployee?.identity.title ?? "";
   const saved = useSavedEmployees();
   const categoryGroups = byCategory();
-  // Real-value picks (rating/hire_count were fabricated and are gone): featured = recommended
-  // order, certified = employees that passed ChaoGeek certification with a published spec.
+  // Lab-certified means a registry-published signed credential, not merely a validated package.
   const featuredEmployees = sortEmployees(
     availableEmployees,
     "recommended"
@@ -155,6 +158,19 @@ export default function Marketplace() {
           </div>
         </div>
 
+        {departingEmployee ? (
+          <div className="mt-8 rounded-[8px] border border-crew-copper/35 bg-crew-copper/[0.08] p-4">
+            <p className="text-sm font-medium text-crew-heading">
+              Successor handoff for {departingEmployee.name}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-crew-body">
+              The role query below is prefilled from the departing employee. The
+              checksum-bound memory pack remains in the local offboarding
+              receipt until you choose a successor.
+            </p>
+          </div>
+        ) : null}
+
         <form
           action="/search"
           className="mt-8 flex flex-col gap-3 sm:flex-row"
@@ -170,6 +186,7 @@ export default function Marketplace() {
         >
           <Input
             className="h-11 rounded-[8px] border-white/10 bg-white/[0.04] text-crew-heading placeholder:text-crew-muted"
+            defaultValue={handoffQuery}
             name="q"
             placeholder="Search roles, fields, tasks, or Macao"
           />
@@ -258,7 +275,7 @@ export default function Marketplace() {
             <SectionHeading
               eyebrow="Browse"
               title="Employee bench"
-              description="Every published employee includes a role, verified status, version, and pricing."
+              description="Every published employee includes a role, registry-backed evidence status, version, and pricing."
             />
             <div className="flex items-center gap-3">
               <span className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
@@ -299,30 +316,38 @@ export default function Marketplace() {
         <section className="mt-12 pb-8">
           <SectionHeading
             eyebrow="Trusted"
-            title="ChaoGeek Certified employees"
-            description="Employees that passed ChaoGeek certification and ship the full two-file spec with an eval suite."
+            title="Lab-certified employees"
+            description="Only employees with a registry-published, signed mock:false credential appear here. A validated package alone is C1, not certification."
           />
-          <div className="mt-6 grid gap-5 md:grid-cols-3">
-            {certifiedEmployees.map(employee => (
-              <EmployeeCard
-                className="bg-[linear-gradient(180deg,rgba(200,121,65,0.08),rgba(255,255,255,0.025))]"
-                employee={employee}
-                key={employee.employee_id}
-                action={
-                  <Button
-                    asChild
-                    className="w-full rounded-[8px] border-crew-copper/30 bg-crew-copper/10 text-crew-heading hover:bg-crew-copper/16 sm:w-auto"
-                    variant="outline"
-                  >
-                    <Link to={`/employee/${employee.employee_id}`}>
-                      <Trophy className="size-4" />
-                      View
-                    </Link>
-                  </Button>
-                }
-              />
-            ))}
-          </div>
+          {certifiedEmployees.length > 0 ? (
+            <div className="mt-6 grid gap-5 md:grid-cols-3">
+              {certifiedEmployees.map(employee => (
+                <EmployeeCard
+                  className="bg-[linear-gradient(180deg,rgba(200,121,65,0.08),rgba(255,255,255,0.025))]"
+                  employee={employee}
+                  key={employee.employee_id}
+                  action={
+                    <Button
+                      asChild
+                      className="w-full rounded-[8px] border-crew-copper/30 bg-crew-copper/10 text-crew-heading hover:bg-crew-copper/16 sm:w-auto"
+                      variant="outline"
+                    >
+                      <Link to={`/employee/${employee.employee_id}`}>
+                        <Trophy className="size-4" />
+                        View
+                      </Link>
+                    </Button>
+                  }
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-6 rounded-[8px] border border-white/10 bg-white/[0.025] px-5 py-4 text-sm leading-6 text-crew-muted">
+              No employee currently has a published signed lab credential.
+              Validated C1 packages remain hireable for trial work, with their
+              status shown explicitly.
+            </p>
+          )}
         </section>
 
         <div className="border-t border-white/10 py-8">

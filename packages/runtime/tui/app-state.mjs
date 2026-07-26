@@ -48,6 +48,7 @@ export function initialAppState(meta = {}) {
     budgetWarning: null,
     protocol: { eventFamilies: [] },
     dream: null,
+    dreamMorningReport: null,
   };
 }
 
@@ -503,6 +504,22 @@ export function reduce(state, ev) {
         ...state,
         plan: state.plan ? { ...state.plan, status: "approved" } : state.plan,
       };
+    case EVENTS.TODO_UPDATED: {
+      const todos = Array.isArray(d.todos) ? d.todos : [];
+      return {
+        ...state,
+        plan: {
+          steps: todos.map(todo => String(todo?.content || "")),
+          statuses: todos.map(todo => String(todo?.status || "pending")),
+          status:
+            d.phase === "proposed"
+              ? "proposed"
+              : state.plan?.status === "proposed"
+                ? "proposed"
+                : "approved",
+        },
+      };
+    }
     case EVENTS.STEP_STARTED:
       return {
         ...state,
@@ -527,8 +544,10 @@ export function reduce(state, ev) {
           ...state,
           tools: setTool(state.tools, d.id, {
             tool: d.tool,
+            name: d.name || d.tool,
             status: nextStatus,
             args: d.args,
+            argsSummary: d.args_summary,
           }),
           approval: d.needsApproval
             ? {
@@ -547,7 +566,9 @@ export function reduce(state, ev) {
                 state.timeline,
                 idFor(state, d),
                 d.needsApproval ? SYM.wait : SYM.running,
-                d.label || d.tool,
+                d.label ||
+                  [d.name, d.args_summary].filter(Boolean).join(" · ") ||
+                  d.tool,
                 d.reason
               ),
         },
@@ -570,8 +591,10 @@ export function reduce(state, ev) {
           ...state,
           tools: setTool(state.tools, d.id, {
             tool: d.tool || state.tools[d.id]?.tool,
+            name: d.name || state.tools[d.id]?.name || d.tool,
             status: "running",
             args: d.args || state.tools[d.id]?.args,
+            argsSummary: d.args_summary || state.tools[d.id]?.argsSummary,
           }),
           timeline: exists
             ? mark(state.timeline, d.id, SYM.running, d.detail)
@@ -579,7 +602,9 @@ export function reduce(state, ev) {
                 state.timeline,
                 d.id,
                 SYM.running,
-                d.label || d.tool,
+                d.label ||
+                  [d.name, d.args_summary].filter(Boolean).join(" · ") ||
+                  d.tool,
                 d.detail
               ),
         },
@@ -596,14 +621,16 @@ export function reduce(state, ev) {
         EVENTS.TOOL_SUCCEEDED
       );
       if (transition !== null) return transition;
+      const summary = d.result_summary || d.summary;
       return withEventSeq(
         {
           ...state,
           tools: setTool(state.tools, d.id, {
             status: "succeeded",
-            summary: d.summary,
+            summary,
+            resultSummary: d.result_summary,
           }),
-          timeline: mark(state.timeline, d.id, SYM.ok, d.summary),
+          timeline: mark(state.timeline, d.id, SYM.ok, summary),
         },
         d
       );
@@ -615,11 +642,15 @@ export function reduce(state, ev) {
       const status = ev.type === EVENTS.TOOL_BLOCKED ? "blocked" : "failed";
       const transition = toolTransitionGuard(state, d, status, ev.type);
       if (transition !== null) return transition;
-      const summary = d.code || d.error || d.reason;
+      const summary = d.result_summary || d.code || d.error || d.reason;
       return withEventSeq(
         {
           ...state,
-          tools: setTool(state.tools, d.id, { status, summary }),
+          tools: setTool(state.tools, d.id, {
+            status,
+            summary,
+            resultSummary: d.result_summary,
+          }),
           timeline: mark(
             state.timeline,
             d.id,
@@ -640,13 +671,14 @@ export function reduce(state, ev) {
         EVENTS.TOOL_CANCELLED
       );
       if (transition !== null) return transition;
-      const summary = d.code || d.reason || "cancelled";
+      const summary = d.result_summary || d.code || d.reason || "cancelled";
       return withEventSeq(
         {
           ...state,
           tools: setTool(state.tools, d.id, {
             status: "cancelled",
             summary,
+            resultSummary: d.result_summary,
           }),
           timeline: mark(state.timeline, d.id, SYM.warn, summary),
         },
@@ -855,6 +887,15 @@ export function reduce(state, ev) {
           `ignored ${ev.type}; approval ${state.approval.id} is already pending`
         );
       }
+      if (
+        ev.type === EVENTS.APPROVAL_REQUIRED &&
+        d.auto === true &&
+        d.decision_source === "session_permission_lease"
+      ) {
+        // A cached session lease is already the authorization source. Keep the event pair for
+        // audit consumers, but do not flash a modal or pause the renderer between adjacent lines.
+        return state;
+      }
       return {
         ...state,
         approval: {
@@ -864,6 +905,7 @@ export function reduce(state, ev) {
           tool: d.tool,
           reason: d.reason,
           scope: d.scope,
+          sessionLease: d.session_lease,
           artifacts: Array.isArray(d.artifacts) ? d.artifacts : [],
         },
         status: "awaiting_approval",
@@ -876,25 +918,35 @@ export function reduce(state, ev) {
           `ignored approval.resolved after terminal ${state.task.status}`
         );
       }
-      if (
-        !pendingApprovalMatches(state, d, "tool_authorization") ||
-        !new Set(["allow", "deny"]).has(d.decision)
-      ) {
+      const validDecision = new Set(["allow", "allow_session", "deny"]).has(
+        d.decision
+      );
+      const pendingMatches = pendingApprovalMatches(
+        state,
+        d,
+        "tool_authorization"
+      );
+      const trustedAuto =
+        d.auto === true &&
+        d.decision_source === "session_permission_lease" &&
+        !state.approval &&
+        approvalEventCorrelationMatches(state, d, "tool_authorization");
+      if ((!pendingMatches && !trustedAuto) || !validDecision) {
         return ignored(
           state,
           `ignored mismatched approval.resolved ${d.id || "<missing>"}`
         );
       }
-      const id = state.approval.id;
+      const id = trustedAuto ? d.id : state.approval.id;
       if (state.settledApprovals?.[id]) return state;
       return {
         ...state,
-        approval: null,
+        approval: trustedAuto ? state.approval : null,
         settledApprovals: {
           ...(state.settledApprovals || {}),
           [id]: "resolved",
         },
-        status: state.task ? "running" : "idle",
+        status: trustedAuto ? state.status : state.task ? "running" : "idle",
       };
     }
     case EVENTS.APPROVAL_ACCEPTED:
@@ -953,8 +1005,9 @@ export function reduce(state, ev) {
         d
       );
     }
+    case EVENTS.ASSISTANT_RENDERING_PREVIEW:
     case EVENTS.ASSISTANT_RENDERED: {
-      const guarded = streamEventGuard(state, d, EVENTS.ASSISTANT_RENDERED);
+      const guarded = streamEventGuard(state, d, ev.type);
       if (guarded !== null) return guarded;
       const rendered = {
         partId: d.part_id || null,
@@ -1393,6 +1446,8 @@ export function reduce(state, ev) {
         ),
       };
     }
+    case EVENTS.DREAM_MORNING_REPORT:
+      return { ...state, dreamMorningReport: { ...d } };
     case EVENTS.DREAM_RECOMMENDED:
     case EVENTS.DREAM_STARTED:
     case EVENTS.DREAM_CANDIDATE_READY:

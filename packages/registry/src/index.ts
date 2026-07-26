@@ -4,12 +4,84 @@ import { z } from "zod";
 
 export const ExpertStatusSchema = z.enum(["available", "coming-soon"]);
 
+export const CertifiedEvaluationSchema = z
+  .object({
+    credential_id: z.string().min(1),
+    profile_id: z.string().min(1),
+    profile_version: z.string().min(1),
+    subject_hash: z.string().regex(/^(?:sha256:)?[a-f0-9]{64}$/),
+    memory_state_hash: z.string().regex(/^(?:sha256:)?[a-f0-9]{64}$/),
+    status: z.literal("certified"),
+    runtime_adapter: z.string().min(1),
+    runtime_version: z.string().min(1),
+    runtime_capability_level: z.enum(["L0", "L1", "L2", "L3", "L4"]),
+    worker_model: z.string().min(1),
+    judge_model: z.string().min(1),
+    success_rate: z.number().min(0).max(1),
+    success_confidence_low: z.number().min(0).max(1),
+    correct_stop_rate: z.number().min(0).max(1),
+    evidence_coverage: z.number().min(0).max(1),
+    permission_violations: z.number().int().nonnegative(),
+    safety_violations: z.number().int().nonnegative(),
+    cost_p50: z.number().nonnegative(),
+    cost_p95: z.number().nonnegative(),
+    duration_p50_ms: z.number().nonnegative(),
+    duration_p95_ms: z.number().nonnegative(),
+    issued_at: z.string().datetime({ offset: true }),
+    expires_at: z.string().datetime({ offset: true }),
+    proof_pack_hash: z.string().regex(/^(?:sha256:)?[a-f0-9]{64}$/),
+    issuer_key_id: z.string().min(1),
+    signature: z.string().min(1),
+    source: z.string().min(1),
+    sample_size: z.number().int().positive(),
+    mock: z.literal(false),
+  })
+  .strict()
+  .superRefine((evaluation, context) => {
+    if (evaluation.worker_model === evaluation.judge_model) {
+      context.addIssue({
+        code: "custom",
+        path: ["judge_model"],
+        message: "certification requires an independent judge model",
+      });
+    }
+    if (
+      evaluation.permission_violations > 0 ||
+      evaluation.safety_violations > 0
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["permission_violations"],
+        message:
+          "certified registry evidence cannot contain unresolved violations",
+      });
+    }
+  });
+
+export const RegistryEvidenceStateSchema = z
+  .object({
+    package_status: z.enum(["draft", "validated", "invalid"]),
+    lab_status: z.enum([
+      "untested",
+      "running",
+      "certified",
+      "failed",
+      "expired",
+      "revoked",
+      "stale",
+    ]),
+    field_status: z.enum(["insufficient", "pilot", "proven"]),
+  })
+  .strict();
+
 export const ExpertSchema = z
   .object({
     name: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
     display_name: z.string().min(1),
     status: ExpertStatusSchema,
     certification: z.enum(["C0", "C1", "C2", "C3"]),
+    evidence_state: RegistryEvidenceStateSchema,
+    evaluation: CertifiedEvaluationSchema.nullable().default(null),
     category: z.string().min(1),
     description: z.string().min(1),
     repo: z.string().nullable(),
@@ -26,6 +98,38 @@ export const ExpertSchema = z
     first_task: z.string().min(1),
   })
   .superRefine((expert, context) => {
+    const expectedCertification =
+      expert.evidence_state.field_status === "proven"
+        ? "C3"
+        : expert.evidence_state.lab_status === "certified"
+          ? "C2"
+          : expert.evidence_state.package_status === "validated"
+            ? "C1"
+            : "C0";
+    if (expert.certification !== expectedCertification) {
+      context.addIssue({
+        code: "custom",
+        path: ["certification"],
+        message: `certification must be derived as ${expectedCertification}`,
+      });
+    }
+    if (
+      expert.evidence_state.lab_status === "certified" &&
+      !expert.evaluation
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["evaluation"],
+        message: "lab-certified experts require a signed credential projection",
+      });
+    }
+    if (expert.evaluation && expert.evidence_state.lab_status !== "certified") {
+      context.addIssue({
+        code: "custom",
+        path: ["evidence_state", "lab_status"],
+        message: "a published credential requires lab_status certified",
+      });
+    }
     const expected = `experts/${expert.name}`;
     if (expert.status === "available" && expert.local_source !== expected) {
       context.addIssue({
@@ -50,6 +154,7 @@ export const RegistrySchema = z.object({
 });
 
 export type Expert = z.infer<typeof ExpertSchema>;
+export type CertifiedEvaluation = z.infer<typeof CertifiedEvaluationSchema>;
 export type ExpertRegistry = z.infer<typeof RegistrySchema>;
 export type ExpertStatus = z.infer<typeof ExpertStatusSchema>;
 

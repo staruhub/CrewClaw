@@ -72,6 +72,27 @@ fn require_positive_safe_integer(data: &Value, field: &str) -> Result<(), String
     }
 }
 
+fn validate_optional_tool_presentation(data: &Value) -> Result<(), String> {
+    for field in ["name", "args_summary", "result_summary", "debug_ref"] {
+        let Some(value) = data.get(field) else {
+            continue;
+        };
+        let Some(value) = value.as_str() else {
+            return Err(format!("data.{field} must be a string"));
+        };
+        if matches!(field, "name" | "debug_ref") && value.trim().is_empty() {
+            return Err(format!("data.{field} must be a non-empty string"));
+        }
+    }
+    if data
+        .get("truncated")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err("data.truncated must be a boolean".to_string());
+    }
+    Ok(())
+}
+
 fn require_task_reference(payload: &CanonicalTaskPayload, data: &Value) -> Result<(), String> {
     if data.get("id").is_some() {
         require_non_empty(data.get("id").and_then(Value::as_str), "data.id")?;
@@ -112,8 +133,17 @@ fn validate_approval_payload(
     require_non_empty(payload.id.as_deref(), "data.id")?;
     require_non_empty(payload.task_run_id.as_deref(), "data.taskRunId")?;
     require_non_empty(payload.kind.as_deref(), "data.kind")?;
-    if payload.kind.as_deref() != Some(expected_kind) {
-        return Err(format!("data.kind must be {expected_kind}"));
+    // Additive: the runtime distinguishes task-plan review ("plan_approval", from
+    // todo_write) from tool grants; both flow through the same approval events, so a
+    // tool_authorization slot accepts either kind. Older engines that still flatten to
+    // tool_authorization stay valid.
+    let kind = payload.kind.as_deref();
+    let matches = kind == Some(expected_kind)
+        || (expected_kind == "tool_authorization" && kind == Some("plan_approval"));
+    if !matches {
+        return Err(format!(
+            "data.kind must be {expected_kind} or plan_approval"
+        ));
     }
     Ok(())
 }
@@ -158,6 +188,13 @@ pub enum TaskEvent {
     },
     #[serde(rename = "plan.approved")]
     PlanApproved {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "todo.updated")]
+    TodoUpdated {
         #[serde(default)]
         ts: u64,
         #[serde(default)]
@@ -352,6 +389,14 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    /// Progressive mid-stream markdown snapshot (provisional). Same payload as rendered.
+    #[serde(rename = "assistant.rendering_preview")]
+    AssistantRenderingPreview {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "command.output")]
     CommandOutput {
         #[serde(default)]
@@ -515,6 +560,13 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "dream.morning_report")]
+    DreamMorningReport {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "dream.started")]
     DreamStarted {
         #[serde(default)]
@@ -598,6 +650,13 @@ pub struct UserAction {
 }
 
 impl UserAction {
+    pub fn viewport_resize(content_width: u16) -> Self {
+        Self {
+            action_type: "viewport.resize".to_string(),
+            data: serde_json::json!({ "content_width": content_width }),
+        }
+    }
+
     pub fn client_ready(event_families: Vec<String>) -> Self {
         Self {
             action_type: "client.ready".to_string(),
@@ -620,6 +679,13 @@ impl UserAction {
         Self {
             action_type: "user.message".to_string(),
             data: serde_json::json!({ "text": text, "refs": refs }),
+        }
+    }
+
+    pub fn generation_cancel() -> Self {
+        Self {
+            action_type: "generation.cancel".to_string(),
+            data: serde_json::json!({}),
         }
     }
 
@@ -675,6 +741,7 @@ impl TaskEvent {
             "task.mode_changed" => Self::TaskModeChanged { ts, data },
             "plan.created" => Self::PlanCreated { ts, data },
             "plan.approved" => Self::PlanApproved { ts, data },
+            "todo.updated" => Self::TodoUpdated { ts, data },
             "step.started" => Self::StepStarted { ts, data },
             "step.completed" => Self::StepCompleted { ts, data },
             "generation.started" => Self::GenerationStarted { ts, data },
@@ -702,6 +769,7 @@ impl TaskEvent {
             "approval.rejected" => Self::ApprovalRejected { ts, data },
             "assistant.message" => Self::AssistantMessage { ts, data },
             "assistant.rendered" => Self::AssistantRendered { ts, data },
+            "assistant.rendering_preview" => Self::AssistantRenderingPreview { ts, data },
             "command.output" => Self::CommandOutput { ts, data },
             "token.delta" => Self::TokenDelta { ts, data },
             "thinking.delta" => Self::ThinkingDelta { ts, data },
@@ -725,6 +793,7 @@ impl TaskEvent {
             "workspace.revealed" => Self::WorkspaceRevealed { ts, data },
             "outcome.checked" => Self::OutcomeChecked { ts, data },
             "dream.recommended" => Self::DreamRecommended { ts, data },
+            "dream.morning_report" => Self::DreamMorningReport { ts, data },
             "dream.started" => Self::DreamStarted { ts, data },
             "dream.candidate_ready" => Self::DreamCandidateReady { ts, data },
             "dream.validation_failed" => Self::DreamValidationFailed { ts, data },
@@ -745,6 +814,18 @@ impl TaskEvent {
     pub fn validate_payload(&self) -> Result<(), String> {
         let event_type = self.event_type();
         let data = self.data();
+        if matches!(
+            self,
+            Self::ToolRequested { .. }
+                | Self::ToolRunning { .. }
+                | Self::ToolCalled { .. }
+                | Self::ToolSucceeded { .. }
+                | Self::ToolFailed { .. }
+                | Self::ToolBlocked { .. }
+                | Self::ToolCancelled { .. }
+        ) {
+            validate_optional_tool_presentation(data)?;
+        }
         match self {
             Self::ProtocolReady { .. } => {
                 require_non_empty(
@@ -895,9 +976,12 @@ impl TaskEvent {
                 let payload = decode_payload::<CanonicalApprovalPayload>(event_type, data)?;
                 validate_approval_payload(&payload, "tool_authorization")?;
                 if matches!(self, Self::ApprovalResolved { .. })
-                    && !matches!(payload.decision.as_deref(), Some("allow" | "deny"))
+                    && !matches!(
+                        payload.decision.as_deref(),
+                        Some("allow" | "allow_session" | "deny")
+                    )
                 {
-                    return Err("data.decision must be allow or deny".to_string());
+                    return Err("data.decision must be allow, allow_session, or deny".to_string());
                 }
                 Ok(())
             }
@@ -917,6 +1001,7 @@ impl TaskEvent {
                 Ok(())
             }
             Self::DreamRecommended { .. }
+            | Self::DreamMorningReport { .. }
             | Self::DreamStarted { .. }
             | Self::DreamCandidateReady { .. }
             | Self::DreamValidationFailed { .. }
@@ -946,6 +1031,7 @@ impl TaskEvent {
             Self::TaskModeChanged { .. } => "task.mode_changed",
             Self::PlanCreated { .. } => "plan.created",
             Self::PlanApproved { .. } => "plan.approved",
+            Self::TodoUpdated { .. } => "todo.updated",
             Self::StepStarted { .. } => "step.started",
             Self::StepCompleted { .. } => "step.completed",
             Self::GenerationStarted { .. } => "generation.started",
@@ -973,6 +1059,7 @@ impl TaskEvent {
             Self::ApprovalRejected { .. } => "approval.rejected",
             Self::AssistantMessage { .. } => "assistant.message",
             Self::AssistantRendered { .. } => "assistant.rendered",
+            Self::AssistantRenderingPreview { .. } => "assistant.rendering_preview",
             Self::CommandOutput { .. } => "command.output",
             Self::TokenDelta { .. } => "token.delta",
             Self::ThinkingDelta { .. } => "thinking.delta",
@@ -996,6 +1083,7 @@ impl TaskEvent {
             Self::WorkspaceRevealed { .. } => "workspace.revealed",
             Self::OutcomeChecked { .. } => "outcome.checked",
             Self::DreamRecommended { .. } => "dream.recommended",
+            Self::DreamMorningReport { .. } => "dream.morning_report",
             Self::DreamStarted { .. } => "dream.started",
             Self::DreamCandidateReady { .. } => "dream.candidate_ready",
             Self::DreamValidationFailed { .. } => "dream.validation_failed",
@@ -1017,6 +1105,7 @@ impl TaskEvent {
             | Self::TaskModeChanged { data, .. }
             | Self::PlanCreated { data, .. }
             | Self::PlanApproved { data, .. }
+            | Self::TodoUpdated { data, .. }
             | Self::StepStarted { data, .. }
             | Self::StepCompleted { data, .. }
             | Self::GenerationStarted { data, .. }
@@ -1044,6 +1133,7 @@ impl TaskEvent {
             | Self::ApprovalRejected { data, .. }
             | Self::AssistantMessage { data, .. }
             | Self::AssistantRendered { data, .. }
+            | Self::AssistantRenderingPreview { data, .. }
             | Self::CommandOutput { data, .. }
             | Self::TokenDelta { data, .. }
             | Self::ThinkingDelta { data, .. }
@@ -1067,6 +1157,7 @@ impl TaskEvent {
             | Self::WorkspaceRevealed { data, .. }
             | Self::OutcomeChecked { data, .. }
             | Self::DreamRecommended { data, .. }
+            | Self::DreamMorningReport { data, .. }
             | Self::DreamStarted { data, .. }
             | Self::DreamCandidateReady { data, .. }
             | Self::DreamValidationFailed { data, .. }
@@ -1090,6 +1181,7 @@ impl TaskEvent {
             | Self::TaskModeChanged { ts, .. }
             | Self::PlanCreated { ts, .. }
             | Self::PlanApproved { ts, .. }
+            | Self::TodoUpdated { ts, .. }
             | Self::StepStarted { ts, .. }
             | Self::StepCompleted { ts, .. }
             | Self::GenerationStarted { ts, .. }
@@ -1117,6 +1209,7 @@ impl TaskEvent {
             | Self::ApprovalRejected { ts, .. }
             | Self::AssistantMessage { ts, .. }
             | Self::AssistantRendered { ts, .. }
+            | Self::AssistantRenderingPreview { ts, .. }
             | Self::CommandOutput { ts, .. }
             | Self::TokenDelta { ts, .. }
             | Self::ThinkingDelta { ts, .. }
@@ -1140,6 +1233,7 @@ impl TaskEvent {
             | Self::WorkspaceRevealed { ts, .. }
             | Self::OutcomeChecked { ts, .. }
             | Self::DreamRecommended { ts, .. }
+            | Self::DreamMorningReport { ts, .. }
             | Self::DreamStarted { ts, .. }
             | Self::DreamCandidateReady { ts, .. }
             | Self::DreamValidationFailed { ts, .. }
@@ -1213,6 +1307,20 @@ mod tests {
                 "approval.requested",
                 6,
                 json!({"id":"ap1","taskRunId":"task-1","kind":"deliverable_acceptance"}),
+            ),
+            TaskEvent::from_parts(
+                "approval.resolved",
+                7,
+                json!({
+                    "id":"tool-ap1",
+                    "taskRunId":"task-1",
+                    "kind":"tool_authorization",
+                    "decision":"allow_session",
+                    "session_lease":{
+                        "kind":"session",
+                        "allowlist":[{"tool":"write_file","pattern":"docs/**"}]
+                    }
+                }),
             ),
         ];
         for event in valid {
@@ -1345,6 +1453,49 @@ mod tests {
     }
 
     #[test]
+    fn tool_presentation_fields_are_additive_and_typed() {
+        TaskEvent::from_parts(
+            "tool.succeeded",
+            1,
+            json!({
+                "id":"tool-1",
+                "tool":"read_file",
+                "name":"read_file",
+                "args_summary":"api/boot.ts",
+                "result_summary":"123 行",
+                "truncated":false
+            }),
+        )
+        .validate_payload()
+        .expect("structured presentation is valid");
+        TaskEvent::from_parts(
+            "tool.succeeded",
+            1,
+            json!({"id":"tool-legacy","tool":"read_file","summary":"done"}),
+        )
+        .validate_payload()
+        .expect("legacy v1 event remains valid");
+        assert!(
+            TaskEvent::from_parts(
+                "tool.succeeded",
+                1,
+                json!({"id":"tool-invalid","tool":"read_file","result_summary":{"lines":123}}),
+            )
+            .validate_payload()
+            .is_err()
+        );
+        assert!(
+            TaskEvent::from_parts(
+                "tool.succeeded",
+                1,
+                json!({"id":"tool-invalid-debug","tool":"read_file","debug_ref":""}),
+            )
+            .validate_payload()
+            .is_err()
+        );
+    }
+
+    #[test]
     fn dream_v1_events_are_first_class_and_validate_correlation() {
         let event = TaskEvent::from_parts(
             "dream.recommended",
@@ -1407,6 +1558,12 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&approval).expect("approval action"),
             json!({"type":"approval.resolve","data":{"id":"ap1","decision":"accept"}})
+        );
+        let session_approval =
+            UserAction::approval_resolve("ap2".to_string(), "allow_session".to_string());
+        assert_eq!(
+            serde_json::to_value(&session_approval).expect("session approval action"),
+            json!({"type":"approval.resolve","data":{"id":"ap2","decision":"allow_session"}})
         );
 
         let ready = UserAction::client_ready(vec!["core/v1".to_string(), "dream/v1".to_string()]);

@@ -15,6 +15,16 @@ import { readKpi } from "../kpi.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+function assertEmptyKpi(kpi, message) {
+  assert.equal(kpi.contract, "crewclaw.kpi/v2", message);
+  assert.equal(kpi.tasks, 0, message);
+  assert.equal(kpi.accepted, 0, message);
+  assert.equal(kpi.auto_accepted, 0, message);
+  assert.equal(kpi.chat_turns, 0, message);
+  assert.equal(kpi.total_cost, 0, message);
+  assert.equal(kpi.first_hired_ts, null, message);
+}
+
 function makeBridge({ root, agentId, reply }) {
   const input = new Readable({ read() {} });
   const events = [];
@@ -71,13 +81,35 @@ async function runOneAcceptedTask(root, agentId) {
 async function cumulativeKpiSurvivesAcrossSessions() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-kpi-"));
   const agentId = "e2e-kpi-whale";
+  const hiredAt = "2026-07-14T00:00:00Z";
+  fs.mkdirSync(path.join(root, ".crewclaw"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, ".crewclaw", "team.json"),
+    `${JSON.stringify(
+      [
+        {
+          workspace_employee_id: "e2e-kpi-hire",
+          employee_id: agentId,
+          version: "test",
+          status: "active",
+          hired_at: hiredAt,
+          fired_at: null,
+          permissions_granted: [],
+          package_sha256: null,
+          hire_source: "test_fixture",
+        },
+      ],
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
 
   // ── session 1: a brand-new employee has no prior history ──────────────────────────────────
   const events1 = await runOneAcceptedTask(root, agentId);
   const ready1 = events1.find(e => e.type === "session.ready");
-  assert.deepEqual(
+  assertEmptyKpi(
     ready1.data.employee.kpi_cumulative,
-    { tasks: 0, accepted: 0, total_cost: 0, first_hired_ts: null },
     "first-ever session sees honest zeros, not fabricated history"
   );
   const afterSession1 = readKpi(root, agentId);
@@ -89,8 +121,9 @@ async function cumulativeKpiSurvivesAcrossSessions() {
   assert.equal(afterSession1.accepted, 1);
   assert.ok(
     afterSession1.first_hired_ts,
-    "first_hired_ts stamped on the first-ever accept"
+    "first_hired_ts projects the durable active hire"
   );
+  assert.equal(afterSession1.first_hired_ts, Date.parse(hiredAt));
 
   // ── session 2: a NEW bridge process against the SAME root — must see session 1's numbers ──
   const events2 = await runOneAcceptedTask(root, agentId);
@@ -142,9 +175,8 @@ async function differentAgentsOnSameRootDoNotCrossPollinate() {
   );
   // agent-b's session.ready fires BEFORE agent-b's own task runs, so it must still read zeros
   // even though agent-a (a different employee, same root) already has a full history.
-  assert.deepEqual(
+  assertEmptyKpi(
     readyB.data.employee.kpi_cumulative,
-    { tasks: 0, accepted: 0, total_cost: 0, first_hired_ts: null },
     "a different employee on the same root does not inherit agent-a's KPI"
   );
   assert.equal(readKpi(root, "agent-a").tasks, 1);

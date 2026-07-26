@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { derivePermissionPolicy } from "./permission-policy.mjs";
 import yaml from "./yaml.mjs";
 
 // Exported so contracts/__tests__/employee-spec.test.ts can assert this list stays identical to
@@ -127,6 +128,81 @@ export function validateEmployeePackage(pkg) {
     );
   }
 
+  // Dual-truth guard: when authors publish grants/denied/auth maps, membership must
+  // match tool_needs. Tier labels may still be human-authored (P2 vs P3 nuance);
+  // adapters always re-derive from tool_needs at runtime.
+  if (hasValue(pkg.tool_needs) && hasValue(pkg.permission_policy)) {
+    const derived = derivePermissionPolicy(
+      pkg.tool_needs,
+      pkg.permission_policy
+    );
+    const authored = pkg.permission_policy;
+    const authoredGrants =
+      authored.grants &&
+      typeof authored.grants === "object" &&
+      !Array.isArray(authored.grants)
+        ? authored.grants
+        : null;
+    const authoredDenied =
+      authored.denied &&
+      typeof authored.denied === "object" &&
+      !Array.isArray(authored.denied)
+        ? authored.denied
+        : null;
+    const authoredAuth = Array.isArray(authored.human_authorization_required)
+      ? authored.human_authorization_required
+      : null;
+    if (authoredGrants) {
+      for (const id of Object.keys(derived.grants)) {
+        if (!Object.hasOwn(authoredGrants, id)) {
+          errors.push(
+            `permission_policy.grants missing capability declared in tool_needs: ${id}`
+          );
+        }
+      }
+      for (const id of Object.keys(authoredGrants)) {
+        if (!Object.hasOwn(derived.grants, id)) {
+          errors.push(
+            `permission_policy.grants references capability not granted by tool_needs: ${id}`
+          );
+        }
+      }
+    }
+    if (authoredDenied) {
+      for (const id of Object.keys(derived.denied)) {
+        if (!Object.hasOwn(authoredDenied, id)) {
+          errors.push(
+            `permission_policy.denied missing capability disabled in tool_needs: ${id}`
+          );
+        }
+      }
+      for (const id of Object.keys(authoredDenied)) {
+        if (!Object.hasOwn(derived.denied, id)) {
+          errors.push(
+            `permission_policy.denied references capability not disabled in tool_needs: ${id}`
+          );
+        }
+      }
+    }
+    if (authoredAuth) {
+      const authSet = new Set(authoredAuth);
+      for (const id of derived.human_authorization_required) {
+        if (!authSet.has(id)) {
+          errors.push(
+            `permission_policy.human_authorization_required missing requires_authorization capability: ${id}`
+          );
+        }
+      }
+      for (const id of authSet) {
+        if (!derived.human_authorization_required.includes(id)) {
+          errors.push(
+            `permission_policy.human_authorization_required references non-gated capability: ${id}`
+          );
+        }
+      }
+    }
+  }
+
   return { ok: errors.length === 0, errors };
 }
 
@@ -151,6 +227,14 @@ export function toLegacyProfile(pkg) {
         .filter(Boolean)
     : [];
 
+  const toolNeeds = pkg?.tool_needs || {};
+  // Runtime consumers always see the tool_needs-derived policy so adapters cannot
+  // diverge from the contract the gateway actually enforces.
+  const permissionPolicy = derivePermissionPolicy(
+    toolNeeds,
+    pkg?.permission_policy || {}
+  );
+
   return {
     displayName: identity.name || identity.display_name || identity.id || "",
     title: identity.title || role.title || "",
@@ -158,8 +242,8 @@ export function toLegacyProfile(pkg) {
     version: identity.version || pkg?.version || "",
     skills,
     runtime: {
-      tool_needs: pkg?.tool_needs || {},
-      permission_policy: pkg?.permission_policy || {},
+      tool_needs: toolNeeds,
+      permission_policy: permissionPolicy,
       compatibility_targets: pkg?.compatibility_targets || {},
       adapter_hints: pkg?.adapter_hints || {},
     },

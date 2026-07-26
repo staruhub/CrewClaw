@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::state::{
     DreamSnapshot, EvalReport, ExamEntry, KpiCumulative, MonthlyMetric, PersistedInsights,
-    PersistedMemory,
+    PersistedMemory, ReputationEntry,
 };
 
 const MAX_RUN_FILES: usize = 64;
@@ -231,8 +231,12 @@ fn parse_kpi(value: &Value) -> Result<KpiCumulative, String> {
         .ok_or_else(|| "document is not an object".to_string())?;
     let tasks = object.get("tasks").and_then(Value::as_u64).unwrap_or(0);
     let accepted = object.get("accepted").and_then(Value::as_u64).unwrap_or(0);
-    if accepted > tasks {
-        return Err("accepted count exceeds task count".to_string());
+    let auto_accepted = object
+        .get("auto_accepted")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if accepted.saturating_add(auto_accepted) > tasks {
+        return Err("accepted counts exceed task count".to_string());
     }
     let total_cost = object
         .get("total_cost")
@@ -244,6 +248,7 @@ fn parse_kpi(value: &Value) -> Result<KpiCumulative, String> {
     Ok(KpiCumulative {
         tasks,
         accepted,
+        auto_accepted,
         total_cost,
         first_hired_ts: object.get("first_hired_ts").and_then(Value::as_u64),
     })
@@ -287,6 +292,26 @@ fn parse_memory(value: &Value) -> Result<Vec<PersistedMemory>, String> {
             saved_at: item
                 .get("savedAt")
                 .and_then(Value::as_str)
+                .map(ToString::to_string),
+            source_task_ids: item
+                .get("source_task_ids")
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .take(8)
+                        .map(ToString::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            dream_run_id: item
+                .get("dream_run_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
                 .map(ToString::to_string),
         });
     }
@@ -380,6 +405,36 @@ fn load_runs(
             .filter(|goal| !goal.is_empty())
             .unwrap_or("未命名任务");
         insights.dream.run_count += 1;
+        let reputation_status = match status {
+            "accepted" => {
+                insights.reputation.accepted += 1;
+                Some("accepted")
+            }
+            "rejected" => {
+                insights.reputation.rejected += 1;
+                Some("rejected")
+            }
+            "revision_needed" => {
+                insights.reputation.revision_needed += 1;
+                Some("revision_needed")
+            }
+            _ => None,
+        };
+        if let Some(reputation_status) = reputation_status {
+            insights.reputation.verified_tasks += 1;
+            if insights.reputation.history.len() < 8 {
+                insights.reputation.history.push(ReputationEntry {
+                    task_id: run
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    status: reputation_status.to_string(),
+                    goal: goal.to_string(),
+                    updated_at: run_updated_at(run).and_then(rfc3339_millis).unwrap_or(0),
+                });
+            }
+        }
         match status {
             "accepted" => {
                 insights.dream.accepted_count += 1;
@@ -476,6 +531,12 @@ fn load_runs(
         monthly.drain(0..monthly.len() - 6);
     }
     insights.monthly = monthly;
+    insights.reputation.acceptance_rate_bps = insights
+        .reputation
+        .accepted
+        .saturating_mul(10_000)
+        .checked_div(insights.reputation.verified_tasks)
+        .unwrap_or(0);
 }
 
 fn derive_memory_views(dream: &mut DreamSnapshot) {
@@ -506,6 +567,13 @@ fn task_run_stem(relative: &Path) -> Option<String> {
 
 fn run_updated_at(run: &Value) -> Option<&str> {
     run.get("updated_at").and_then(Value::as_str)
+}
+
+fn rfc3339_millis(value: &str) -> Option<u64> {
+    let millis = chrono::DateTime::parse_from_rfc3339(value)
+        .ok()?
+        .timestamp_millis();
+    u64::try_from(millis).ok()
 }
 
 fn month_key(timestamp: &str) -> Option<&str> {

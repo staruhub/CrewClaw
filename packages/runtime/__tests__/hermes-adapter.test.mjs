@@ -62,6 +62,23 @@ const compiled = hermesAdapter.compile(whale);
     compiled.files["AGENTS.md"],
     new RegExp(whale.role_contract.title)
   );
+  assert.match(
+    compiled.files["AGENTS.md"],
+    /Playbooks are orchestration flows/
+  );
+}
+
+{
+  const withoutExplicitSkills = structuredClone(whale);
+  delete withoutExplicitSkills.adapter_hints.Hermes.skills;
+  assert.deepEqual(
+    hermesAdapter.compile(withoutExplicitSkills).skills,
+    [],
+    "playbook ids must never be guessed as skill directories"
+  );
+  for (const skill of compiled.skills) {
+    assert.match(skill.content, /^---\nname: [^\n]+\ndescription: Use when /);
+  }
 }
 
 {

@@ -14,7 +14,7 @@ const plans = [
     desc: "For MVP preview users",
     accent: "#8B8175",
     features: [
-      "Two certified experts",
+      "Two validated employee packages",
       "Local Hermes install",
       "Static registry",
       "Validator included",

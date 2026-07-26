@@ -11,6 +11,12 @@ pub(crate) struct WorkspaceEmployee {
     pub hired_at: String,
     pub fired_at: Option<String>,
     pub permissions_granted: Vec<String>,
+    /// Website hires bind the exact downloaded archive. CLI hires install a verified local
+    /// source directly, so this remains `None` while `hire_source` records that provenance.
+    #[serde(default)]
+    pub package_sha256: Option<String>,
+    #[serde(default)]
+    pub hire_source: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -100,9 +106,24 @@ pub(crate) fn add_active_employee(
         hired_at: now,
         fired_at: None,
         permissions_granted,
+        package_sha256: None,
+        hire_source: Some("cli".to_string()),
     };
     employees.push(record.clone());
     record
+}
+
+/// Test-only reference mutation. Production CLI/TUI offboarding must cross the shared Node
+/// service so memory export, handoff, purge, activity, and the final receipt cannot diverge.
+#[cfg(test)]
+fn fire_active_employee(root: &Path, employee_id: &str) -> Result<WorkspaceEmployee, String> {
+    mutate_team(root, |employees| {
+        let employee = active_employee_mut(employees, employee_id)
+            .ok_or_else(|| format!("{employee_id} is not active in this crew"))?;
+        employee.status = WorkspaceEmployeeStatus::Fired;
+        employee.fired_at = Some(now_iso8601());
+        Ok(employee.clone())
+    })
 }
 
 pub(crate) fn team_path(root: &Path) -> std::path::PathBuf {
@@ -160,15 +181,69 @@ mod tests {
             hired_at: "2026-06-22T00:00:00Z".to_string(),
             fired_at: None,
             permissions_granted: vec!["public_web:read".to_string()],
+            package_sha256: None,
+            hire_source: Some("cli".to_string()),
         };
         let json = serde_json::to_string(&employee).expect("serialize employee");
         assert!(json.contains(r#""status":"active""#));
+        assert!(json.contains(r#""hire_source":"cli""#));
+    }
+
+    #[test]
+    fn legacy_records_without_package_provenance_remain_readable() {
+        let employee: WorkspaceEmployee = serde_json::from_str(
+            r#"{
+                "workspace_employee_id":"legacy-1",
+                "employee_id":"legacy",
+                "version":"0.1.0",
+                "status":"active",
+                "hired_at":"2026-06-22T00:00:00Z",
+                "fired_at":null,
+                "permissions_granted":[]
+            }"#,
+        )
+        .expect("legacy team record");
+        assert_eq!(employee.package_sha256, None);
+        assert_eq!(employee.hire_source, None);
     }
 
     #[test]
     fn formats_unix_epoch_as_utc_datetime() {
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(1), (1970, 1, 2));
+    }
+
+    #[test]
+    fn firing_retains_history_and_allows_a_new_active_record() {
+        let root = std::env::temp_dir().join(format!(
+            "crewclaw-team-fire-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).expect("workspace root");
+        mutate_team(&root, |employees| {
+            add_active_employee(employees, "macao", "1.0.0", Vec::new());
+            Ok(())
+        })
+        .expect("hire");
+
+        let fired = fire_active_employee(&root, "macao").expect("fire");
+        assert_eq!(fired.status, WorkspaceEmployeeStatus::Fired);
+        assert!(fired.fired_at.is_some());
+        mutate_team(&root, |employees| {
+            add_active_employee(employees, "macao", "1.1.0", Vec::new());
+            Ok(())
+        })
+        .expect("rehire");
+
+        let team = read_team(&root).expect("team");
+        assert_eq!(team.len(), 2);
+        assert_eq!(team[0].status, WorkspaceEmployeeStatus::Fired);
+        assert_eq!(team[1].status, WorkspaceEmployeeStatus::Active);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

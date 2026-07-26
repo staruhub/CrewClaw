@@ -435,6 +435,11 @@ impl InputBuffer {
         true
     }
 
+    /// 历史回放期间 Up/Down 应继续遍历历史，而不是因为游标被放到行尾后退回行内移动。
+    pub(crate) fn is_replaying_history(&self) -> bool {
+        self.history_cursor.is_some()
+    }
+
     pub(crate) fn history_next(&mut self) -> bool {
         let Some(index) = self.history_cursor else {
             return false;

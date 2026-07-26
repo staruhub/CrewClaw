@@ -229,6 +229,16 @@ const DEFAULT_POLICY = {
 const STATIC_CLASSIFICATIONS = {
   web_search: { level: "L0", scope: "public_web", action: "read" },
   web_fetch: { level: "L0", scope: "public_web", action: "read" },
+  use_skill: { level: "L1", scope: "employee_profile", action: "read" },
+  recall_memory: { level: "L1", scope: "employee_memory", action: "read" },
+  todo_write: { level: "L0", scope: "task_plan", action: "coordinate" },
+  ask_user: { level: "L0", scope: "user_input", action: "coordinate" },
+  note_memory: { level: "L1", scope: "memory_candidates", action: "write" },
+  // MCP server metadata/annotations are not a host-side authorization proof. Every third-party
+  // call crosses the external-effect confirmation tier by default, even when the selected server
+  // advertises read-only mode. A future trusted-server registry may strengthen evidence, but may
+  // never infer safety from an mcp.json author's allowlist alone.
+  mcp_call: { level: "L3", scope: "external_mcp", action: "read" },
   read_file: { level: "L1", scope: "workspace", action: "read" },
   list_files: { level: "L1", scope: "workspace", action: "read" },
   grep_repo: { level: "L1", scope: "workspace", action: "read" },
@@ -236,6 +246,8 @@ const STATIC_CLASSIFICATIONS = {
   git_diff: { level: "L1", scope: "workspace", action: "read" },
   git_status: { level: "L1", scope: "workspace", action: "read" },
   test_run: { level: "L2", scope: "workspace", action: "execute" },
+  artifact_write: { level: "L2", scope: "artifact_store", action: "write" },
+  docx_write: { level: "L2", scope: "artifact_store", action: "write" },
   write_file: { level: "L2", scope: "workspace", action: "write" },
   edit_file: { level: "L2", scope: "workspace", action: "write" },
   write_patch: { level: "L2", scope: "workspace", action: "write" },
@@ -254,6 +266,19 @@ const STATIC_CLASSIFICATIONS = {
   exec_remote: { level: "L4", scope: "dangerous", action: "execute" },
   db_write: { level: "L4", scope: "dangerous", action: "execute" },
 };
+
+// `coordinate` is not inherently read-only: future orchestration tools may delegate work or
+// mutate shared state. Only these two local control-plane tools are readonly-compatible.
+const READONLY_COORDINATE_TOOLS = new Set(["todo_write", "ask_user"]);
+
+export function readonlyPermissionAllows(toolName, classification) {
+  return (
+    classification?.action === "read" ||
+    classification?.action === "render" ||
+    (classification?.action === "coordinate" &&
+      READONLY_COORDINATE_TOOLS.has(toolName))
+  );
+}
 
 const READ_ONLY_BASH_PREFIXES = [
   "ls",
@@ -582,6 +607,8 @@ function reasonFor(decision, classification) {
     if (classification.scope === "workspace") return "工作区写入，需要确认";
     if (classification.scope === "shell") return "命令可能修改环境，需要确认";
     if (classification.scope === "external") return "外部发送操作，需要确认";
+    if (classification.scope === "external_mcp")
+      return "第三方 MCP 工具默认不可信，需要逐次确认";
     return "敏感操作，需要确认";
   }
 
@@ -739,8 +766,7 @@ function applyEmployeePolicy({
     };
   }
 
-  const readLike =
-    classification.action === "read" || classification.action === "render";
+  const readLike = readonlyPermissionAllows(toolName, classification);
   if (permission === "readonly" && !readLike) {
     return {
       decision: "deny",
@@ -791,6 +817,13 @@ export function makeGateway(opts = {}) {
       let capability;
       let capabilities;
       let employeePermission;
+      // A broad platform L3 override is not evidence that an arbitrary MCP server/tool is safe.
+      // Until a trusted-server + per-tool side-effect registry exists, MCP can only stay at or
+      // above confirm; generic autonomy policy must not silently lower it to allow.
+      if (toolName === "mcp_call" && decision === "allow") {
+        decision = "confirm";
+        reason = reasonFor(decision, classification);
+      }
       if (
         (toolName === "web_fetch" || toolName === "browser_render") &&
         !isPublicHttpUrl(args.url)

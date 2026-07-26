@@ -24,7 +24,11 @@ import {
 import { loadMemory } from "../memory-store.mjs";
 import { validateCompletion } from "../proofpack.mjs";
 import { startMockModel } from "./mock-model.mjs";
-import { REPO_ROOT, RUNTIME_ENTRY } from "./test-paths.mjs";
+import {
+  REPO_ROOT,
+  RUNTIME_ENTRY,
+  seedRuntimeTestTeam,
+} from "./test-paths.mjs";
 
 const TASK_ID = "research-seed-2.1";
 const AGENT_ID = "ai-adoption-whale";
@@ -65,6 +69,7 @@ function sha256(path) {
 }
 
 function startTaskProcess({ root, modelUrl }) {
+  seedRuntimeTestTeam(root, [AGENT_ID]);
   const child = spawn(
     process.execPath,
     [RUNTIME_ENTRY, AGENT_ID, "--task", TASK_ID],
@@ -324,7 +329,14 @@ async function acceptedDeliveryIsDurable(modelUrl) {
     assert.equal(run.proofpack, accepted.data.proofpack);
     assert.equal(run.memory_commit?.committed, true);
     const memory = memoryItems(root);
-    assert.ok(memory.length >= 2, "accepted deliverable commits staged memory");
+    assert.ok(
+      memory.length >= 2,
+      `accepted deliverable commits staged memory; commit=${JSON.stringify(run.memory_commit)} dream=${JSON.stringify(run.dream)} debug=${JSON.stringify(
+        harness.events
+          .filter(event => event.type === "debug.line")
+          .map(event => event.data?.line)
+      )}`
+    );
     assert.ok(
       memory.some(item => item.category === "reliable_sources"),
       "accepted source becomes searchable memory"

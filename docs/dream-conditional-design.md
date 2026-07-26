@@ -149,5 +149,21 @@ M0 十条完成定义全部满足；`accept → addMemory` 路径保持原样；
 - **M3** Dream job：确定性预处理 → 强模型策展 → 候选+diff → 四道校验。
 - **M4** 审批+激活：DREAM 屏真值化；approve/reject/rollback；原子切换+归档；
   发布时 flag 翻转（新管线默认开，legacy 变回滚开关）。
-- **M5** EvalProvider + 候选评测 + 晋升门 + Growth Card（真实激活前置：真实基线，
-  即 ZENMUX key 或第二 Judge Provider 就绪）。
+- **M5（呈现层已接线）** EvalProvider 五态抽象（`packages/runtime/eval-provider.mjs`：
+  available / missing_credentials / authentication_failed / rate_limited / unavailable）+
+  Growth Card（session.ready `employee.growth_card` → EVAL 屏）。候选评测与晋升门此前已接；
+  真实激活前置仍是真实基线（ZENMUX 有推理权限的 key 或第二 Judge Provider 就绪）。
+
+## v0.20 legacy_learning 退役门槛
+
+`legacy_learning` **现在不默认关闭**。只有在同一发布候选上同时满足以下可审计条件后，
+才允许把 prefs 默认值从 `true` 改成 `false`：
+
+1. 至少 2 名不同员工各产生 1 个状态为 `ACTIVE` 的 Dream activation；
+2. 每个 activation 都绑定 `mock:false`、`provider_status:verified` 的 baseline 与 candidate eval；
+3. 每名员工的 `candidate score - baseline score >= 0`；
+4. 激活、回滚和 certification stale 守卫的全量测试仍通过。
+
+检查时间点固定为发布候选冻结后、最终 release build 前。任一条件不满足就保持默认开启，
+仅允许用户通过 `CREW_LEGACY_LEARNING=0` 或 prefs 显式试运行新链路；不得用 mock、未验证
+provider 或同一员工的多个 activation 凑数。

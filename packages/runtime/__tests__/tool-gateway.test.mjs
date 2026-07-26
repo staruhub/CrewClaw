@@ -16,6 +16,7 @@ import {
   isPathInsideRoot,
   isPublicHttpUrl,
   makeGateway,
+  readonlyPermissionAllows,
   resolvePathInsideRoot,
   resolvePublicHttpTarget,
 } from "../tool-gateway.mjs";
@@ -26,9 +27,42 @@ assert.equal(classify("bash", { command: "rm -rf foo" }).level, "L4");
 assert.equal(classify("write_file", { path: "x" }).level, "L2");
 assert.equal(classify("delete_file").level, "L4");
 assert.equal(classify("totally_unknown_tool").level, "L4");
+assert.equal(
+  readonlyPermissionAllows("todo_write", { action: "coordinate" }),
+  true
+);
+assert.equal(
+  readonlyPermissionAllows("ask_user", { action: "coordinate" }),
+  true
+);
+assert.equal(
+  readonlyPermissionAllows("future_delegate", { action: "coordinate" }),
+  false,
+  "a future coordinate tool is not readonly until explicitly reviewed"
+);
+assert.deepEqual(classify("mcp_call"), {
+  level: "L3",
+  scope: "external_mcp",
+  action: "read",
+});
 assert.equal(makeGateway().check("web_search").decision, "allow");
 assert.equal(makeGateway().check("write_file").decision, "confirm");
 assert.equal(makeGateway().check("delete_file").decision, "deny");
+const defaultMcp = makeGateway().check("mcp_call", {
+  server: "github",
+  tool: "get_file_contents",
+});
+assert.equal(defaultMcp.decision, "confirm");
+assert.equal(defaultMcp.decision_source, "platform_policy");
+assert.match(defaultMcp.reason, /MCP.*逐次确认/);
+assert.equal(
+  makeGateway({ policy: { L3: "allow" } }).check("mcp_call", {
+    server: "untrusted",
+    tool: "claims_to_be_readonly",
+  }).decision,
+  "confirm",
+  "generic autonomy overrides cannot downgrade an untrusted MCP call"
+);
 assert.equal(isPublicHttpUrl("https://example.com"), true);
 assert.equal(
   isPublicHttpUrl("http://192.0.64.1/"),
@@ -353,8 +387,8 @@ assert.equal(
 const runSource = readFileSync(new URL("../run.mjs", import.meta.url), "utf8");
 assert.match(
   runSource,
-  /runToolWithDeadline\(\s*toolSignal\s*=>\s*runToolFn\(\s*toolName,\s*args,\s*\{[\s\S]{0,280}?permission:\s*decision,[\s\S]{0,140}?root,[\s\S]{0,80}?signal:\s*toolSignal,[\s\S]{0,40}?\}\s*\),\s*\{[\s\S]{0,140}?signal,[\s\S]{0,100}?timeoutMs[\s\S]{0,40}?\}\s*\)/,
-  "the exact gateway decision, workspace root, and parent-to-child cancellation signals must reach the executor"
+  /runToolWithDeadline\(\s*toolSignal\s*=>\s*runToolFn\(\s*toolName,\s*args,\s*\{[\s\S]{0,900}?permission:\s*decision,[\s\S]{0,900}?root,[\s\S]{0,900}?signal:\s*toolSignal,[\s\S]{0,900}?taskRunId,[\s\S]{0,900}?onArtifactCreated,[\s\S]{0,900}?\}\s*\),\s*\{[\s\S]{0,900}?signal,[\s\S]{0,900}?timeoutMs[\s\S]{0,240}?\}\s*\)/,
+  "gateway decision, workspace root, cancellation, task correlation, and artifact callback must reach the executor"
 );
 assert.doesNotMatch(runSource, /function isReadOnly\(/);
 assert.equal(

@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { RUNTIME_ENTRY } from "./test-paths.mjs";
+import { RUNTIME_ENTRY, seedRuntimeTestTeam } from "./test-paths.mjs";
 
 const ONE_MIB = 1024 * 1024;
 const AGENT_ID = "ai-adoption-whale";
@@ -22,6 +22,7 @@ function fixture(prefix) {
   const outside = join(base, "outside");
   mkdirSync(root);
   mkdirSync(outside);
+  seedRuntimeTestTeam(root, [AGENT_ID]);
   return { base, root, outside };
 }
 

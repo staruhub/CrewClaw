@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   BriefcaseBusiness,
   CheckCircle2,
+  ClipboardCheck,
   Clock3,
   Copy,
   Download,
@@ -24,7 +25,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { getEmployee, type Employee } from "@/data/employees";
+import {
+  employeeEvidenceBadge,
+  employeeEvidenceLevel,
+  getEmployee,
+  type Employee,
+} from "@/data/employees";
 import { capabilityOnboardingRequirements } from "@/lib/capability-onboarding";
 import { isLocalDevelopment, localCrewClawCommand } from "@/data/experts";
 import { track } from "@/hooks/use-analytics";
@@ -213,6 +219,7 @@ export default function EmployeeDetail() {
   const reviews = useEmployeeReviews(employee?.employee_id ?? "missing", 0);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
+  const [selectedTaskRunId, setSelectedTaskRunId] = useState("");
   const [reviewMessage, setReviewMessage] = useState<string | null>(null);
   const [copiedTask, setCopiedTask] = useState<string | null>(null);
 
@@ -230,11 +237,20 @@ export default function EmployeeDetail() {
   const currentEmployee = employee;
   const requirements = onboardingRequirements(employee);
   const isSaved = saved.isSaved(employee.employee_id);
+  const effectiveTaskRunId = reviews.reviewableTasks.some(
+    task => task.task_run_id === selectedTaskRunId
+  )
+    ? selectedTaskRunId
+    : (reviews.reviewableTasks[0]?.task_run_id ?? "");
 
-  function submitReview(event: FormEvent<HTMLFormElement>) {
+  async function submitReview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const result = reviews.addReview(reviewRating, reviewText);
+    const result = await reviews.addReview(
+      effectiveTaskRunId,
+      reviewRating,
+      reviewText
+    );
     setReviewMessage(result.message);
 
     if (result.ok) {
@@ -271,7 +287,7 @@ export default function EmployeeDetail() {
           <div>
             <div className="flex flex-wrap gap-2">
               <Badge className="border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
-                {employee.verified ? "Verified Employee" : "In Review"}
+                {employeeEvidenceBadge(employee)}
               </Badge>
               {employee.categories.map(category => (
                 <Badge
@@ -300,7 +316,7 @@ export default function EmployeeDetail() {
                   </div>
                   <div className="flex items-center gap-2">
                     <BadgeCheck className="size-4 text-crew-copper" />
-                    <span>{employee.certification} certified</span>
+                    <span>{employeeEvidenceLevel(employee)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <PricingBadge pricing={employee.pricing} />
@@ -420,19 +436,75 @@ export default function EmployeeDetail() {
             data source — a bundled site can't read local eval/kpi files. Show real registry facts
             (certification, version) instead; live user reviews still surface in the Reviews section
             below when they exist. */}
-        <section className="mt-8 grid gap-4 sm:grid-cols-3">
+        <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Stat
             icon={ShieldCheck}
-            label="Certification"
-            value={employee.certification}
+            label="Evidence level"
+            value={employeeEvidenceLevel(employee)}
           />
-          <Stat icon={Tag} label="Version" value={`v${employee.version}`} />
+          <Stat
+            icon={Tag}
+            label="Package"
+            value={employee.evidence_state.package_status}
+          />
+          <Stat
+            icon={ClipboardCheck}
+            label="Lab certification"
+            value={
+              employee.certified_evaluation
+                ? `${Math.round(employee.certified_evaluation.success_rate * 100)}%`
+                : employee.evidence_state.lab_status
+            }
+          />
           <Stat
             icon={Clock3}
-            label="Updated"
-            value={formatEmployeeDate(employee.updated_at)}
+            label="Field evidence"
+            value={employee.evidence_state.field_status}
           />
         </section>
+
+        <div className="mt-4 rounded-[8px] border border-white/10 bg-white/[0.025] px-5 py-4">
+          {employee.certified_evaluation ? (
+            <dl className="grid gap-4 text-sm sm:grid-cols-3">
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-crew-muted">
+                  Evaluation source
+                </dt>
+                <dd className="mt-2 text-crew-body">
+                  {employee.certified_evaluation.source}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-crew-muted">
+                  Issued
+                </dt>
+                <dd className="mt-2 text-crew-body">
+                  {formatEmployeeDate(employee.certified_evaluation.issued_at)}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-crew-muted">
+                  Verified sample
+                </dt>
+                <dd className="mt-2 text-crew-body">
+                  {employee.certified_evaluation.sample_size} runs · confidence
+                  floor{" "}
+                  {Math.round(
+                    employee.certified_evaluation.success_confidence_low * 100
+                  )}
+                  % · mock:false
+                </dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="text-sm leading-6 text-crew-muted">
+              Package validation is available, but no registry-published signed
+              mock:false lab credential exists yet. This employee is C1, not
+              certified; it can reach C2 only after repeated profile runs pass
+              and a verifiable credential is published.
+            </p>
+          )}
+        </div>
 
         <section className="mt-8 grid gap-5 lg:grid-cols-2">
           <ResumeSection eyebrow="Fit" title="Best for">
@@ -619,10 +691,13 @@ export default function EmployeeDetail() {
                   {ratingStars(reviews.averageRating)}
                 </div>
                 <span className="text-sm text-crew-body">
-                  {reviews.averageRating.toFixed(1)} average from{" "}
-                  {reviews.reviewCount === 0
-                    ? "marketplace signal"
-                    : `${reviews.reviewCount} review${reviews.reviewCount === 1 ? "" : "s"}`}
+                  {reviews.localApiAvailable
+                    ? `${reviews.averageRating.toFixed(1)} verified average from ${
+                        reviews.reviewCount === 0
+                          ? "no accepted-task reviews"
+                          : `${reviews.reviewCount} verified review${reviews.reviewCount === 1 ? "" : "s"}`
+                      }`
+                    : "Local TaskRun reviews are available from a local CrewClaw workspace."}
                 </span>
               </div>
               <div className="mt-5 space-y-3">
@@ -643,6 +718,9 @@ export default function EmployeeDetail() {
                       <p className="mt-3 text-sm leading-6 text-crew-body">
                         {review.text}
                       </p>
+                      <p className="mt-2 font-mono text-xs text-emerald-200">
+                        Verified · accepted TaskRun {review.task_run_id}
+                      </p>
                     </article>
                   ))
                 ) : (
@@ -650,21 +728,73 @@ export default function EmployeeDetail() {
                     <div className="flex gap-3">
                       <MessageSquare className="mt-1 size-4 shrink-0 text-crew-copper" />
                       <p className="text-sm leading-6 text-crew-body">
-                        No teammate reviews yet. Add the first review after this
-                        employee helps your crew.
+                        No verified reviews yet. A review becomes available only
+                        after CrewClaw records an accepted TaskRun receipt.
                       </p>
                     </div>
                   </div>
                 )}
               </div>
+              {reviews.legacyNotes.length > 0 ? (
+                <div className="mt-6">
+                  <h3 className="text-sm font-medium text-crew-heading">
+                    Unverified local notes
+                  </h3>
+                  <p className="mt-2 text-xs leading-5 text-crew-muted">
+                    These historical browser-only notes are preserved for
+                    context. They do not count toward the verified average or
+                    reputation.
+                  </p>
+                  <div className="mt-3 space-y-3">
+                    {reviews.legacyNotes.map(note => (
+                      <article
+                        className="rounded-[8px] border border-dashed border-white/10 bg-white/[0.02] p-4"
+                        key={note.id}
+                      >
+                        <p className="text-sm leading-6 text-crew-body">
+                          {note.text}
+                        </p>
+                        <p className="mt-2 text-xs text-crew-muted">
+                          Unverified local note · {note.rating}/5
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
             <form
               className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4"
               onSubmit={submitReview}
             >
               <h3 className="text-sm font-medium text-crew-heading">
-                Review this employee
+                Review an accepted task
               </h3>
+              <label
+                className="mt-4 block text-xs font-medium text-crew-muted"
+                htmlFor="review-task-run"
+              >
+                Accepted TaskRun receipt
+              </label>
+              <select
+                className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#17120F] px-3 py-2 text-sm text-crew-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crew-copper"
+                disabled={
+                  reviews.loading || reviews.reviewableTasks.length === 0
+                }
+                id="review-task-run"
+                name="task_run_id"
+                onChange={event => setSelectedTaskRunId(event.target.value)}
+                value={effectiveTaskRunId}
+              >
+                {reviews.reviewableTasks.length === 0 ? (
+                  <option value="">No unreviewed accepted tasks</option>
+                ) : null}
+                {reviews.reviewableTasks.map(task => (
+                  <option key={task.task_run_id} value={task.task_run_id}>
+                    {task.goal} · {task.task_run_id}
+                  </option>
+                ))}
+              </select>
               <div className="mt-4 flex flex-wrap gap-2" role="radiogroup">
                 {[1, 2, 3, 4, 5].map(rating => (
                   <Button
@@ -683,6 +813,7 @@ export default function EmployeeDetail() {
                     variant="outline"
                   >
                     <Star
+                      aria-hidden="true"
                       className={cn(
                         "size-4",
                         reviewRating >= rating && "fill-current"
@@ -692,17 +823,28 @@ export default function EmployeeDetail() {
                 ))}
               </div>
               <Textarea
+                aria-label="Verified review"
                 className="mt-4 min-h-28 rounded-[8px] border-white/10 bg-white/[0.04] text-crew-heading placeholder:text-crew-muted"
+                disabled={reviews.reviewableTasks.length === 0}
+                name="review_text"
                 onChange={event => setReviewText(event.target.value)}
-                placeholder="Share what this AI employee helped with and where it still needs attention."
+                placeholder="Describe the accepted delivery and where it still needs attention…"
                 value={reviewText}
               />
               {reviewMessage ? (
-                <p className="mt-3 text-sm leading-6 text-crew-muted">
+                <p
+                  aria-live="polite"
+                  className="mt-3 text-sm leading-6 text-crew-muted"
+                >
                   {reviewMessage}
                 </p>
               ) : null}
-              <Button className="mt-4 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze">
+              <Button
+                className="mt-4 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
+                disabled={
+                  reviews.loading || reviews.reviewableTasks.length === 0
+                }
+              >
                 Submit review
               </Button>
             </form>
