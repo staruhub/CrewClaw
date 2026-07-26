@@ -11,6 +11,14 @@ import path from "node:path";
 import { z } from "zod";
 
 import {
+  CertificationCredentialSchema,
+  CertificationProfileSchema,
+  GoodEmployeeStateSchema,
+} from "../certification";
+import { EmployeeProofPackSchema } from "../employee-proofpack";
+import { MemoryPackSchema, OffboardingReceiptSchema } from "../offboarding";
+
+import {
   DreamApprovalSchema,
   DreamCandidateSchema,
   DreamDiffSchema,
@@ -95,6 +103,48 @@ export function buildSchemas(): Record<string, unknown> {
       description:
         "Runtime layer of the two-file employee standard: how the employee works, is evaluated (eval_suite + outcome_rubric), and grows.",
       ...z.toJSONSchema(EmployeeSpecSchema),
+    },
+    "good-employee.state.schema.json": {
+      $id: "https://crewclaw.dev/schema/good-employee.state.schema.json",
+      title: "CrewClaw Good Employee State",
+      description:
+        "Evidence-derived package, lab-certification, and field-evidence status. C-level is a projection, not an author claim.",
+      ...z.toJSONSchema(GoodEmployeeStateSchema),
+    },
+    "certification.profile.schema.json": {
+      $id: "https://crewclaw.dev/schema/certification.profile.schema.json",
+      title: "CrewClaw Certification Profile",
+      description:
+        "Authority-owned role benchmark: repeated cases, hard gates, thresholds, runtime target, and holdout policy.",
+      ...z.toJSONSchema(CertificationProfileSchema),
+    },
+    "certification.credential.schema.json": {
+      $id: "https://crewclaw.dev/schema/certification.credential.schema.json",
+      title: "CrewClaw Certification Credential",
+      description:
+        "Signed, non-mock evidence binding an employee subject to a profile, runtime, models, and repeated run receipts.",
+      ...z.toJSONSchema(CertificationCredentialSchema),
+    },
+    "employee.proofpack.schema.json": {
+      $id: "https://crewclaw.dev/schema/employee.proofpack.schema.json",
+      title: "CrewClaw Employee Proof Pack",
+      description:
+        "Tamper-evident employee-level evidence joining certification, KPI, TaskRun receipts, and Dream recertification state.",
+      ...z.toJSONSchema(EmployeeProofPackSchema),
+    },
+    "memory.pack.schema.json": {
+      $id: "https://crewclaw.dev/schema/memory.pack.schema.json",
+      title: "CrewClaw Transferable Memory Pack",
+      description:
+        "Tamper-evident active-memory export for an explicitly identified employment record.",
+      ...z.toJSONSchema(MemoryPackSchema),
+    },
+    "offboarding.receipt.schema.json": {
+      $id: "https://crewclaw.dev/schema/offboarding.receipt.schema.json",
+      title: "CrewClaw Offboarding Receipt",
+      description:
+        "Final truth-bearing receipt for memory export, handoff, fire, and logical purge outcomes.",
+      ...z.toJSONSchema(OffboardingReceiptSchema),
     },
     "tool-catalog.schema.json": {
       $id: "https://crewclaw.dev/schema/tool-catalog.schema.json",

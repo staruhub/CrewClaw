@@ -301,6 +301,59 @@
       ],
       "additionalProperties": false
     },
+    "certification_policy": {
+      "type": "object",
+      "properties": {
+        "package_status": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "validated",
+            "invalid"
+          ]
+        },
+        "lab_status": {
+          "type": "string",
+          "enum": [
+            "untested",
+            "running",
+            "certified",
+            "failed",
+            "expired",
+            "revoked",
+            "stale"
+          ]
+        },
+        "field_status": {
+          "type": "string",
+          "enum": [
+            "insufficient",
+            "pilot",
+            "proven"
+          ]
+        },
+        "profile_refs": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "self_tests_are_certification": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "package_status",
+        "lab_status",
+        "field_status",
+        "profile_refs",
+        "self_tests_are_certification"
+      ],
+      "additionalProperties": false
+    },
     "eval_suite": {
       "type": "object",
       "properties": {

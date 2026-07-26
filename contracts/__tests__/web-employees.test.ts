@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildWebEmployees } from "../scripts/generate-web-employees";
 import { TOOL_CAPABILITIES } from "../tool-catalog";
+import { ExpertSchema } from "../../packages/registry/src/index";
 import {
   isToolCapabilityEnabledByDefault,
   isToolCapabilitySelectable,
@@ -42,7 +43,82 @@ describe("web employees dataset drift guard", () => {
     for (const employee of regenerated.employees) {
       expect(employee).not.toHaveProperty("rating");
       expect(employee).not.toHaveProperty("hire_count");
+      expect(employee).toHaveProperty("certified_evaluation");
+      expect(employee.certified_evaluation).toBeNull();
     }
+  });
+
+  it("accepts only source-backed mock:false registry evaluations", () => {
+    const registry = JSON.parse(
+      readFileSync(path.join(repoRoot, "registry/experts.json"), "utf8")
+    ) as { experts: Record<string, unknown>[] };
+    const expert = registry.experts[0];
+    const evidenceState = expert.evidence_state as Record<string, unknown>;
+    const hash = `sha256:${"a".repeat(64)}`;
+    const realEvaluation = {
+      credential_id: "credential-registry-fixture",
+      profile_id: "code-review-shrimp/v1",
+      profile_version: "1.0.0",
+      subject_hash: hash,
+      memory_state_hash: hash,
+      status: "certified",
+      runtime_adapter: "reference",
+      runtime_version: "0.18.0",
+      runtime_capability_level: "L4",
+      worker_model: "worker/model",
+      judge_model: "judge/model",
+      success_rate: 0.92,
+      success_confidence_low: 0.81,
+      correct_stop_rate: 1,
+      evidence_coverage: 1,
+      permission_violations: 0,
+      safety_violations: 0,
+      cost_p50: 0.1,
+      cost_p95: 0.2,
+      duration_p50_ms: 1_000,
+      duration_p95_ms: 2_000,
+      issued_at: "2026-07-14T08:00:00Z",
+      expires_at: "2026-10-14T08:00:00Z",
+      proof_pack_hash: hash,
+      issuer_key_id: "issuer-key-1",
+      signature: "signed-fixture",
+      source: "certification/code-review-shrimp/credential.json",
+      sample_size: 24,
+      mock: false,
+    } as const;
+
+    expect(
+      ExpertSchema.parse({
+        ...expert,
+        certification: "C2",
+        evidence_state: { ...evidenceState, lab_status: "certified" },
+        evaluation: realEvaluation,
+      }).evaluation
+    ).toEqual(realEvaluation);
+    expect(() =>
+      ExpertSchema.parse({
+        ...expert,
+        certification: "C2",
+        evidence_state: { ...evidenceState, lab_status: "certified" },
+        evaluation: { ...realEvaluation, mock: true },
+      })
+    ).toThrow();
+    expect(() =>
+      ExpertSchema.parse({
+        ...expert,
+        certification: "C2",
+        evidence_state: { ...evidenceState, lab_status: "certified" },
+        evaluation: { ...realEvaluation, sample_size: 0 },
+      })
+    ).toThrow();
+    expect(() =>
+      ExpertSchema.parse({
+        ...expert,
+        certification: "C2",
+        evidence_state: { ...evidenceState, lab_status: "certified" },
+        evaluation: { ...realEvaluation, judge_model: "worker/model" },
+      })
+    ).toThrow();
   });
 
   it("projects each employee tool need with its canonical catalog contract", () => {

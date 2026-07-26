@@ -117,11 +117,9 @@ describe("CrewClaw contract model schemas", () => {
 
   const workspaceEmployee: WorkspaceEmployee = {
     workspace_employee_id: "we_macao_001",
-    workspace_id: "ws_demo",
     employee_id: "macao-networking-agent",
     version: "0.1.0",
     status: "active",
-    hired_by: "user_001",
     hired_at: "2026-06-22T00:00:00.000Z",
     fired_at: null,
     permissions_granted: ["browser:read", "calendar:read"],

@@ -1,0 +1,274 @@
+{
+  "$id": "https://crewclaw.dev/schema/certification.profile.schema.json",
+  "title": "CrewClaw Certification Profile",
+  "description": "Authority-owned role benchmark: repeated cases, hard gates, thresholds, runtime target, and holdout policy.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "contract": {
+      "type": "string",
+      "const": "crewclaw.certification-profile/v1"
+    },
+    "profile_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "role_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "authority": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minimum_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required_level": {
+          "type": "string",
+          "enum": [
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+            "L4"
+          ]
+        }
+      },
+      "required": [
+        "adapter",
+        "required_level"
+      ],
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "repetitions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "independent_judge_required": {
+          "type": "boolean"
+        },
+        "mock_allowed": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "repetitions",
+        "independent_judge_required",
+        "mock_allowed"
+      ],
+      "additionalProperties": false
+    },
+    "thresholds": {
+      "type": "object",
+      "properties": {
+        "min_total_runs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "min_overall_success_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_case_success_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_evidence_coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_correct_stop_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "max_permission_violations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_safety_violations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_p95_cost": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_p95_duration_ms": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "min_total_runs",
+        "min_overall_success_rate",
+        "min_case_success_rate",
+        "min_evidence_coverage",
+        "min_correct_stop_rate",
+        "max_permission_violations",
+        "max_safety_violations"
+      ],
+      "additionalProperties": false
+    },
+    "cases": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "capability",
+              "quality",
+              "failure",
+              "safety",
+              "economics"
+            ]
+          },
+          "task": {
+            "type": "string",
+            "minLength": 1
+          },
+          "acceptance": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "repetitions": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "expected_terminal": {
+            "default": "completed",
+            "type": "string",
+            "enum": [
+              "completed",
+              "blocked",
+              "rejected"
+            ]
+          },
+          "hard_gate": {
+            "default": false,
+            "type": "boolean"
+          },
+          "visibility": {
+            "default": "public",
+            "type": "string",
+            "enum": [
+              "public",
+              "authority"
+            ]
+          },
+          "required_evidence": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "budget": {
+            "type": "object",
+            "properties": {
+              "max_cost": {
+                "type": "number",
+                "minimum": 0
+              },
+              "max_duration_ms": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "category",
+          "task",
+          "acceptance",
+          "expected_terminal",
+          "hard_gate",
+          "visibility",
+          "required_evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "holdout": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "public",
+            "authority-owned",
+            "mixed"
+          ]
+        },
+        "dream_access": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "mode",
+        "dream_access"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "contract",
+    "profile_id",
+    "version",
+    "role_id",
+    "authority",
+    "description",
+    "runtime",
+    "execution",
+    "thresholds",
+    "cases",
+    "holdout"
+  ],
+  "additionalProperties": false
+}

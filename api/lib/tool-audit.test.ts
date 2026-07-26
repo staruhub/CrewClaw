@@ -28,7 +28,9 @@ describe("tool audit elapsed display", () => {
     expect(formatToolElapsed(tool)).toBe("842 ms");
   });
 
-  it("uses elapsed_ms only when timestamps are absent or invalid", () => {
+  it("falls back to elapsed_ms when timestamps are unusable, but marks it as claimed", () => {
+    // An unparsable timestamp leaves no measurable window, so the self-reported value is
+    // all we have — it must render, but must not look like a measured duration.
     expect(
       formatToolElapsed(
         invocation({
@@ -37,14 +39,24 @@ describe("tool audit elapsed display", () => {
           elapsed_ms: 1_194,
         })
       )
-    ).toBe("1.2 s");
+    ).toBe("1.2 s (claimed)");
+  });
+
+  it("refuses to launder an impossible audit window into a duration", () => {
+    // ended_at < started_at means the record is skewed or rewritten. Neither the window
+    // nor a co-located elapsed_ms may be presented as timing the table can trust.
+    const backwards = {
+      started_at: "2026-07-13T00:00:01.000Z",
+      ended_at: "2026-07-13T00:00:00.000Z",
+    };
+    expect(formatToolElapsed(invocation(backwards))).toBe("invalid window");
     expect(
-      formatToolElapsed(
-        invocation({
-          started_at: "2026-07-13T00:00:01.000Z",
-          ended_at: "2026-07-13T00:00:00.000Z",
-        })
+      formatToolElapsed(invocation({ ...backwards, elapsed_ms: 1_194 }))
+    ).toBe("invalid window");
+    expect(
+      elapsedMsForToolInvocation(
+        invocation({ ...backwards, elapsed_ms: 1_194 })
       )
-    ).toBe("—");
+    ).toBeUndefined();
   });
 });

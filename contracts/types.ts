@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import { EmployeeManifestSchema } from "./manifest";
+export { WorkspaceEmployeeSchema, WorkspaceEmployeeStatusSchema } from "./team";
+export type { WorkspaceEmployee, WorkspaceEmployeeStatus } from "./team";
+export * from "./certification";
+export * from "./employee-proofpack";
+export * from "./offboarding";
 
 const NonEmptyStringSchema = z.string().min(1);
 const StringArraySchema = z.array(NonEmptyStringSchema);
@@ -11,12 +16,6 @@ export const EmployeeStatusSchema = z.enum([
   "review",
   "published",
   "disabled",
-]);
-export const WorkspaceEmployeeStatusSchema = z.enum([
-  "active",
-  "warning",
-  "broken",
-  "fired",
 ]);
 export const HealthStatusSchema = z.enum(["healthy", "warning", "broken"]);
 
@@ -48,20 +47,6 @@ export const EmployeePackageSchema = z
   })
   .strict();
 
-export const WorkspaceEmployeeSchema = z
-  .object({
-    workspace_employee_id: NonEmptyStringSchema,
-    workspace_id: NonEmptyStringSchema,
-    employee_id: NonEmptyStringSchema,
-    version: NonEmptyStringSchema,
-    status: WorkspaceEmployeeStatusSchema,
-    hired_by: NonEmptyStringSchema,
-    hired_at: DateTimeSchema,
-    fired_at: DateTimeSchema.nullable(),
-    permissions_granted: StringArraySchema,
-  })
-  .strict();
-
 export const DoctorReportSchema = z
   .object({
     report_id: NonEmptyStringSchema,
@@ -75,12 +60,8 @@ export const DoctorReportSchema = z
 
 export type AgentEmployee = z.infer<typeof AgentEmployeeSchema>;
 export type EmployeePackage = z.infer<typeof EmployeePackageSchema>;
-export type WorkspaceEmployee = z.infer<typeof WorkspaceEmployeeSchema>;
 export type DoctorReport = z.infer<typeof DoctorReportSchema>;
 export type EmployeeStatus = z.infer<typeof EmployeeStatusSchema>;
-export type WorkspaceEmployeeStatus = z.infer<
-  typeof WorkspaceEmployeeStatusSchema
->;
 export type HealthStatus = z.infer<typeof HealthStatusSchema>;
 
 export * from "./errors";

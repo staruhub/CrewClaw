@@ -131,12 +131,12 @@
     {
       "id": "artifact.report",
       "version": "1.0.0",
-      "invocation": "engine",
+      "invocation": "model",
       "operation": "write",
       "risk_tier": "P1",
-      "runtime_tool": null,
+      "runtime_tool": "artifact_write",
       "provider_bindings": [
-        { "provider": "crewclaw.artifacts", "tools": ["report_write"] }
+        { "provider": "crewclaw.artifacts", "tools": ["artifact_write"] }
       ],
       "side_effects": ["Writes a task-scoped deliverable artifact."],
       "supports_preview": true,
@@ -225,10 +225,9 @@
           "provider": "mcp.github",
           "tools": [
             "search_code",
-            "list_issues",
-            "get_issue",
-            "list_pull_requests",
-            "get_pull_request"
+            "get_file_contents",
+            "issue_read",
+            "pull_request_read"
           ]
         }
       ],

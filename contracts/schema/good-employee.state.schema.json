@@ -1,0 +1,62 @@
+{
+  "$id": "https://crewclaw.dev/schema/good-employee.state.schema.json",
+  "title": "CrewClaw Good Employee State",
+  "description": "Evidence-derived package, lab-certification, and field-evidence status. C-level is a projection, not an author claim.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "contract": {
+      "type": "string",
+      "const": "crewclaw.good-employee-state/v1"
+    },
+    "package_status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "validated",
+        "invalid"
+      ]
+    },
+    "lab_status": {
+      "type": "string",
+      "enum": [
+        "untested",
+        "running",
+        "certified",
+        "failed",
+        "expired",
+        "revoked",
+        "stale"
+      ]
+    },
+    "field_status": {
+      "type": "string",
+      "enum": [
+        "insufficient",
+        "pilot",
+        "proven"
+      ]
+    },
+    "derived_level": {
+      "type": "string",
+      "enum": [
+        "C0",
+        "C1",
+        "C2",
+        "C3"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "contract",
+    "package_status",
+    "lab_status",
+    "field_status",
+    "derived_level"
+  ],
+  "additionalProperties": false
+}

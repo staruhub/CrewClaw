@@ -1,0 +1,484 @@
+{
+  "$id": "https://crewclaw.dev/schema/employee.proofpack.schema.json",
+  "title": "CrewClaw Employee Proof Pack",
+  "description": "Tamper-evident employee-level evidence joining certification, KPI, TaskRun receipts, and Dream recertification state.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "contract": {
+      "type": "string",
+      "const": "crewclaw.employee-proof-pack/v1"
+    },
+    "employee_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal"
+      ]
+    },
+    "employee_state": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "type": "string",
+          "const": "crewclaw.good-employee-state/v1"
+        },
+        "package_status": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "validated",
+            "invalid"
+          ]
+        },
+        "lab_status": {
+          "type": "string",
+          "enum": [
+            "untested",
+            "running",
+            "certified",
+            "failed",
+            "expired",
+            "revoked",
+            "stale"
+          ]
+        },
+        "field_status": {
+          "type": "string",
+          "enum": [
+            "insufficient",
+            "pilot",
+            "proven"
+          ]
+        },
+        "derived_level": {
+          "type": "string",
+          "enum": [
+            "C0",
+            "C1",
+            "C2",
+            "C3"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "contract",
+        "package_status",
+        "lab_status",
+        "field_status",
+        "derived_level"
+      ],
+      "additionalProperties": false
+    },
+    "certification": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "credential_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "effective_status": {
+              "type": "string",
+              "enum": [
+                "certified",
+                "failed",
+                "expired",
+                "revoked",
+                "stale"
+              ]
+            },
+            "subject_hash": {
+              "type": "string",
+              "pattern": "^(?:sha256:)?[a-f0-9]{64}$"
+            },
+            "memory_state_hash": {
+              "type": "string",
+              "pattern": "^(?:sha256:)?[a-f0-9]{64}$"
+            },
+            "profile_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "profile_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "issued_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "expires_at": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "signed": {
+              "type": "boolean"
+            },
+            "verified": {
+              "type": "boolean"
+            },
+            "sample_size": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "success_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "success_confidence_low": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "correct_stop_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "evidence_coverage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "permission_violations": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "safety_violations": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "proof_pack_hash": {
+              "type": "string",
+              "pattern": "^(?:sha256:)?[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "credential_id",
+            "effective_status",
+            "subject_hash",
+            "memory_state_hash",
+            "profile_id",
+            "profile_version",
+            "issued_at",
+            "expires_at",
+            "signed",
+            "verified",
+            "sample_size",
+            "success_rate",
+            "success_confidence_low",
+            "correct_stop_rate",
+            "evidence_coverage",
+            "permission_violations",
+            "safety_violations",
+            "proof_pack_hash"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kpi": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "type": "string",
+          "const": "crewclaw.kpi/v2"
+        },
+        "tasks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "successful": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "accepted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "auto_accepted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "correctly_blocked": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "rejected": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "chat_turns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "total_cost": {
+          "type": "number",
+          "minimum": 0
+        },
+        "cost_currency": {
+          "type": "string",
+          "const": "USD"
+        },
+        "average_duration_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_coverage": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "permission_violations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "safety_violations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "legacy_unclassified_tasks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "contract",
+        "tasks",
+        "successful",
+        "accepted",
+        "auto_accepted",
+        "correctly_blocked",
+        "rejected",
+        "failed",
+        "chat_turns",
+        "total_cost",
+        "cost_currency",
+        "average_duration_ms",
+        "evidence_coverage",
+        "permission_violations",
+        "safety_violations",
+        "legacy_unclassified_tasks"
+      ],
+      "additionalProperties": false
+    },
+    "task_evidence": {
+      "type": "object",
+      "properties": {
+        "verified_proofpacks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "accepted_receipts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "task_receipts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "task_run_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "accept",
+                  "reject",
+                  "none"
+                ]
+              },
+              "proofpack_hash": {
+                "type": "string",
+                "pattern": "^(?:sha256:)?[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "task_run_id",
+              "decision",
+              "proofpack_hash"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "verified_proofpacks",
+        "accepted_receipts",
+        "task_receipts"
+      ],
+      "additionalProperties": false
+    },
+    "dream": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "activation_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "activated_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "activated_memory_hash": {
+              "type": "string",
+              "pattern": "^(?:sha256:)?[a-f0-9]{64}$"
+            },
+            "recertification_required": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "activation_id",
+            "activated_at",
+            "activated_memory_hash",
+            "recertification_required"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "integrity": {
+      "type": "object",
+      "properties": {
+        "source_hashes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "kpi",
+                  "certification",
+                  "task_proofpack",
+                  "dream_activation"
+                ]
+              },
+              "ref": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^(?:sha256:)?[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "kind",
+              "ref",
+              "sha256"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^(?:sha256:)?[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "source_hashes",
+        "content_hash"
+      ],
+      "additionalProperties": false
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "contract",
+    "employee_id",
+    "generated_at",
+    "visibility",
+    "employee_state",
+    "certification",
+    "kpi",
+    "task_evidence",
+    "dream",
+    "integrity",
+    "warnings"
+  ],
+  "additionalProperties": false
+}

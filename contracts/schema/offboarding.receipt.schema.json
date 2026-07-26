@@ -1,0 +1,277 @@
+{
+  "$id": "https://crewclaw.dev/schema/offboarding.receipt.schema.json",
+  "title": "CrewClaw Offboarding Receipt",
+  "description": "Final truth-bearing receipt for memory export, handoff, fire, and logical purge outcomes.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "contract": {
+      "type": "string",
+      "const": "crewclaw.offboarding/v1"
+    },
+    "offboarding_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "employee_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "workspace_employee_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "partial"
+      ]
+    },
+    "export_memory": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "not_requested",
+            "exported",
+            "failed"
+          ]
+        },
+        "pack_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pack_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relative_path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "requested",
+        "status",
+        "pack_id",
+        "pack_sha256",
+        "relative_path"
+      ],
+      "additionalProperties": false
+    },
+    "handoff": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "not_requested",
+            "drafted",
+            "failed"
+          ]
+        },
+        "draft_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "successor_employee_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "requested",
+        "status",
+        "draft_id",
+        "successor_employee_id"
+      ],
+      "additionalProperties": false
+    },
+    "fire": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "fired"
+        },
+        "fired_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "permissions_active": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "status",
+        "fired_at",
+        "permissions_active"
+      ],
+      "additionalProperties": false
+    },
+    "purge": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "not_requested",
+            "purged",
+            "failed"
+          ]
+        },
+        "deleted_scopes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "memory",
+              "memory_candidates",
+              "dream",
+              "skill_usage"
+            ]
+          }
+        },
+        "retained_audit_scopes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "team",
+              "activity",
+              "task_runs",
+              "proofpacks",
+              "kpi",
+              "eval"
+            ]
+          }
+        },
+        "media_sanitization": {
+          "type": "string",
+          "const": "not_performed"
+        }
+      },
+      "required": [
+        "requested",
+        "status",
+        "deleted_scopes",
+        "retained_audit_scopes",
+        "media_sanitization"
+      ],
+      "additionalProperties": false
+    },
+    "billing": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "not_applicable"
+        },
+        "reason": {
+          "type": "string",
+          "const": "local_runtime_has_no_billing_executor"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "properties": {
+        "content_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "content_hash"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "contract",
+    "offboarding_id",
+    "employee_id",
+    "workspace_employee_id",
+    "requested_at",
+    "completed_at",
+    "outcome",
+    "export_memory",
+    "handoff",
+    "fire",
+    "purge",
+    "billing",
+    "warnings",
+    "integrity"
+  ],
+  "additionalProperties": false
+}

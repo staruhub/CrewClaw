@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { DreamPolicySchema } from "./dream";
+import { CertificationPolicySchema } from "./certification";
 import { TOOL_CAPABILITY_IDS } from "./tool-catalog";
 
 // EmployeeSpecSchema — the runtime deep spec (`crewclaw.employee.yaml`), layered ABOVE the hiring
@@ -172,6 +173,9 @@ export const EmployeeSpecSchema = z
         human_authorization_required: StringArraySchema,
       })
       .strict(),
+    // Employee-owned eval_suite is a development/self-test surface. Formal C2 certification is
+    // issued only from an authority-owned CertificationProfile + signed Credential.
+    certification_policy: CertificationPolicySchema.optional(),
     eval_suite: z
       .object({
         smoke_tests: z.array(SmokeTestSchema).min(1),

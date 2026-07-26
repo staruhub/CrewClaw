@@ -13,6 +13,7 @@ import path from "node:path";
 import {
   loadRegistry,
   resolveExpertSourceFile,
+  type CertifiedEvaluation,
 } from "../../packages/registry/src/index";
 import yaml from "../../packages/runtime/yaml.mjs";
 import { EmployeeSpecSchema } from "../employee-spec";
@@ -66,6 +67,19 @@ export type GeneratedEmployee = {
   updated_at: string;
   version: string;
   certification: string;
+  evidence_state: {
+    package_status: "draft" | "validated" | "invalid";
+    lab_status:
+      | "untested"
+      | "running"
+      | "certified"
+      | "failed"
+      | "expired"
+      | "revoked"
+      | "stale";
+    field_status: "insufficient" | "pilot" | "proven";
+  };
+  certified_evaluation: CertifiedEvaluation | null;
   pricing: string;
   repo: string | null;
   local_source: string | null;
@@ -171,6 +185,16 @@ export function buildWebEmployees(root = repoRoot): GeneratedDataset {
           `${entry.name}: hire.yaml version ${hire.metadata.version} != registry ${entry.version}`
         );
       }
+      if (hire.metadata.certification !== entry.certification) {
+        throw new Error(
+          `${entry.name}: hire.yaml certification ${hire.metadata.certification} != evidence-derived registry level ${entry.certification}`
+        );
+      }
+      if (spec.identity.certification !== entry.certification) {
+        throw new Error(
+          `${entry.name}: crewclaw.employee.yaml certification ${spec.identity.certification} != evidence-derived registry level ${entry.certification}`
+        );
+      }
       if (!entry.first_task) {
         throw new Error(`${entry.name}: registry entry is missing first_task`);
       }
@@ -182,13 +206,17 @@ export function buildWebEmployees(root = repoRoot): GeneratedDataset {
         creator_id: "chaogeek",
         description: hire.identity.description,
         status: "published",
-        verified: hire.metadata.certification === "C2",
+        verified:
+          entry.evidence_state.lab_status === "certified" &&
+          entry.evaluation !== null,
         categories: hire.categories ?? [entry.category],
         tags: hire.tags ?? entry.tags,
         created_at: registry.updated_at,
         updated_at: registry.updated_at,
         version: hire.metadata.version,
-        certification: hire.metadata.certification,
+        certification: entry.certification,
+        evidence_state: entry.evidence_state,
+        certified_evaluation: entry.evaluation,
         pricing: hire.pricing ?? entry.pricing,
         repo: entry.repo ?? null,
         local_source: entry.local_source ?? null,
