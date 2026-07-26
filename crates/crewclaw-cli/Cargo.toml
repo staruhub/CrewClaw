@@ -26,7 +26,7 @@ arboard = { version = "3", default-features = false }
 # v0.13：SESSION 事件行的 HH:MM 本地时间。std 拿不到时区偏移；time crate 的 local-offset
 # 有多线程 soundness caveat，chrono 是稳妥选项。关默认 feature 只留 clock。
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-getrandom = "0.3.4"
+getrandom = "0.4.3"
 semver = "1.0.28"
 
 [target.'cfg(unix)'.dependencies]
