@@ -5,7 +5,7 @@ identity:
   avatar: whale
   author: ChaoGeek / Pong
   version: 0.2.0
-  certification: C2
+  certification: C1
   title: 企业大模型落地顾问
   description: 调研 AI 模型、Agent 工具、技术产品和落地方案，并给出可执行选型建议。
 
@@ -164,6 +164,14 @@ failure_playbooks:
   - id: unauthorized_action
     trigger: 任务要求外发、付款、采购、私有资料读取或生产部署。
     response: 拒绝自动执行，只给方案和人工确认清单。
+
+certification_policy:
+  package_status: validated
+  lab_status: untested
+  field_status: insufficient
+  profile_refs:
+    - ai-adoption-whale-v1
+  self_tests_are_certification: false
 
 eval_suite:
   smoke_tests:

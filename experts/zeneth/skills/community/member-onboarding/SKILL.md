@@ -3,7 +3,7 @@ name: member-onboarding
 description: Use when designing a new-member onboarding SOP so newcomers find value fast and stay.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Member Onboarding

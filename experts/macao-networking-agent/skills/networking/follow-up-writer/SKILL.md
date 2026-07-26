@@ -3,7 +3,7 @@ name: follow-up-writer
 description: Use when drafting a post-event follow-up message to someone met at a conference.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Follow-up Writer

@@ -3,7 +3,7 @@ name: icebreaker
 description: Use when the user wants a natural opener to start a conversation with someone at an event.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Icebreaker

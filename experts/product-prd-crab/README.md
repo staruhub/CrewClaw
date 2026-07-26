@@ -1,6 +1,6 @@
 # Product PRD Crab
 
-Product PRD Crab is a ChaoGeek-certified Hermes expert for PRD review, requirement clarification, acceptance criteria, and metrics planning.
+Product PRD Crab is a C1 package-validated Hermes expert for PRD review, requirement clarification, acceptance criteria, and metrics planning. C1 validates the package; it does not claim lab certification.
 
 ## Install
 

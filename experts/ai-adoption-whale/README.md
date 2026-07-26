@@ -1,23 +1,23 @@
-# Macao Networking Agent
+# AI Adoption Whale
 
-Macao Networking Agent is a ChaoGeek-certified Hermes expert for discovering Macao events, mapping local leads, researching organizations, and drafting human-reviewed outreach.
+AI 落地鲸 is a C1 package-validated Hermes expert for enterprise AI adoption, model selection, agent workflow design, implementation roadmaps, and editable ROI analysis. C1 validates the package; it does not claim lab certification.
 
 ## Install
 
 ```bash
-hermes profile install ./experts/macao-networking-agent --name macao-networking-agent --alias
+hermes profile install ./experts/ai-adoption-whale --name ai-adoption-whale --alias
 ```
 
 ## Best For
 
-- Finding Macao conferences, trade shows, startup events, and industry gatherings.
-- Prioritizing people, companies, and institutions worth researching before an event.
-- Turning brief meeting notes into concise follow-up messages.
-- Recommending dinner or coffee contexts for relationship-building conversations.
+- Comparing models with official, date-stamped evidence and explicit uncertainty.
+- Designing bounded agent workflows, tool requirements, permissions, and acceptance criteria.
+- Producing phased adoption roadmaps and editable ROI assumptions.
+- Reporting unavailable tools, unverifiable models, and budget limits as explicit blockers.
 
 ## Not For
 
-- Guaranteeing that a person, role, or event detail is current without source context.
-- Sending messages automatically.
-- Reading private contacts or writing CRM records by default.
-- Replacing a human BD decision on who to contact.
+- Making unsupported claims about unreleased or unverifiable models.
+- Deploying to production or changing permissions without explicit human authorization.
+- Treating estimated ROI as a guaranteed financial result.
+- Replacing legal, security, procurement, or executive approval.

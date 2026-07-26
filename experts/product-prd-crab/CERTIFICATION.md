@@ -36,7 +36,7 @@ No external MCP is required for MVP usage.
 
 ## Level
 
-C2 ChaoGeek Certified.
+C1 Package Validated. The checks above describe intended acceptance criteria, not a published formal certification. C2 requires a signed, non-MOCK repeated-run Credential.
 
 ## Updates
 

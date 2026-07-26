@@ -5,7 +5,7 @@ identity:
   avatar: crab
   author: ChaoGeek / Pong
   version: 0.1.0
-  certification: C2
+  certification: C1
   title: 产品需求评审专家
   description: 评审 PRD，检查用户目标、范围和验收标准是否清楚，补边界条件和失败流程，把需求变成工程可实现、可测试的文档。
 

@@ -3,7 +3,7 @@ name: adoption-roadmap
 description: Use when the user needs a staged plan to take an LLM/agent from PoC to pilot to production.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Adoption Roadmap

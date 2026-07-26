@@ -3,7 +3,7 @@ name: security-risk-scan
 description: Use when reviewing a code change for auth, input validation, secrets, permissions, or unsafe side effects.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Security Risk Scan

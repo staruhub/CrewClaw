@@ -7,7 +7,7 @@
 
 ## 0.1.0
 
-- Initial ChaoGeek Certified MVP profile for AI 落地鲸 (enterprise LLM adoption consultant).
+- Initial C1 package-validated MVP profile for AI 落地鲸 (enterprise LLM adoption consultant).
 - Advisory skills: model-selector, agent-workflow-designer, adoption-roadmap, roi-estimator.
 - Added distribution, MCP, examples, evals, certification, and environment template files.
 - (Note: this entry previously described the Macao Networking Agent — a copy-paste error, corrected in 0.2.0.)

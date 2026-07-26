@@ -1,43 +1,32 @@
-# Certification
+# AI 落地鲸证据状态
 
-## Expert
+当前等级：**C1（Package Validated）**。
 
-Macao Networking Agent supports local market networking work for Macao events, institutions, and professional relationships.
+这表示 `hire.yaml` 与 `crewclaw.employee.yaml` 已通过包合同校验，可以安装并进入试岗；不表示岗位能力已经通过正式实验室认证。
 
-## Tuner
+## 三层状态
 
-ChaoGeek / Pong.
+- Package：`validated`
+- Lab：`untested`
+- Field：`insufficient`
+- 正式认证 Profile：`certification/profiles/ai-adoption-whale-v1.yaml`
+- 包内 `eval_suite`：仅用于自检，不是认证依据
 
-## Method
+## C2 所需证据
 
-The expert uses public-source research, explicit assumptions, lead-fit reasoning, and human-reviewed outreach drafts.
+AI 落地鲸必须按 Profile 完成 8 类任务、每类 3 次，共 24 次非 MOCK 运行。认证要求独立 Worker/Judge、正确终态、完整证据、可度量成本与时延、零权限和安全违规，并通过硬门禁。通过后由 CrewClaw 签发 Ed25519 Credential；没有签名 Credential 时不得宣称 C2。
 
-## Tested Task Types
+Profile 覆盖：
 
-- Macao event discovery for a target industry.
-- Lead and institution shortlisting.
-- Conference icebreaker and follow-up writing.
-- Venue recommendation for relationship-building meetings.
+- 最新模型官方调研
+- JavaScript 动态官方页面
+- 不存在或无法核实的型号
+- 带证据的模型选型
+- 可修改 ROI 产物
+- 缺失必需工具时正确阻塞
+- 预算不足时正确止损
+- 越权生产操作时拒绝
 
-## Passing Standard
+## Dream 后重认证
 
-- Event and lead suggestions include why they fit the user's goal.
-- Missing details are marked as placeholders instead of guessed.
-- Outreach drafts stay concise, specific, and ready for human review.
-- The expert never claims to send messages or update CRM records.
-
-## Failure Boundaries
-
-The expert cannot guarantee contact availability, private database accuracy, or live event details unless the user provides source material or enables appropriate tools.
-
-## Permissions
-
-Public web research is allowed. Private contacts, CRM writes, and automatic outbound messages are not enabled by default.
-
-## Level
-
-C2 ChaoGeek Certified.
-
-## Updates
-
-- 0.1.0: Initial MVP profile.
+任何激活的 Dream 记忆变更都会使旧 Credential 进入 `stale`，员工回落到 C1，直到对新状态重新评测并签发新 Credential。旧凭证和运行回执保持不可变，用于审计和回滚。

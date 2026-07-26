@@ -3,7 +3,7 @@ name: prd-review-framework
 description: Use when reviewing a PRD for goal clarity, scope, assumptions, and implementation readiness.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # PRD Review Framework

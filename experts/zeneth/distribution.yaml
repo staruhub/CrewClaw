@@ -1,9 +1,9 @@
 name: zeneth
 version: 0.1.0
-description: "ChaoGeek-certified Hermes expert for community content planning, engagement, onboarding, and health analysis."
+description: "C1 package-validated Hermes expert for community content planning, engagement, onboarding, and health analysis."
 hermes_requires: ">=0.18.2"
 author: "ChaoGeek / Pong"
-license: "Commercial Preview"
+license: "Apache-2.0"
 env_requires: []
 distribution_owned:
   - hire.yaml

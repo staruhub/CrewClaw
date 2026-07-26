@@ -3,7 +3,7 @@ name: acceptance-criteria-writer
 description: Use when turning product requirements into concrete, testable acceptance criteria.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Acceptance Criteria Writer

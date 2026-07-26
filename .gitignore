@@ -57,3 +57,15 @@ coverage/
 # local tool/test artifacts
 test-results/
 .claude/launch.json
+.tmp_page*.png
+/crewclaw.exe.bak*
+
+# roadshow/scaffold artifacts untracked at tip (release audit 2026-07-25)
+/decks/
+/info.md
+/crew.cmd
+/verify-demo.cmd
+# internal stage runbooks — machine-specific absolute paths, not product docs
+/docs/roadshow-runbook.md
+/docs/demo-segment.md
+/docs/stage-cheatsheet.md

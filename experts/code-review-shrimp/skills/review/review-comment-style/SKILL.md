@@ -3,7 +3,7 @@ name: review-comment-style
 description: Use when converting review findings into actionable, respectful code review comments.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Review Comment Style

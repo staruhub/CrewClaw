@@ -3,6 +3,10 @@ name = "crewclaw-cli"
 version = "0.1.0"
 edition = "2024"
 publish = false
+description = "CrewClaw workbench CLI/TUI — hire, run and evaluate digital employees"
+repository = "https://github.com/staruhub/CrewClaw"
+license = "Apache-2.0"
+authors = ["ChaoGeek"]
 
 [dependencies]
 ctrlc = "3.5.1"
@@ -23,6 +27,7 @@ arboard = { version = "3", default-features = false }
 # 有多线程 soundness caveat，chrono 是稳妥选项。关默认 feature 只留 clock。
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 getrandom = "0.3.4"
+semver = "1.0.28"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.177"

@@ -3,7 +3,7 @@ name: content-calendar
 description: Use when the user needs a concrete content calendar / posting schedule for a community.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Content Calendar

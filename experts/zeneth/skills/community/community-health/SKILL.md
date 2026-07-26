@@ -3,7 +3,7 @@ name: community-health
 description: Use when reviewing community health (activity, retention, speaker distribution) and proposing fixes.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Community Health

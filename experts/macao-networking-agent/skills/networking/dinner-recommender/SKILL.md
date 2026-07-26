@@ -3,7 +3,7 @@ name: dinner-recommender
 description: Use when the user wants Macao dinner, coffee, or venue ideas for a networking meeting.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Dinner Recommender

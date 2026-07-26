@@ -3,7 +3,7 @@ name: code-review-checklist
 description: Use when reviewing a pull request or local code diff for correctness, maintainability, and merge readiness.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Code Review Checklist

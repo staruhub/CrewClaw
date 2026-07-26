@@ -3,7 +3,7 @@ name: engagement-playbook
 description: Use when a community is quiet and needs concrete icebreakers / interaction plays to warm it up.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Engagement Playbook

@@ -1,18 +1,30 @@
 {
   "mcp_servers": {
     "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "-e",
+        "GITHUB_TOOLSETS",
+        "-e",
+        "GITHUB_READ_ONLY",
+        "ghcr.io/github/github-mcp-server"
+      ],
       "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}",
+        "GITHUB_TOOLSETS": "repos,issues,pull_requests",
+        "GITHUB_READ_ONLY": "1"
       },
       "tools": {
         "include": [
           "search_code",
-          "list_issues",
-          "get_issue",
-          "list_pull_requests",
-          "get_pull_request"
+          "get_file_contents",
+          "issue_read",
+          "pull_request_read"
         ]
       }
     }

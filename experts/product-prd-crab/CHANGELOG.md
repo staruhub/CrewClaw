@@ -2,5 +2,5 @@
 
 ## 0.1.0
 
-- Initial ChaoGeek Certified MVP profile.
+- Initial C1 package-validated MVP profile.
 - Added PRD review, edge-case, acceptance criteria, and metrics planning skills.

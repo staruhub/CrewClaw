@@ -1,0 +1,17 @@
+CrewClaw
+Copyright 2026 ChaoGeek
+
+This product includes software developed by ChaoGeek.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+The employee packages under experts/ (SOUL.md, employee.yaml, distribution.yaml,
+and their skills/) are released under the same Apache License, Version 2.0.
+
+Third-party dependencies retain their own licenses. Their terms are recorded in
+pnpm-lock.yaml and Cargo.lock; see docs/DEPENDENCY-LICENSES.md for the notable
+non-permissive entries.

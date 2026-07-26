@@ -3,7 +3,7 @@ name: agent-workflow-designer
 description: Use when turning a business process into a multi-agent workflow with roles, tool permissions, human-review gates, and fallback.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Agent Workflow Designer

@@ -28,7 +28,7 @@ async function makeExpertRoot() {
       "description: Test expert for validator coverage.",
       'hermes_requires: ">=0.18.2"',
       "author: ChaoGeek / Pong",
-      "license: Commercial Preview",
+      "license: Apache-2.0",
       "env_requires:",
       "  - name: OPENAI_API_KEY",
       "    description: Optional model provider key.",
@@ -71,7 +71,7 @@ async function makeExpertRoot() {
       "description: Use when reviewing a pull request for merge readiness.",
       "version: 0.1.0",
       "author: ChaoGeek / Pong",
-      "license: Commercial Preview",
+      "license: Apache-2.0",
       "---",
       "# Code Review Checklist",
       "",
@@ -368,11 +368,11 @@ describe("validateExpert", () => {
       join(root, "distribution.yaml"),
       [
         "name: wrong-expert",
-        "version: 0.1.0",
+        "version: 9.9.9",
         "description: Wrong identity used to exercise drift checks.",
         'hermes_requires: ">=0.12.0"',
         "author: ChaoGeek / Pong",
-        "license: Commercial Preview",
+        "license: Apache-2.0",
       ].join("\n")
     );
 
@@ -380,6 +380,9 @@ describe("validateExpert", () => {
 
     expect(result.errors).toContain(
       "Distribution name mismatch: directory=test-expert distribution.yaml=wrong-expert"
+    );
+    expect(result.errors).toContain(
+      "Version mismatch: distribution.yaml=9.9.9 hire.yaml=0.1.0"
     );
     expect(result.errors).toContain(
       "Unsupported Hermes requirement: distribution.yaml=>=0.12.0 expected=>=0.18.2"
@@ -485,6 +488,15 @@ describe("validateExpert", () => {
     );
     expect((await validateExpert(badSkill)).errors).toContain(
       "Invalid skill frontmatter: skills/review/code-review-checklist/SKILL.md"
+    );
+
+    const skillDrift = await makeExpertRoot();
+    await writeFile(
+      join(skillDrift, "skills", "review", "code-review-checklist", "SKILL.md"),
+      "---\nname: different-skill\ndescription: Use when testing manifest drift.\n---\n# Different\n"
+    );
+    expect((await validateExpert(skillDrift)).errors).toContain(
+      "Skill manifest mismatch: missing SKILL.md=code-review-checklist; undeclared SKILL.md=different-skill"
     );
 
     const secretLeak = await makeExpertRoot();

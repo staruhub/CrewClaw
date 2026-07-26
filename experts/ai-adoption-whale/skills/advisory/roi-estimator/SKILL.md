@@ -3,7 +3,7 @@ name: roi-estimator
 description: Use when estimating the ROI of adopting an LLM/agent for a workflow, with structured assumptions.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # ROI Estimator

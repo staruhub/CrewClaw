@@ -3,7 +3,7 @@ name: pr-summary-writer
 description: Use when turning a reviewed pull request into a concise team-ready summary.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # PR Summary Writer

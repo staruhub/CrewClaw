@@ -1,6 +1,6 @@
 # Code Review Shrimp
 
-Code Review Shrimp is a ChaoGeek-certified Hermes expert for reviewing pull requests, local diffs, and security-sensitive engineering changes.
+Code Review Shrimp is a C1 package-validated Hermes expert for reviewing pull requests, local diffs, and security-sensitive engineering changes. C1 validates the package; it does not claim lab certification.
 
 ## Install
 

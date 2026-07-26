@@ -6,7 +6,7 @@ metadata:
   name: 社群运营美人鱼 Zeneth
   mascot: mermaid
   version: 0.1.0
-  certification: C2
+  certification: C1
   published_by: ClawHub
   creator: ChaoGeek / Pong
 
@@ -78,7 +78,7 @@ demo_tasks:
   - "帮我做下周 AI 工具主题的社群 7 天内容排期。"
   - "群里活跃度下降，给三个立刻能用的互动玩法。"
 changelog:
-  - "0.1.0: Initial ChaoGeek Certified MVP profile."
+  - "0.1.0: Initial package-validated MVP profile."
 safety_notes:
   - "群发/广播类动作必须人工确认后才执行。"
   - "成员隐私数据默认不读不写，除非用户显式授权。"

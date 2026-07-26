@@ -2,15 +2,23 @@
   "name": "@chaogeek/hermes",
   "private": true,
   "version": "0.0.0",
+  "description": "CrewClaw — digital-employee workbench: hire, run, evaluate and grow AI employees from a Rust TUI + Node runtime",
+  "license": "Apache-2.0",
+  "author": "ChaoGeek",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/staruhub/CrewClaw.git"
+  },
   "packageManager": "pnpm@10.33.2",
   "type": "module",
   "bin": {
-    "chaogeek-hermes": "./packages/cli/bin/chaogeek-hermes.cjs"
+    "chaogeek-hermes": "./packages/cli/bin/chaogeek-hermes.cjs",
+    "crew": "./packages/cli/bin/chaogeek-hermes.cjs"
   },
   "scripts": {
     "dev": "vite",
     "build": "pnpm run build:web && cargo build --release --manifest-path crates/crewclaw-cli/Cargo.toml",
-    "build:web": "vite build && node --import tsx scripts/build-employee-packages.ts && esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\"",
+    "build:web": "vite build && node --import tsx scripts/build-employee-packages.ts && esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire as __crewCreateRequire } from 'module';const require = __crewCreateRequire(import.meta.url);\"",
     "lint": "eslint . --max-warnings 0",
     "preview": "vite preview",
     "start": "node scripts/start-production.mjs",
@@ -26,9 +34,11 @@
     "rust:fmt:check": "cargo fmt --manifest-path crates/crewclaw-cli/Cargo.toml --all -- --check",
     "rust:clippy": "cargo clippy --manifest-path crates/crewclaw-cli/Cargo.toml --all-targets --all-features -- -D warnings",
     "test:conformance": "node packages/runtime/conformance/runner.mjs",
-    "test:e2e:dev": "playwright test",
-    "test:e2e:production": "playwright test --config playwright.production.config.ts",
-    "test:e2e": "pnpm run test:e2e:dev && pnpm run test:e2e:production",
+    "test:e2e:tui": "node packages/runtime/__tests__/e2e-vterm-stream.mjs",
+    "test:tui:ansi-probe": "node packages/runtime/tui/probe-ansi.mjs",
+    "test:e2e:dev": "node scripts/run-playwright-e2e.mjs dev",
+    "test:e2e:production": "node scripts/run-playwright-e2e.mjs production",
+    "test:e2e": "pnpm run test:e2e:tui && pnpm run test:e2e:dev && pnpm run test:e2e:production",
     "test:all": "pnpm run ci:check && pnpm run test:e2e",
     "ci:check": "node scripts/ci-check.mjs",
     "crewclaw": "cargo run --quiet --manifest-path crates/crewclaw-cli/Cargo.toml --",
@@ -41,7 +51,10 @@
     "schema:check": "node --import tsx scripts/check-generated.mjs",
     "web:employees": "node --import tsx contracts/scripts/generate-web-employees.ts",
     "memory:backfill": "node packages/runtime/memory-backfill.mjs",
-    "eval:expert": "node packages/runtime/eval-runner.mjs"
+    "kpi:migrate": "node packages/runtime/kpi-migrate.mjs",
+    "eval:expert": "node packages/runtime/eval-runner.mjs",
+    "certify:employee": "node packages/runtime/certification-runner.mjs",
+    "offboard:employee": "node packages/runtime/offboarding-cli.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.3",

@@ -1,8 +1,37 @@
 # CrewClaw by ChaoGeek
 
+[![CI](https://github.com/staruhub/CrewClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/staruhub/CrewClaw/actions/workflows/ci.yml)
+
 CrewClaw is ChaoGeek's local-first AI Employee Platform: discover, hire, supervise, accept, and evaluate digital employees. The product combines a two-file employee standard, real evaluation runs, a Node TaskEvent runtime, a Ratatui supervision cockpit, a registry-backed storefront, and official Hermes profile distribution.
 
-The current product boundary and roadmap are defined in [`docs/prd_v0.18.md`](docs/prd_v0.18.md). CrewClaw observes, controls, and accepts work; editors, browsers, file managers, and long-running execution belong to OpenWork.
+The current product boundary and roadmap are defined in [`docs/prd_v0.20.md`](docs/prd_v0.20.md). CrewClaw observes, controls, and accepts work; editors, browsers, file managers, and long-running execution belong to OpenWork.
+
+## Release Status
+
+The checked-in implementation is a **v0.20 release candidate**, not a tagged stable release. Product milestone versions (`v0.20`) describe the end-to-end CrewClaw contract; the Rust CLI currently has its own pre-1.0 binary version (`crewclaw-cli 0.1.0`). A release is complete only when the gates in [`docs/prd_v0.20.md`](docs/prd_v0.20.md) and [`docs/RELEASING.md`](docs/RELEASING.md) have current evidence.
+
+## Prerequisites
+
+- Git
+- Node.js 22
+- pnpm 10.33.2 (pinned by `package.json`)
+- A stable Rust toolchain with `rustfmt` and `clippy`
+- Chromium for browser E2E (`pnpm exec playwright install chromium`)
+- Hermes only for live employee installation and model-backed runs
+
+## Quick Start
+
+```bash
+git clone https://github.com/staruhub/CrewClaw.git
+cd CrewClaw
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run check
+pnpm run build
+pnpm run crewclaw -- list
+```
+
+Copy `.env.example` to `.env.local` only when running services that need local credentials. Never commit the resulting file.
 
 ## Available Employees
 
@@ -92,3 +121,19 @@ Flags:
 - Do not commit real `.env` files, auth files, memories, sessions, logs, workspaces, or state DBs.
 - Do not write directly to `~/.hermes`; use official `hermes profile` commands.
 - MCP tools should declare explicit permission allowlists or denylists.
+
+Security vulnerabilities should be reported privately as described in [`SECURITY.md`](SECURITY.md). General contribution and support guidance lives in [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SUPPORT.md`](SUPPORT.md).
+
+## License
+
+CrewClaw is licensed under the [Apache License 2.0](LICENSE). This covers the whole
+repository, including the employee packages under `experts/` — they are open-source
+examples of the two-file employee standard, and they double as fixtures for the test
+and distribution gates.
+
+Contributions are accepted under the same license (Apache-2.0 §5); see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+Third-party dependencies keep their own licenses. [`docs/DEPENDENCY-LICENSES.md`](docs/DEPENDENCY-LICENSES.md)
+records the notable non-permissive entries and the one dependency that ships no license
+declaration at all.

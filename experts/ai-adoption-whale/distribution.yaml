@@ -1,9 +1,9 @@
 name: ai-adoption-whale
 version: 0.2.0
-description: "ChaoGeek-certified Hermes expert for AI adoption strategy, model selection, agent workflow design, and ROI planning."
+description: "C1 package-validated Hermes expert for AI adoption strategy, model selection, agent workflow design, and ROI planning."
 hermes_requires: ">=0.18.2"
 author: "ChaoGeek / Pong"
-license: "Commercial Preview"
+license: "Apache-2.0"
 env_requires: []
 distribution_owned:
   - hire.yaml

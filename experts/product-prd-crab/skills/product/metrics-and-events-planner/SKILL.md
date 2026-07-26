@@ -3,7 +3,7 @@ name: metrics-and-events-planner
 description: Use when defining product success metrics, event names, and privacy-safe measurement ideas.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Metrics And Events Planner

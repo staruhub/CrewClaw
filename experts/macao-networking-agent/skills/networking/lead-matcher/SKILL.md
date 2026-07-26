@@ -3,7 +3,7 @@ name: lead-matcher
 description: Use when the user wants to identify which Macao people, companies, or institutions are worth researching or approaching.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Lead Matcher

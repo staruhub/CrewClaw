@@ -3,7 +3,7 @@ name: edge-case-mapper
 description: Use when mapping edge cases, failure modes, and exception flows for a product requirement.
 version: 0.1.0
 author: ChaoGeek / Pong
-license: Commercial Preview
+license: Apache-2.0
 ---
 
 # Edge Case Mapper

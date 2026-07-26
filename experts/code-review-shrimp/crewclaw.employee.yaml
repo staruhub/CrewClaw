@@ -5,7 +5,7 @@ identity:
   avatar: shrimp
   author: ChaoGeek / Pong
   version: 0.1.0
-  certification: C2
+  certification: C1
   title: 代码审查工程师
   description: 审查 PR 与本地 diff，按严重级别报告问题，扫描安全风险，给出明确的合并建议。
 

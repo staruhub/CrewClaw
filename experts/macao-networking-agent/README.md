@@ -1,6 +1,6 @@
 # Macao Networking Agent
 
-Macao Networking Agent is a ChaoGeek-certified Hermes expert for discovering Macao events, mapping local leads, researching organizations, and drafting human-reviewed outreach.
+Macao Networking Agent is a C1 package-validated Hermes expert for discovering Macao events, mapping local leads, researching organizations, and drafting human-reviewed outreach. C1 validates the package; it does not claim lab certification.
 
 ## Install
 

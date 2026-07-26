@@ -6,7 +6,7 @@ metadata:
   name: Product PRD Crab
   mascot: crab
   version: 0.1.0
-  certification: C2
+  certification: C1
   published_by: ClawHub
   creator: ChaoGeek / Pong
 
@@ -74,7 +74,7 @@ demo_tasks:
   - 评审这份 PRD，指出用户目标是否清楚、边界是否完整、验收标准是否可测试。
   - 把这个功能想法拆成用户故事、边界情况、验收标准和事件建议。
 changelog:
-  - "0.1.0: Initial ChaoGeek Certified MVP profile."
+  - "0.1.0: Initial package-validated MVP profile."
 safety_notes:
   - 假设、定价、合规、市场判断在人工确认前一律不当成结论。
   - 输出面向评审会议，不虚构用户数据或市场事实。
