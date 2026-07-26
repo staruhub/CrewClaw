@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = Number(process.env.E2E_PRODUCTION_PORT ?? 3273);
 const baseURL = `http://127.0.0.1:${port}`;
+const externalServer = process.env.CREWCLAW_E2E_EXTERNAL_SERVER === "1";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -17,22 +18,20 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  webServer: {
-    command: "pnpm run build:web && pnpm start",
-    env: {
-      NODE_ENV: "production",
-      PORT: String(port),
-    },
-    url: baseURL,
-    reuseExistingServer: false,
-    timeout: 180_000,
-    stdout: "pipe",
-    stderr: "pipe",
-    gracefulShutdown: {
-      signal: "SIGTERM",
-      timeout: 500,
-    },
-  },
+  webServer: externalServer
+    ? undefined
+    : {
+        command: "pnpm run build && pnpm start",
+        env: {
+          NODE_ENV: "production",
+          PORT: String(port),
+        },
+        url: baseURL,
+        reuseExistingServer: false,
+        timeout: 240_000,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
   projects: [
     {
       name: "production-chrome",

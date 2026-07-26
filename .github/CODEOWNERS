@@ -1,0 +1,7 @@
+* @staruhub
+
+/.github/ @staruhub
+/contracts/ @staruhub
+/crates/crewclaw-cli/ @staruhub
+/packages/runtime/ @staruhub
+/experts/ @staruhub

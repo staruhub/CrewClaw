@@ -52,9 +52,10 @@ test("all 5 available employees have reachable detail pages", async ({
   }
 });
 
-test("a visitor can hire an employee end to end and see it join the crew", async ({
+test("a visitor can prepare a local hire handoff without faking roster state", async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   const employeeId = "macao-networking-agent";
   const displayName = "Macao Networking Agent";
 
@@ -78,6 +79,10 @@ test("a visitor can hire an employee end to end and see it join the crew", async
       name: new RegExp(`Review capabilities before hiring ${displayName}`, "i"),
     })
   ).toBeVisible();
+  await expect(page.getByText(/finish hiring on your machine/i)).toBeVisible();
+  await expect(page.getByText(/crew hire --from/)).toBeVisible({
+    timeout: 30_000,
+  });
 
   const requiredSearch = page.getByRole("checkbox", {
     name: "web.search required capability",
@@ -115,52 +120,39 @@ test("a visitor can hire an employee end to end and see it join the crew", async
   await expect(disabledCrm).not.toBeChecked();
   await expect(disabledCrm).toBeDisabled();
 
-  // Simulated checkout, then the real hire. Exact names — the disabled hire button reads
-  // "Confirm simulated checkout first" until checkout is confirmed, so a loose regex is ambiguous.
+  // The website records intent, but only the CLI may create the durable roster entry.
   await page
     .getByRole("button", { name: "Confirm simulated checkout", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Confirm and hire", exact: true })
+    .getByRole("button", { name: "Prepare local hire", exact: true })
     .click();
 
   await expect(
-    page.getByText(/your new AI employee has joined the crew/i)
+    page.getByRole("heading", { name: /finish hiring on this machine/i })
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /hire on this machine/i })
+  ).toBeVisible();
+  await expect(page.getByText(/crew hire --from/)).toBeVisible({
+    timeout: 30_000,
+  });
 
-  // The hire is persisted as a WorkspaceEmployee record.
   const stored = await page.evaluate(() =>
-    localStorage.getItem("crewclaw.team.v1")
+    localStorage.getItem("crewclaw.hire-intent.v1")
   );
   expect(stored).toBeTruthy();
-  const team = JSON.parse(stored ?? "[]") as Array<{
+  const intent = JSON.parse(stored ?? "{}") as {
     employee_id: string;
-    status: string;
-    permissions_granted: string[];
-  }>;
+    capabilities: string[];
+  };
+  expect(intent.employee_id).toBe(employeeId);
+  expect(intent.capabilities).toContain("contacts.read");
+  expect(intent.capabilities).toContain("web.search");
+  expect(intent.capabilities).not.toContain("places.search");
+  expect(intent.capabilities).not.toContain("calendar.availability.read");
+  expect(intent.capabilities).not.toContain("crm.write");
   expect(
-    team.some(e => e.employee_id === employeeId && e.status === "active")
-  ).toBe(true);
-  expect(
-    team.find(e => e.employee_id === employeeId)?.permissions_granted
-  ).toContain("capability:contacts.read");
-  expect(
-    team.find(e => e.employee_id === employeeId)?.permissions_granted
-  ).toContain("capability:web.search");
-  expect(
-    team.find(e => e.employee_id === employeeId)?.permissions_granted
-  ).not.toContain("capability:places.search");
-  expect(
-    team.find(e => e.employee_id === employeeId)?.permissions_granted
-  ).not.toContain("capability:calendar.availability.read");
-  expect(
-    team.find(e => e.employee_id === employeeId)?.permissions_granted
-  ).not.toContain("capability:crm.write");
-
-  // And it shows up on the team dashboard.
-  await page.goto("/team");
-  await expect(
-    page.getByRole("heading", { name: /your AI crew/i })
-  ).toBeVisible();
-  await expect(page.getByText(displayName).first()).toBeVisible();
+    await page.evaluate(() => localStorage.getItem("crewclaw.team.v1"))
+  ).toBeNull();
 });

@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a scoped improvement
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or maintainer problem needs solving?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable success without prescribing unnecessary implementation details.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Boundaries and risks
+      description: Note product-boundary, permission, security, compatibility, or rollback concerns.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Supporting evidence
+      description: Link examples, research, or prior discussion.

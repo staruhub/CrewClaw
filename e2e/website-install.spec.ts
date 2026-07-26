@@ -2,21 +2,16 @@ import { spawn } from "node:child_process";
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { expect, test } from "@playwright/test";
-
-// Read the registry via fs (not a JSON import) so this stays loader-agnostic under Playwright's
-// ESM runner, which requires an explicit import attribute for JSON modules.
-const registry = JSON.parse(
-  readFileSync(new URL("../registry/experts.json", import.meta.url), "utf8")
-) as { experts: unknown[] };
 
 type CommandResult = {
   code: number;
@@ -24,18 +19,24 @@ type CommandResult = {
   stderr: string;
 };
 
-type RunOptions = {
-  cwd?: string;
-  input?: string;
-  timeoutMs?: number;
-  env?: NodeJS.ProcessEnv;
-};
-
 const repoRoot = process.cwd();
+const landingCommand = "crew hire ai-adoption-whale --live --yes";
 
-function quoteShellArgument(value: string) {
-  if (process.platform === "win32") return `"${value.replaceAll('"', '""')}"`;
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
+function cliExecutable() {
+  const filename =
+    process.platform === "win32" ? "crewclaw-cli.exe" : "crewclaw-cli";
+  const candidates = [
+    process.env.CREWCLAW_E2E_CLI,
+    join(repoRoot, "crates", "crewclaw-cli", "target", "release", filename),
+    join(repoRoot, "crates", "crewclaw-cli", "target", "debug", filename),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const executable = candidates.find(candidate => existsSync(candidate));
+  if (!executable) {
+    throw new Error(
+      "CrewClaw CLI binary is missing; run cargo build before browser E2E"
+    );
+  }
+  return executable;
 }
 
 function normalizeRecordedCommand(value: string) {
@@ -45,23 +46,34 @@ function normalizeRecordedCommand(value: string) {
 function run(
   command: string,
   args: string[],
-  options: RunOptions = {}
+  options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}
 ): Promise<CommandResult> {
   return new Promise(resolve => {
     const child = spawn(command, args, {
       cwd: options.cwd ?? repoRoot,
       env: { ...process.env, FORCE_COLOR: "0", ...options.env },
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    let timedOut = false;
+    const finish = (result: CommandResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      resolve({ code: 124, stdout, stderr: stderr || "Command timed out" });
-    }, options.timeoutMs ?? 90_000);
-
-    if (options.input) child.stdin.write(options.input);
-    child.stdin.end();
+      timedOut = true;
+      if (process.platform === "win32" && child.pid) {
+        spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+      } else {
+        child.kill("SIGTERM");
+      }
+    }, options.timeoutMs ?? 120_000);
 
     child.stdout.on("data", chunk => {
       stdout += chunk.toString();
@@ -71,21 +83,24 @@ function run(
     });
     child.on("error", error => {
       clearTimeout(timer);
-      resolve({ code: 127, stdout, stderr: error.message });
+      finish({ code: 127, stdout, stderr: error.message });
     });
     child.on("close", code => {
       clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr });
+      finish({
+        code: timedOut ? 124 : (code ?? 1),
+        stdout,
+        stderr: timedOut && !stderr ? "Command timed out" : stderr,
+      });
     });
   });
 }
 
 test.describe.configure({ mode: "serial" });
 
-test("homepage exposes CrewClaw CLI docs and clickable flows", async ({
+test("Landing v4 exposes the real employee loop and a copyable CLI handoff", async ({
   context,
   page,
-  isMobile,
 }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const consoleErrors: string[] = [];
@@ -97,85 +112,40 @@ test("homepage exposes CrewClaw CLI docs and clickable flows", async ({
 
   expect(await page.title()).toMatch(/CrewClaw/);
   await expect(
-    page.getByText("Hire ChaoGeek-certified Hermes experts in 60 seconds")
+    page.getByRole("heading", { name: "Hire AI like you hire people." })
   ).toBeVisible();
-
-  await page.getByRole("button", { name: /view expert crew/i }).click();
-  await expect(page.locator("#market")).toBeInViewport();
-
-  await page.getByRole("button", { name: /hire your first expert/i }).click();
   await expect(
-    page.getByRole("dialog", { name: /join the waitlist/i })
+    page.getByText("published employees", { exact: true })
   ).toBeVisible();
-  await page.getByRole("button", { name: /close waitlist/i }).click();
+  await expect(page.locator("#paradigm")).toBeVisible();
+  await expect(page.locator("#moat")).toBeVisible();
+  await expect(page.locator("#runtime")).toBeVisible();
+  await expect(page.getByText(landingCommand, { exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
+
+  await page.getByRole("button", { name: "Copy CrewClaw command" }).click();
   await expect(
-    page.getByRole("dialog", { name: /join the waitlist/i })
-  ).toBeHidden();
-
-  if (isMobile) {
-    await page.getByRole("button", { name: /open navigation menu/i }).click();
-    await page.getByRole("button", { name: "Pricing" }).click();
-  } else {
-    await page.getByRole("button", { name: "Pricing" }).click();
-  }
-  await expect(page.locator("#pricing")).toBeInViewport();
-  await page.getByRole("button", { name: /contact us/i }).click();
-  await expect(page.getByRole("dialog", { name: /contact us/i })).toBeVisible();
-  await page.getByRole("button", { name: /close contact/i }).click();
-  await expect(page.getByRole("dialog", { name: /contact us/i })).toBeHidden();
-
-  await page.getByRole("button", { name: "FAQ" }).click();
-  await expect(page.locator("#faq")).toBeInViewport();
-  await page.getByRole("button", { name: /how do i get started/i }).click();
-  await expect(page.getByText(/Install Hermes, copy/)).toBeVisible();
-
-  await page.getByRole("button", { name: "Install Flow" }).click();
-  await expect(page.locator("#how-it-works")).toBeInViewport();
-  await expect(page.getByText("CrewClaw CLI Docs")).toBeVisible();
-  await expect(page.getByText("Command-line hiring path")).toBeVisible();
-
-  const cards = page.locator("#market article");
-  // One card per registry expert (registry/experts.json). Kept in sync with the registry rather
-  // than a frozen literal — it grew from 4 to 7 and this assertion was never updated.
-  const expectedCardCount = registry.experts.length;
-  await expect(cards).toHaveCount(expectedCardCount);
-
-  const shrimp = cards.filter({ hasText: "Code Review Shrimp" });
-  await expect(shrimp.getByText("Available")).toBeVisible();
-  const command = (await shrimp.locator("code").innerText()).trim();
-  expect(command).toBe(
-    `pnpm --silent -C ${quoteShellArgument(repoRoot)} run crewclaw`
-  );
-
-  await shrimp.getByRole("button", { name: /copy crewclaw cli/i }).click();
-  await expect(
-    shrimp.getByRole("button", { name: /copied crewclaw cli/i })
-  ).toBeVisible();
+    page.getByRole("button", { name: "Copy CrewClaw command" })
+  ).toContainText("Copied");
   await expect(
     page.evaluate(() => navigator.clipboard.readText())
-  ).resolves.toBe(command);
+  ).resolves.toBe(landingCommand);
 
-  const docsOctopus = cards.filter({ hasText: "Docs Octopus" });
-  await expect(docsOctopus.getByText("Coming Soon")).toBeVisible();
-  await expect(docsOctopus.locator("code")).toContainText("Join waitlist");
-  await docsOctopus.getByRole("button", { name: /join waitlist/i }).click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-
+  await page.getByRole("link", { name: "Browse AI employees" }).click();
+  await expect(page).toHaveURL(/\/marketplace$/);
+  await expect(page.getByText("AI 落地鲸").first()).toBeVisible();
   expect(consoleErrors).toEqual([]);
 });
 
-test("copied website command hires a temporary Hermes profile end to end", async ({
+test("the Landing hire command maps to a real CLI hire and atomic team record", async ({
   page,
 }) => {
+  test.setTimeout(90_000);
   await page.goto("/");
-
-  const shrimp = page
-    .locator("#market article")
-    .filter({ hasText: "Code Review Shrimp" });
-  const command = (await shrimp.locator("code").innerText()).trim();
-  expect(command).toBe(
-    `pnpm --silent -C ${quoteShellArgument(repoRoot)} run crewclaw`
-  );
+  await expect(page.getByText(landingCommand, { exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
 
   const profileName = `crewclaw-e2e-${Date.now()}`;
   const root = mkdtempSync(join(tmpdir(), "crewclaw-web-install-"));
@@ -185,9 +155,12 @@ test("copied website command hires a temporary Hermes profile end to end", async
   cpSync(join(repoRoot, "registry"), join(root, "registry"), {
     recursive: true,
   });
-  cpSync(join(repoRoot, "experts"), join(root, "experts"), {
-    recursive: true,
-  });
+  cpSync(join(repoRoot, "experts"), join(root, "experts"), { recursive: true });
+  mkdirSync(join(root, "contracts"), { recursive: true });
+  cpSync(
+    join(repoRoot, "contracts", "tool-catalog.json"),
+    join(root, "contracts", "tool-catalog.json")
+  );
   const hermesPath = join(
     bin,
     process.platform === "win32" ? "hermes.cmd" : "hermes"
@@ -201,53 +174,30 @@ test("copied website command hires a temporary Hermes profile end to end", async
   if (process.platform !== "win32") chmodSync(hermesPath, 0o755);
 
   try {
-    const copiedArgs = [
-      "--silent",
-      "-C",
-      repoRoot,
-      "run",
-      "crewclaw",
+    const args = [
       "hire",
-      "code-review-shrimp",
+      "ai-adoption-whale",
       "--name",
       profileName,
       "--yes",
       "--live",
     ];
-    const commandExecutable =
-      process.platform === "win32" ? process.env.ComSpec || "cmd.exe" : "pnpm";
-    const executableArgs =
-      process.platform === "win32"
-        ? ["/d", "/s", "/c", "pnpm", ...copiedArgs]
-        : copiedArgs;
-    const install = await run(commandExecutable, executableArgs, {
-      cwd: homedir(),
-      timeoutMs: 120_000,
+    const install = await run(cliExecutable(), args, {
+      cwd: repoRoot,
+      timeoutMs: 60_000,
       env: {
         CREWCLAW_ROOT: root,
         PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
       },
     });
+
     expect(install.code, install.stderr || install.stdout).toBe(0);
     expect(`${install.stdout}\n${install.stderr}`).toContain(
-      "Hiring Code Review Shrimp"
+      "Hiring AI 落地鲸"
     );
-    expect(`${install.stdout}\n${install.stderr}`).not.toContain(
-      "CrewClaw: ======"
-    );
-    expect(`${install.stdout}\n${install.stderr}`).not.toContain(
-      "CrewClaw: Choose"
-    );
-    expect(`${install.stdout}\n${install.stderr}`).not.toContain(
-      "> @chaogeek/hermes"
-    );
-    expect(`${install.stdout}\n${install.stderr}`).toContain(
-      "Run this first Hermes test"
-    );
-
     const calls = normalizeRecordedCommand(readFileSync(callsFile, "utf8"));
     expect(calls).toContain(
-      `profile install ${root.replaceAll("\\", "/")}/experts/code-review-shrimp --name ${profileName} --alias --yes`
+      `profile install ${root.replaceAll("\\", "/")}/experts/ai-adoption-whale --name ${profileName} --alias --yes`
     );
     const team = JSON.parse(
       readFileSync(join(root, ".crewclaw", "team.json"), "utf8")
@@ -255,7 +205,7 @@ test("copied website command hires a temporary Hermes profile end to end", async
     expect(team).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          employee_id: "code-review-shrimp",
+          employee_id: "ai-adoption-whale",
           status: "active",
         }),
       ])
