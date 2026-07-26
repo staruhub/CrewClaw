@@ -49,11 +49,27 @@ export function formatPricingLabel(pricing: string) {
     .join(" ");
 }
 
-export function pricingTone(pricing: string) {
-  const normalized = pricing.toLowerCase();
+/**
+ * Whole words only. A bare `includes("pro")` also fired on "promo", "product"
+ * and "approved" (and `includes("custom")` on "customer"), so a free plan could
+ * be badged as a paid tier. Splitting on runs of non-alphanumerics covers every
+ * separator these strings use (`-`, `_`, space, `/`, punctuation) and is more
+ * permissive than \b, which treats `_` as a word character and would miss
+ * "pro_seat".
+ */
+function pricingTokens(pricing: string) {
+  return new Set(
+    pricing
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean)
+  );
+}
 
-  if (normalized.includes("custom")) return "Custom";
-  if (normalized.includes("pro") || normalized.includes("subscription"))
-    return "Pro";
+export function pricingTone(pricing: string) {
+  const tokens = pricingTokens(pricing);
+
+  if (tokens.has("custom")) return "Custom";
+  if (tokens.has("pro") || tokens.has("subscription")) return "Pro";
   return "Free";
 }

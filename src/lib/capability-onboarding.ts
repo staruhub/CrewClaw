@@ -2,8 +2,16 @@ import type { Employee } from "@/data/employees";
 
 type CapabilityOnboardingEmployee = Pick<Employee, "tool_capabilities">;
 
+/**
+ * Picks the form that agrees with `count`. Used for nouns and for the verbs
+ * that follow them, so a pluralized subject never keeps a singular verb.
+ */
+function agreeCopy(count: number, singular: string, plural: string) {
+  return count === 1 ? singular : plural;
+}
+
 function countCopy(count: number, singular: string, plural: string) {
-  return `${count} ${count === 1 ? singular : plural}`;
+  return `${count} ${agreeCopy(count, singular, plural)}`;
 }
 
 /**
@@ -31,7 +39,7 @@ export function capabilityOnboardingRequirements(
   );
   if (scopedReadCapabilities.length > 0) {
     requirements.push(
-      `Provide only the declared read scopes when ${countCopy(scopedReadCapabilities.length, "read capability", "read capabilities")} needs task context.`
+      `Provide only the declared read scopes when ${countCopy(scopedReadCapabilities.length, "read capability", "read capabilities")} ${agreeCopy(scopedReadCapabilities.length, "needs", "need")} task context.`
     );
   }
 
@@ -55,13 +63,16 @@ export function capabilityOnboardingRequirements(
     );
   }
 
+  // Presence, not truthiness: a declared cap of 0 is the most restrictive
+  // limit there is, so it must surface rather than read as "no limits".
   const boundedCapabilities = active.filter(
     capability =>
-      capability.limits?.max_calls_per_task || capability.limits?.timeout_ms
+      capability.limits?.max_calls_per_task !== undefined ||
+      capability.limits?.timeout_ms !== undefined
   );
   if (boundedCapabilities.length > 0) {
     requirements.push(
-      `${countCopy(boundedCapabilities.length, "capability", "capabilities")} has declared task limits; review them before assigning high-volume work.`
+      `${countCopy(boundedCapabilities.length, "capability", "capabilities")} ${agreeCopy(boundedCapabilities.length, "has", "have")} declared task limits; review them before assigning high-volume work.`
     );
   }
 
