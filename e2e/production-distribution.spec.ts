@@ -195,8 +195,33 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
   ).toBeVisible();
 
   await page.goto("/hire/ai-adoption-whale");
-  await expect(page.getByText(/finish hiring on your machine/i)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Pass Doctor and accept trial first" })
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Confirm simulated checkout", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Run Doctor", exact: true }).click();
+  await expect(page.getByText(/Doctor passed/i)).toBeVisible();
+  await page
+    .getByRole("button", { name: "Run bounded trial", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Accept trial", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Activate local hire", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Finish hiring on this machine." })
+  ).toBeVisible();
   expect(await page.locator("body").innerText()).toContain("crew hire --from");
+  await page
+    .getByRole("button", { name: "Hire on this machine", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: /AI 落地鲸 is on your local roster/i })
+  ).toBeVisible();
 
   expect(consoleErrors, httpErrors.join("\n")).toEqual([]);
 });
