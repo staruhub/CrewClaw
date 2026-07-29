@@ -1,5 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import type { TaskRun, WorkbenchArtifact } from "@/data/task-runs";
+import { useMessages, type MessageValues } from "@/i18n";
+import { workbenchMessages } from "@/i18n/locales/workbench";
 import { cn } from "@/lib/utils";
 import { statusClass, statusSymbol } from "./status";
 
@@ -12,18 +14,27 @@ export type EvidenceItem = {
   detail: string;
 };
 
-function evidenceFromRun(run: TaskRun, artifact: WorkbenchArtifact | null) {
+type WorkbenchMessageKey = keyof typeof workbenchMessages.en;
+type WorkbenchTranslator = (
+  key: WorkbenchMessageKey,
+  values?: MessageValues
+) => string;
+
+function evidenceFromRun(
+  run: TaskRun,
+  artifact: WorkbenchArtifact | null,
+  t: WorkbenchTranslator
+) {
   const items: EvidenceItem[] = [];
 
   for (const [index, source] of (run.sources ?? []).entries()) {
     items.push({
       id: `source-${index}`,
-      title: "Source evidence",
+      title: t("sourceEvidence"),
       source,
-      confidence: "source-linked",
+      confidence: t("sourceLinked"),
       status: "passed",
-      detail:
-        "Runtime source captured for reviewer inspection before approval.",
+      detail: t("sourceEvidenceDetail"),
     });
   }
 
@@ -33,7 +44,7 @@ function evidenceFromRun(run: TaskRun, artifact: WorkbenchArtifact | null) {
         id: `check-${check.label}`,
         title: check.label,
         source: artifact.name,
-        confidence: check.status === "passed" ? "high" : "review",
+        confidence: check.status === "passed" ? t("high") : t("review"),
         status: check.status,
         detail: `${artifact.name}: ${check.label}`,
       });
@@ -43,9 +54,9 @@ function evidenceFromRun(run: TaskRun, artifact: WorkbenchArtifact | null) {
   if (items.length === 0 && artifact) {
     items.push({
       id: `artifact-${artifact.id}`,
-      title: "Artifact summary",
+      title: t("artifactSummary"),
       source: artifact.name,
-      confidence: "summary-only",
+      confidence: t("summaryOnly"),
       status: artifact.status === "rejected" ? "failed" : "warning",
       detail: artifact.summary,
     });
@@ -65,7 +76,8 @@ export function EvidencePanel({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const evidence = evidenceFromRun(run, artifact);
+  const t = useMessages(workbenchMessages);
+  const evidence = evidenceFromRun(run, artifact, t);
   const selected =
     evidence.find(item => item.id === selectedId) ?? evidence[0] ?? null;
 
@@ -74,21 +86,20 @@ export function EvidencePanel({
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-            Evidence
+            {t("evidence")}
           </p>
           <h2 className="mt-1 text-base font-semibold text-crew-heading">
-            审批前证据
+            {t("evidenceHeading")}
           </h2>
         </div>
         <span className="font-mono text-xs text-crew-muted">
-          {evidence.length} items
+          {t("itemCount", { count: evidence.length })}
         </span>
       </div>
 
       {evidence.length === 0 ? (
         <p className="mt-4 text-sm leading-6 text-crew-muted">
-          No evidence has been emitted yet. Delivery cannot be approved
-          honestly.
+          {t("noEvidence")}
         </p>
       ) : (
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr]">
@@ -104,7 +115,7 @@ export function EvidencePanel({
                     ? "border-crew-copper/60 bg-crew-copper/10"
                     : "border-white/10 bg-black/10 hover:border-white/20"
                 )}
-                aria-label={`Inspect evidence: ${item.title}`}
+                aria-label={t("inspectEvidenceAria", { title: item.title })}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -130,34 +141,40 @@ export function EvidencePanel({
           </div>
           <div className="border border-white/10 bg-black/10 p-3">
             <p className="font-mono text-xs uppercase tracking-[0.14em] text-crew-muted">
-              Inspect selected evidence
+              {t("inspectSelectedEvidence")}
             </p>
             {selected ? (
               <dl className="mt-3 space-y-2 text-sm leading-6 text-crew-body">
                 <div>
-                  <dt className="font-mono text-xs text-crew-muted">Title</dt>
+                  <dt className="font-mono text-xs text-crew-muted">
+                    {t("title")}
+                  </dt>
                   <dd className="text-crew-heading">{selected.title}</dd>
                 </div>
                 <div>
-                  <dt className="font-mono text-xs text-crew-muted">Source</dt>
+                  <dt className="font-mono text-xs text-crew-muted">
+                    {t("source")}
+                  </dt>
                   <dd className="break-words font-mono text-xs">
                     {selected.source}
                   </dd>
                 </div>
                 <div>
                   <dt className="font-mono text-xs text-crew-muted">
-                    Confidence
+                    {t("confidence")}
                   </dt>
                   <dd>{selected.confidence}</dd>
                 </div>
                 <div>
-                  <dt className="font-mono text-xs text-crew-muted">Detail</dt>
+                  <dt className="font-mono text-xs text-crew-muted">
+                    {t("selectedDetail")}
+                  </dt>
                   <dd>{selected.detail}</dd>
                 </div>
               </dl>
             ) : (
               <p className="mt-3 text-sm text-crew-muted">
-                Select evidence before approving delivery.
+                {t("selectEvidenceBeforeApproval")}
               </p>
             )}
           </div>

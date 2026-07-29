@@ -1,6 +1,8 @@
 import { FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { WorkbenchArtifact } from "@/data/task-runs";
+import { useMessages } from "@/i18n";
+import { workbenchMessages } from "@/i18n/locales/workbench";
 import { cn } from "@/lib/utils";
 import { statusClass, statusSymbol } from "./status";
 
@@ -11,15 +13,17 @@ type Props = {
 };
 
 export function ArtifactPanel({ artifacts, selectedId, onSelect }: Props) {
+  const t = useMessages(workbenchMessages);
+
   return (
     <section className="border border-white/10 bg-white/[0.025] p-5 lg:p-3">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-            Artifacts
+            {t("artifactPanelTitle")}
           </p>
           <h2 className="mt-1 text-base font-semibold text-crew-heading">
-            产物
+            {t("artifactPanelHeading")}
           </h2>
         </div>
       </div>

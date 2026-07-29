@@ -9,39 +9,56 @@ import {
   type PermissionRiskLevel,
 } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+import { useMessages } from "@/i18n";
+import { marketplaceMessages } from "@/i18n/locales/marketplace";
 
 type PermissionLevelConfig = {
   className: string;
-  description: string;
   icon: ComponentType<{ className?: string }>;
+  labelKey:
+    | "permissionAutonomousWrite"
+    | "permissionDisabled"
+    | "permissionReadonly"
+    | "permissionSensitive"
+    | "permissionWriteConfirm";
+  descriptionKey:
+    | "permissionAutonomousWriteDescription"
+    | "permissionDisabledDescription"
+    | "permissionReadonlyDescription"
+    | "permissionSensitiveDescription"
+    | "permissionWriteConfirmDescription";
 };
 
 const LEVEL_CONFIG: Record<PermissionRiskLevel, PermissionLevelConfig> = {
   Disabled: {
     className: "border-white/10 bg-white/[0.025] text-crew-muted",
-    description:
-      "Forbidden by this employee's role policy; it cannot be enabled at hire time.",
+    descriptionKey: "permissionDisabledDescription",
     icon: Ban,
+    labelKey: "permissionDisabled",
   },
   "Read-only": {
     className: "border-sky-300/35 bg-sky-400/10 text-sky-100",
-    description: "Reads context or public information only.",
+    descriptionKey: "permissionReadonlyDescription",
     icon: Eye,
+    labelKey: "permissionReadonly",
   },
   "Write with confirmation": {
     className: "border-crew-copper/40 bg-crew-copper/12 text-crew-copper",
-    description: "Can prepare a change, but a human confirms before it acts.",
+    descriptionKey: "permissionWriteConfirmDescription",
     icon: FileCheck2,
+    labelKey: "permissionWriteConfirm",
   },
   "Autonomous write": {
     className: "border-amber-300/40 bg-amber-300/12 text-amber-100",
-    description: "Can write automatically after the permission is enabled.",
+    descriptionKey: "permissionAutonomousWriteDescription",
     icon: PencilLine,
+    labelKey: "permissionAutonomousWrite",
   },
   "Sensitive action": {
     className: "border-red-300/45 bg-red-400/14 text-red-100",
-    description: "High-risk action such as sending, payment, or deletion.",
+    descriptionKey: "permissionSensitiveDescription",
     icon: AlertTriangle,
+    labelKey: "permissionSensitive",
   },
 };
 
@@ -56,6 +73,7 @@ export function PermissionLevel({
   permission: string;
   showDescription?: boolean;
 }) {
+  const t = useMessages(marketplaceMessages);
   const level = getPermissionLevel(permission);
   const config = LEVEL_CONFIG[level];
   const Icon = config.icon;
@@ -84,12 +102,12 @@ export function PermissionLevel({
               )}
               variant="outline"
             >
-              {level}
+              {t(config.labelKey)}
             </Badge>
           </div>
           {!compact && showDescription ? (
             <p className="mt-2 text-xs leading-5 opacity-85">
-              {config.description}
+              {t(config.descriptionKey)}
             </p>
           ) : null}
         </div>

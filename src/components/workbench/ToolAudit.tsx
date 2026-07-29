@@ -1,9 +1,11 @@
 import type { ToolInvocation } from "@/data/task-runs";
+import { useMessages } from "@/i18n";
+import { workbenchMessages } from "@/i18n/locales/workbench";
 import { formatToolElapsed } from "@/lib/tool-audit";
 import { statusSymbol } from "./status";
 
-function readable(value?: string | null) {
-  return value ? value.replaceAll("_", " ") : "Not reported";
+function readable(value: string | null | undefined, fallback: string) {
+  return value ? value.replaceAll("_", " ") : fallback;
 }
 
 function auditStatusSymbol(status: ToolInvocation["status"]) {
@@ -13,31 +15,31 @@ function auditStatusSymbol(status: ToolInvocation["status"]) {
 }
 
 export function ToolAudit({ tools }: { tools: ToolInvocation[] }) {
+  const t = useMessages(workbenchMessages);
+
   return (
     <section className="border border-white/10 bg-white/[0.025] p-5">
       <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-        Tools
+        {t("tools")}
       </p>
       <h2 className="mt-1 text-base font-semibold text-crew-heading">
-        工具与权限
+        {t("toolAuditHeading")}
       </h2>
       {tools.length === 0 ? (
-        <p className="mt-4 text-sm leading-6 text-crew-muted">
-          本次任务没有调用工具。
-        </p>
+        <p className="mt-4 text-sm leading-6 text-crew-muted">{t("noTools")}</p>
       ) : (
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[780px] text-left text-sm">
-            <caption className="sr-only">
-              Tool capability, authorization decision, result, and elapsed time
-            </caption>
+            <caption className="sr-only">{t("toolAuditCaption")}</caption>
             <thead className="border-b border-white/10 text-xs uppercase tracking-[0.14em] text-crew-muted">
               <tr>
-                <th className="py-2 pr-4 font-medium">能力 / 工具</th>
-                <th className="py-2 font-medium">摘要</th>
-                <th className="py-2 pl-4 font-medium">决策来源</th>
-                <th className="py-2 pl-4 font-medium">结果</th>
-                <th className="py-2 pl-4 text-right font-medium">耗时</th>
+                <th className="py-2 pr-4 font-medium">{t("capabilityTool")}</th>
+                <th className="py-2 font-medium">{t("summary")}</th>
+                <th className="py-2 pl-4 font-medium">{t("decisionSource")}</th>
+                <th className="py-2 pl-4 font-medium">{t("result")}</th>
+                <th className="py-2 pl-4 text-right font-medium">
+                  {t("elapsed")}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
@@ -48,7 +50,7 @@ export function ToolAudit({ tools }: { tools: ToolInvocation[] }) {
                       className="block break-all font-mono text-crew-heading"
                       translate="no"
                     >
-                      {tool.capability ?? "Unmapped capability"}
+                      {tool.capability ?? t("unmappedCapability")}
                     </code>
                     <code
                       className="mt-1 block break-all font-mono text-xs text-crew-muted"
@@ -58,14 +60,14 @@ export function ToolAudit({ tools }: { tools: ToolInvocation[] }) {
                     </code>
                   </td>
                   <td className="max-w-[300px] break-words py-3 text-crew-body">
-                    {tool.input_summary || "No input summary"}
+                    {tool.input_summary || t("noInputSummary")}
                   </td>
                   <td className="py-3 pl-4 text-crew-body">
                     <span className="block capitalize">
-                      {readable(tool.decision_source)}
+                      {readable(tool.decision_source, t("notReported"))}
                     </span>
                     <span className="mt-1 block font-mono text-xs text-crew-muted">
-                      {tool.permission_level ?? "No level"} · {tool.decision}
+                      {tool.permission_level ?? t("noLevel")} · {tool.decision}
                     </span>
                   </td>
                   <td className="py-3 pl-4 font-mono text-crew-body">

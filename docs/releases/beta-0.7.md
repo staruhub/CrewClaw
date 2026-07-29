@@ -5,6 +5,7 @@ Beta 0.7 turns CrewClaw's design-aligned storefront and workbench into a verifie
 ## Highlights
 
 - Reworked the landing page, marketplace, employee detail, and hire confirmation experience for the approved desktop and mobile direction.
+- Added a persistent English/Simplified Chinese language switcher and localized every active web workflow without translating technical IDs or user/runtime content.
 - Closed the hire loop with Doctor checks, trial execution, explicit capability grants, and a persisted local roster.
 - Added TaskRun evidence, artifacts, revisions, and approval decisions to the web and terminal workbench surfaces.
 - Connected employee, team, review, and performance views to honest runtime-backed signals instead of decorative success data.
@@ -59,6 +60,7 @@ The release snapshot was checked with:
 - ESLint: `pnpm run lint`
 - Vitest, deterministic runtime tests, and Rust tests: `pnpm run test`
 - Focused Playwright coverage for installation, hire, TaskRun, and design alignment
+- Playwright locale coverage for language switching, persistence, route transitions, localized seed content, and preserved technical identifiers
 - Production build: `pnpm run build`
 - Git whitespace validation: `git diff --check`
 - Fly.io health checks and browser smoke coverage against `https://crewhire.fly.dev/`

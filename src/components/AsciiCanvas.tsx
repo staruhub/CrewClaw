@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useI18n } from "@/i18n";
 
 type Point = { x: number; y: number };
 type Node = Point & { label: string };
@@ -152,7 +153,8 @@ function drawGhostLabel(
   width: number,
   height: number,
   node: Node,
-  alpha: number
+  alpha: number,
+  label = node.label
 ) {
   if (alpha <= 0.01) return;
 
@@ -161,11 +163,12 @@ function drawGhostLabel(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = `rgba(232, 168, 124, ${alpha})`;
-  ctx.fillText(node.label, node.x * width, node.y * height);
+  ctx.fillText(label, node.x * width, node.y * height);
   ctx.restore();
 }
 
 export function AsciiCanvas({ className = "" }: { className?: string }) {
+  const { locale } = useI18n();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouseRef = useRef({ x: -1000, y: -1000, active: false });
 
@@ -184,6 +187,17 @@ export function AsciiCanvas({ className = "" }: { className?: string }) {
     let charH = 16.5;
     let lastPaint = 0;
     let isMobile = false;
+    const labels: Partial<Record<string, string>> =
+      locale === "zh-CN"
+        ? {
+            DOCTOR: "体检",
+            TRIAL: "试用",
+            TASK: "任务",
+            TOOLS: "工具",
+            APPROVE: "审批",
+            DELIVER: "交付",
+          }
+        : {};
 
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
@@ -384,12 +398,40 @@ export function AsciiCanvas({ className = "" }: { className?: string }) {
       }
 
       ctx.globalAlpha = 1;
-      drawGhostLabel(ctx, width, height, planner, 0.02 + gather * 0.08);
-      agents.forEach(agent =>
-        drawGhostLabel(ctx, width, height, agent, 0.015 + split * 0.06)
+      drawGhostLabel(
+        ctx,
+        width,
+        height,
+        planner,
+        0.02 + gather * 0.08,
+        labels[planner.label] ?? planner.label
       );
-      drawGhostLabel(ctx, width, height, verifier, 0.02 + verify * 0.08);
-      drawGhostLabel(ctx, width, height, result, 0.012 + verify * 0.05);
+      agents.forEach(agent =>
+        drawGhostLabel(
+          ctx,
+          width,
+          height,
+          agent,
+          0.015 + split * 0.06,
+          labels[agent.label] ?? agent.label
+        )
+      );
+      drawGhostLabel(
+        ctx,
+        width,
+        height,
+        verifier,
+        0.02 + verify * 0.08,
+        labels[verifier.label] ?? verifier.label
+      );
+      drawGhostLabel(
+        ctx,
+        width,
+        height,
+        result,
+        0.012 + verify * 0.05,
+        labels[result.label] ?? result.label
+      );
     };
 
     resize();
@@ -411,7 +453,7 @@ export function AsciiCanvas({ className = "" }: { className?: string }) {
       canvas.removeEventListener("mousemove", handleMove);
       canvas.removeEventListener("mouseleave", handleLeave);
     };
-  }, []);
+  }, [locale]);
 
   return (
     <canvas

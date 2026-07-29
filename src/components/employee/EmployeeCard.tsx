@@ -20,22 +20,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  employeeEvidenceBadge,
-  employeeEvidenceLevel,
-  type Employee,
-} from "@/data/employees";
+import { type Employee } from "@/data/employees";
 import { track } from "@/hooks/use-analytics";
 import { useSavedEmployees } from "@/hooks/use-saved";
-import { cn } from "@/lib/utils";
+import { useI18n, useMessages } from "@/i18n";
+import { localizeEmployeeContent } from "@/i18n/employee-content";
 import {
-  acceptanceLabel,
-  availabilityLabel,
-  averageCostLabel,
-  kpiStateLabel,
-  runtimeSummary,
-  taskCountLabel,
-} from "./employeeSignals";
+  acceptanceText,
+  averageCostText,
+  availabilityText,
+  employeeEvidenceBadge,
+  employeeEvidenceLevel,
+  kpiStateText,
+  runtimeText,
+  taskCountText,
+} from "@/i18n/marketplace-format";
+import { marketplaceMessages } from "@/i18n/locales/marketplace";
+import { formatPricingLabel } from "@/lib/pricing";
+import { cn } from "@/lib/utils";
 import { useEmployeePerformance } from "./useEmployeePerformance";
 
 type EmployeeCardProps = {
@@ -47,13 +49,6 @@ type EmployeeCardProps = {
   onCompareToggle?: (employee: Employee) => void;
 };
 
-function formatPricing(pricing: string) {
-  return pricing
-    .split("-")
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 export function EmployeeCard({
   employee,
   action,
@@ -62,14 +57,17 @@ export function EmployeeCard({
   compareSelected = false,
   onCompareToggle,
 }: EmployeeCardProps) {
+  const { locale } = useI18n();
+  const t = useMessages(marketplaceMessages);
+  const displayEmployee = localizeEmployeeContent(employee, locale);
   const saved = useSavedEmployees();
   const isSaved = saved.isSaved(employee.employee_id);
   const performanceState = useEmployeePerformance(employee.employee_id);
   const performance = performanceState.performance;
-  const runtime = runtimeSummary(employee);
+  const runtime = runtimeText(employee, t);
   const kpiCopy = performanceState.loading
-    ? "Loading local KPI..."
-    : kpiStateLabel(performance);
+    ? t("loadingLocalKpiLong")
+    : kpiStateText(performance, t);
 
   return (
     <Card
@@ -86,7 +84,7 @@ export function EmployeeCard({
         ) {
           track("employee_card_clicked", {
             employee_id: employee.employee_id,
-            employee_name: employee.name,
+            employee_name: displayEmployee.name,
           });
         }
       }}
@@ -99,17 +97,17 @@ export function EmployeeCard({
                 className="hover:text-crew-copper"
                 to={`/employee/${employee.employee_id}`}
               >
-                {employee.name}
+                {displayEmployee.name}
               </Link>
             </CardTitle>
             <CardDescription className="mt-2 text-sm text-crew-muted">
-              {employee.role}
+              {displayEmployee.role}
             </CardDescription>
           </div>
           <CardAction className="static col-auto row-auto flex justify-self-auto">
             <div className="flex items-center gap-2">
               <Button
-                aria-label={isSaved ? "Unsave employee" : "Save employee"}
+                aria-label={isSaved ? t("unsaveEmployee") : t("saveEmployee")}
                 className={cn(
                   "size-9 rounded-[8px] border-white/15",
                   isSaved
@@ -119,9 +117,9 @@ export function EmployeeCard({
                 onClick={event => {
                   event.preventDefault();
                   event.stopPropagation();
-                  saved.toggleSaved(employee.employee_id, employee.name);
+                  saved.toggleSaved(employee.employee_id, displayEmployee.name);
                 }}
-                title={isSaved ? "Saved" : "Save"}
+                title={isSaved ? t("saved") : t("save")}
                 type="button"
                 variant="outline"
               >
@@ -129,7 +127,7 @@ export function EmployeeCard({
               </Button>
               <Badge className="gap-1 border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
                 <BadgeCheck className="size-3" />
-                {employeeEvidenceBadge(employee)}
+                {employeeEvidenceBadge(employee, t)}
               </Badge>
             </div>
           </CardAction>
@@ -137,18 +135,18 @@ export function EmployeeCard({
         <div className="flex flex-wrap gap-2">
           <Badge
             className="border-crew-copper/25 bg-crew-copper/[0.07] text-crew-body"
-            title="Every hire starts in manual-review mode. Three explicit acceptances unlock trust-auto eligibility; tool permissions remain governed by P0-P4."
+            title={t("growthStartTitle")}
             variant="outline"
           >
-            Growth start · Apprentice
+            {t("growthStart")}
           </Badge>
           <Badge
             className="border-white/10 bg-white/[0.04] text-crew-muted"
-            title={availabilityLabel(employee)}
+            title={availabilityText(employee, t)}
             variant="outline"
           >
             <Clock3 className="size-3" />
-            {availabilityLabel(employee)}
+            {availabilityText(employee, t)}
           </Badge>
           {employee.tags.slice(0, 4).map(tag => (
             <Badge
@@ -163,7 +161,7 @@ export function EmployeeCard({
       </CardHeader>
       <CardContent className="flex flex-1 flex-col">
         <p className="line-clamp-3 text-sm leading-6 text-crew-body">
-          {employee.description}
+          {displayEmployee.description}
         </p>
 
         {/* v0.18 Phase 2b: honest facts only. rating (4.8) / hire_count (1.2k) were fabricated —
@@ -171,49 +169,49 @@ export function EmployeeCard({
         <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/10 pt-4 font-mono text-xs text-crew-muted">
           <span className="flex min-w-0 items-center gap-1.5">
             <ShieldCheck className="size-3.5 text-crew-copper" />
-            {employeeEvidenceLevel(employee)}
+            {employeeEvidenceLevel(employee, t)}
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
             <Tag className="size-3.5 text-crew-copper" />v{employee.version}
           </span>
           <span className="min-w-0 truncate text-right text-crew-heading">
-            {formatPricing(employee.pricing)}
+            {formatPricingLabel(employee.pricing, locale)}
           </span>
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
             <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-              Formal tasks
+              {t("formalTasks")}
             </dt>
             <dd className="mt-1 text-sm font-semibold text-crew-heading">
               {performanceState.loading
-                ? "Loading"
-                : taskCountLabel(performance)}
+                ? t("loading")
+                : taskCountText(performance, t)}
             </dd>
           </div>
           <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
             <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-              Acceptance
+              {t("acceptance")}
             </dt>
             <dd className="mt-1 text-sm font-semibold text-crew-heading">
               {performanceState.loading
-                ? "Loading"
-                : acceptanceLabel(performance)}
+                ? t("loading")
+                : acceptanceText(performance, t)}
             </dd>
           </div>
           <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
             <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-              Avg cost
+              {t("avgCost")}
             </dt>
             <dd className="mt-1 text-sm font-semibold text-crew-heading">
               {performanceState.loading
-                ? "Loading"
-                : averageCostLabel(performance)}
+                ? t("loading")
+                : averageCostText(performance, t)}
             </dd>
           </div>
           <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
             <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-              Runtime
+              {t("runtime")}
             </dt>
             <dd className="mt-1 text-sm font-semibold text-crew-heading">
               {runtime.label}
@@ -221,8 +219,11 @@ export function EmployeeCard({
           </div>
         </dl>
         <p className="mt-3 text-xs leading-5 text-crew-muted">
-          {kpiCopy}. {runtime.detail}. Highest enabled risk is{" "}
-          {runtime.highestRisk}.
+          {t("cardKpiSummary", {
+            kpi: kpiCopy,
+            risk: runtime.highestRisk,
+            runtimeDetail: runtime.detail,
+          })}
         </p>
       </CardContent>
       <CardFooter className="flex flex-wrap gap-3">
@@ -240,7 +241,7 @@ export function EmployeeCard({
             variant="outline"
           >
             {compareSelected ? <Check className="size-4" /> : null}
-            {compareSelected ? "Compared" : "Compare"}
+            {compareSelected ? t("compared") : t("compare")}
           </Button>
         ) : null}
         {action ?? (
@@ -249,7 +250,7 @@ export function EmployeeCard({
             className="w-full rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze sm:w-auto"
           >
             <Link to={`/employee/${employee.employee_id}`}>
-              View
+              {t("view")}
               <ArrowUpRight className="size-4" />
             </Link>
           </Button>

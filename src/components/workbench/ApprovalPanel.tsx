@@ -5,6 +5,8 @@ import type {
   TaskRun,
   WorkbenchArtifact,
 } from "@/data/task-runs";
+import { useMessages } from "@/i18n";
+import { workbenchMessages } from "@/i18n/locales/workbench";
 import { cn } from "@/lib/utils";
 import { statusClass, statusSymbol } from "./status";
 
@@ -39,6 +41,7 @@ export function ApprovalPanel({
   evidenceInspected: boolean;
   onAction: (message: string) => void;
 }) {
+  const t = useMessages(workbenchMessages);
   const [reason, setReason] = useState("");
   const [revisionTask, setRevisionTask] = useState("");
 
@@ -68,10 +71,10 @@ export function ApprovalPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-amber-100">
-            Approval
+            {t("approvalTitle")}
           </p>
           <h2 className="mt-1 text-base font-semibold text-crew-heading">
-            人工交付门禁
+            {t("approvalHeading")}
           </h2>
         </div>
         <Badge
@@ -81,24 +84,23 @@ export function ApprovalPanel({
           )}
           variant="outline"
         >
-          {statusSymbol(run.status)} {delivered ? "released" : run.status}
+          {statusSymbol(run.status)} {delivered ? t("released") : run.status}
         </Badge>
       </div>
 
       <p className="mt-3 text-sm leading-6 text-crew-body">
-        Delivery is mandatory-gated: inspect evidence, then explicitly accept or
-        reject. Rejecting requires a reason and creates a revision task command.
+        {t("approvalBody")}
       </p>
 
       <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
         <div className="border border-white/10 bg-black/10 p-3">
-          <p className="font-mono text-xs text-crew-muted">Artifact</p>
+          <p className="font-mono text-xs text-crew-muted">{t("artifact")}</p>
           <p className="mt-1 break-words text-crew-heading">
-            {artifact?.name ?? "No artifact emitted"}
+            {artifact?.name ?? t("noArtifact")}
           </p>
         </div>
         <div className="border border-white/10 bg-black/10 p-3">
-          <p className="font-mono text-xs text-crew-muted">Evidence</p>
+          <p className="font-mono text-xs text-crew-muted">{t("evidence")}</p>
           <p
             className={
               evidenceInspected
@@ -106,21 +108,24 @@ export function ApprovalPanel({
                 : "mt-1 text-amber-100"
             }
           >
-            {evidenceInspected ? "inspected" : "inspect before approval"}
+            {evidenceInspected
+              ? t("evidenceInspected")
+              : t("evidenceBeforeApproval")}
           </p>
         </div>
         <div className="border border-white/10 bg-black/10 p-3">
-          <p className="font-mono text-xs text-crew-muted">Runtime action</p>
+          <p className="font-mono text-xs text-crew-muted">
+            {t("runtimeAction")}
+          </p>
           <p className="mt-1 break-words font-mono text-xs text-crew-heading">
-            {actions.approve?.command ?? "Missing explicit approval command"}
+            {actions.approve?.command ?? t("missingApprovalCommand")}
           </p>
         </div>
       </div>
 
       {missingAction ? (
         <p className="mt-4 border border-red-300/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">
-          Approval controls are disabled because the runtime did not emit both
-          explicit approval and revision pending actions.
+          {t("missingApprovalActions")}
         </p>
       ) : null}
 
@@ -140,15 +145,15 @@ export function ApprovalPanel({
           }}
           className="border border-emerald-300/40 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100 transition enabled:hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-45"
         >
-          Accept delivery
+          {t("acceptDelivery")}
         </button>
         {delivered ? (
           <span className="self-center font-mono text-xs text-emerald-200">
-            approval accepted; artifact release allowed
+            {t("approvalAccepted")}
           </span>
         ) : rejected ? (
           <span className="self-center font-mono text-xs text-red-100">
-            delivery rejected; revision required
+            {t("deliveryRejected")}
           </span>
         ) : null}
       </div>
@@ -156,24 +161,24 @@ export function ApprovalPanel({
       <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
         <label className="block">
           <span className="font-mono text-xs uppercase tracking-[0.14em] text-crew-muted">
-            Rejection reason
+            {t("rejectionReason")}
           </span>
           <input
             value={reason}
             onChange={event => setReason(event.target.value)}
             className="mt-2 w-full border border-white/10 bg-black/20 px-3 py-2 text-sm text-crew-heading outline-none focus:border-crew-copper/60"
-            placeholder="Missing source, wrong scope, unclear claim..."
+            placeholder={t("rejectionPlaceholder")}
           />
         </label>
         <label className="block">
           <span className="font-mono text-xs uppercase tracking-[0.14em] text-crew-muted">
-            Revision task
+            {t("revisionTask")}
           </span>
           <input
             value={revisionTask}
             onChange={event => setRevisionTask(event.target.value)}
             className="mt-2 w-full border border-white/10 bg-black/20 px-3 py-2 text-sm text-crew-heading outline-none focus:border-crew-copper/60"
-            placeholder="Ask employee to revise pricing section..."
+            placeholder={t("revisionPlaceholder")}
           />
         </label>
         <button
@@ -193,7 +198,7 @@ export function ApprovalPanel({
           }}
           className="self-end border border-red-300/40 bg-red-400/10 px-3 py-2 text-sm text-red-100 transition enabled:hover:border-red-200 disabled:cursor-not-allowed disabled:opacity-45"
         >
-          Create revision
+          {t("createRevision")}
         </button>
       </div>
     </section>

@@ -26,6 +26,14 @@ import {
   type AnalyticsEvent,
   readAnalyticsEvents,
 } from "@/hooks/use-analytics";
+import { useMessages } from "@/i18n";
+import { adminEn } from "@/i18n/locales/en/admin";
+import { adminZhCN } from "@/i18n/locales/zh-CN/admin";
+
+const adminMessages = {
+  en: adminEn,
+  "zh-CN": adminZhCN,
+} as const;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -161,6 +169,7 @@ function MetricCard({
 }
 
 export default function Metrics() {
+  const t = useMessages(adminMessages);
   const events = useMemo(() => readAnalyticsEvents(), []);
   const metrics = useMemo(() => calculateMetrics(events), [events]);
   const eventCounts = useMemo(
@@ -182,7 +191,7 @@ export default function Metrics() {
         >
           <Link to="/marketplace">
             <ArrowLeft className="size-4" />
-            Marketplace
+            {t("metricsBackMarketplace")}
           </Link>
         </Button>
 
@@ -190,21 +199,17 @@ export default function Metrics() {
           <div>
             <Badge className="gap-1 border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
               <BarChart3 className="size-3" />
-              Metrics
+              {t("metricsBadge")}
             </Badge>
             <h1 className="mt-5 text-4xl font-light leading-tight md:text-6xl">
-              Employee hiring signals
+              {t("metricsTitle")}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              Demo metrics read local event history and separate acquisition,
-              safety checks, work handoff, and human acceptance. Delivery
-              quality still comes from /performance because KPI records are the
-              authoritative employee evidence source.
+              {t("metricsDescription")}
             </p>
           </div>
           <p className="max-w-sm text-sm leading-6 text-crew-muted">
-            North Star: hired AI employees that completed at least one Doctor
-            check in the last 7 days.
+            {t("metricsNorthStarAside")}
           </p>
         </div>
 
@@ -214,53 +219,52 @@ export default function Metrics() {
               <div className="flex items-center gap-2 text-crew-copper">
                 <BriefcaseBusiness className="size-5" />
                 <span className="font-mono text-xs uppercase tracking-[0.14em]">
-                  North Star
+                  {t("metricsNorthStar")}
                 </span>
               </div>
               <p className="mt-4 text-5xl font-semibold">{metrics.northStar}</p>
               <p className="mt-3 text-sm leading-6 text-crew-body">
-                7-day active hired employees, counted when a hired employee has
-                a completed Doctor event.
+                {t("metricsNorthStarDescription")}
               </p>
             </CardContent>
           </Card>
           <MetricCard
-            description="Hire clicks divided by employee resume views."
+            description={t("metricsDetailToHireDescription")}
             icon={Activity}
-            label="Detail to Hire"
+            label={t("metricsDetailToHire")}
             value={metrics.detailToHire}
           />
           <MetricCard
-            description="Successful onboarding divided by confirmed Hire attempts."
+            description={t("metricsHireSuccessDescription")}
             icon={ClipboardCheck}
-            label="Hire Success"
+            label={t("metricsHireSuccess")}
             value={metrics.hireSuccess}
           />
         </section>
 
         <section className="mt-4 grid gap-4 md:grid-cols-2">
           <MetricCard
-            description="Doctor reports with issues or suggestions, matching the explainability target."
+            description={t("metricsDoctorExplainabilityDescription")}
             icon={ClipboardCheck}
-            label="Doctor Explainability"
+            label={t("metricsDoctorExplainability")}
             value={metrics.doctorExplainability}
           />
           <MetricCard
-            description="Hired employees that started a Doctor check within 24 hours."
+            description={t("metricsPostHireUsageDescription")}
             icon={Activity}
-            label="Post-hire Usage"
+            label={t("metricsPostHireUsage")}
             value={metrics.postHireUsage}
           />
           <MetricCard
-            description="Verified human reviews divided by successful hires; accepted TaskRun receipts are required."
+            description={t("metricsApprovalEvidenceDescription")}
             icon={HeartPulse}
-            label="Approval Evidence"
+            label={t("metricsApprovalEvidence")}
             value={metrics.approvalEvidence}
           />
           <MetricCard
-            description="Crew handoff or human review activity divided by team views."
+            description={t("metricsEvidenceReadinessDescription")}
             icon={ShieldCheck}
-            label="Evidence Readiness"
+            label={t("metricsEvidenceReadiness")}
             value={metrics.evidenceReadiness}
           />
         </section>
@@ -271,16 +275,14 @@ export default function Metrics() {
               <div className="flex items-center gap-2 text-crew-muted">
                 <FileWarning className="size-4 text-crew-copper" />
                 <span className="font-mono text-xs uppercase tracking-[0.14em]">
-                  Completion vs acceptance
+                  {t("metricsCompletionAcceptance")}
                 </span>
               </div>
               <p className="mt-4 text-3xl font-semibold text-crew-heading">
-                Separated
+                {t("metricsSeparated")}
               </p>
               <p className="mt-3 text-sm leading-6 text-crew-body">
-                Runtime completion is measured in the KPI ledger. This page only
-                counts browser events and verified review submissions, so it
-                does not treat a copied task or Doctor check as acceptance.
+                {t("metricsCompletionAcceptanceDescription")}
               </p>
             </CardContent>
           </Card>
@@ -289,16 +291,14 @@ export default function Metrics() {
               <div className="flex items-center gap-2 text-crew-muted">
                 <ShieldCheck className="size-4 text-crew-copper" />
                 <span className="font-mono text-xs uppercase tracking-[0.14em]">
-                  Review receipts
+                  {t("metricsReviewReceipts")}
                 </span>
               </div>
               <p className="mt-4 text-3xl font-semibold text-crew-heading">
                 {metrics.reviewSubmitted}
               </p>
               <p className="mt-3 text-sm leading-6 text-crew-body">
-                Verified reviews are accepted-task reviews, not marketing star
-                ratings. Legacy notes and mock signals are intentionally absent
-                from this metric.
+                {t("metricsReviewReceiptsDescription")}
               </p>
             </CardContent>
           </Card>
@@ -307,16 +307,14 @@ export default function Metrics() {
               <div className="flex items-center gap-2 text-amber-100">
                 <FileWarning className="size-4" />
                 <span className="font-mono text-xs uppercase tracking-[0.14em]">
-                  Instrumentation gap
+                  {t("metricsInstrumentationGap")}
                 </span>
               </div>
               <p className="mt-4 text-3xl font-semibold text-amber-100">
-                Honest
+                {t("metricsHonest")}
               </p>
               <p className="mt-3 text-sm leading-6 text-amber-100/85">
-                Cost, duration, regression, and evidence coverage are not
-                browser analytics. They stay on Performance until the local API
-                exposes event-level time series here.
+                {t("metricsInstrumentationGapDescription")}
               </p>
             </CardContent>
           </Card>
@@ -325,16 +323,18 @@ export default function Metrics() {
         <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
             <CardTitle className="text-xl font-semibold">
-              Event counts
+              {t("metricsEventCounts")}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow className="border-white/10 hover:bg-transparent">
-                  <TableHead className="px-5 text-crew-muted">Event</TableHead>
+                  <TableHead className="px-5 text-crew-muted">
+                    {t("metricsEvent")}
+                  </TableHead>
                   <TableHead className="px-5 text-right text-crew-muted">
-                    Count
+                    {t("metricsCount")}
                   </TableHead>
                 </TableRow>
               </TableHeader>

@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import type { TaskRun } from "@/data/task-runs";
+import { useI18n, useMessages } from "@/i18n";
+import { workbenchMessages } from "@/i18n/locales/workbench";
 import { cn } from "@/lib/utils";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { ArtifactPanel } from "./ArtifactPanel";
@@ -13,12 +15,9 @@ import { TimelinePanel } from "./TimelinePanel";
 import { ToolAudit } from "./ToolAudit";
 import { honestRunState, statusClass, statusSymbol } from "./status";
 
-function fmtTime(iso: string) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
-
 export function WorkbenchShell({ run }: { run: TaskRun }) {
+  const { formatDate, formatNumber } = useI18n();
+  const t = useMessages(workbenchMessages);
   const initialArtifactId = run.artifact ?? run.artifacts[0]?.id ?? null;
   const [selectedArtifactId, setSelectedArtifactId] =
     useState(initialArtifactId);
@@ -47,14 +46,14 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
   const displayState = honestRunState(run.status);
   const currentQueueLabel =
     displayState === "delivered"
-      ? "Delivery released"
+      ? t("queueDelivered")
       : displayState === "waiting"
-        ? "Waiting for human approval"
+        ? t("queueWaiting")
         : displayState === "failed"
-          ? "Needs recovery"
+          ? t("queueFailed")
           : displayState === "streaming"
-            ? "Employee is working"
-            : "Idle / ready";
+            ? t("queueStreaming")
+            : t("queueIdle");
 
   function queueAction(message: string) {
     setLastAction(message);
@@ -64,23 +63,23 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
     <main className="min-h-screen bg-crew-bg px-4 pb-28 pt-8 text-crew-heading sm:px-6 lg:pt-4">
       <section className="mx-auto max-w-7xl">
         <nav
-          aria-label="Workbench surfaces"
+          aria-label={t("navAria")}
           className="mb-2 hidden items-center gap-5 border-b border-white/10 pb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-crew-muted lg:flex"
         >
           <span className="bg-crew-copper px-2 py-1 font-semibold text-black">
-            [1] Workbench
+            {t("navWorkbench")}
           </span>
           <Link className="hover:text-crew-copper" to="/marketplace">
-            [2] Market
+            {t("navMarket")}
           </Link>
           <Link className="hover:text-crew-copper" to="/team">
-            [3] Hire
+            {t("navHire")}
           </Link>
           <Link className="hover:text-crew-copper" to="/performance">
-            [4] Eval
+            {t("navEval")}
           </Link>
           <Link className="hover:text-crew-copper" to="/crew">
-            [5] Dream
+            {t("navDream")}
           </Link>
         </nav>
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-5 lg:items-center lg:pb-3">
@@ -97,7 +96,7 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
                 <span className="font-mono text-crew-muted">· {run.model}</span>
               ) : null}
               <span className="text-crew-muted">
-                · {fmtTime(run.started_at)}
+                · {formatDate(run.started_at)}
               </span>
             </div>
           </div>
@@ -127,7 +126,7 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
               >
                 ${run.cost.toFixed(2)}
                 {typeof run.tokens === "number"
-                  ? ` · ${run.tokens.toLocaleString()} tok`
+                  ? ` · ${formatNumber(run.tokens)} ${t("tokenSuffix")}`
                   : ""}
               </Badge>
             ) : null}
@@ -136,12 +135,19 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
 
         <div className="mt-5 grid gap-3 border-b border-white/10 pb-5 md:grid-cols-4 lg:hidden">
           {[
-            ["State", `${statusSymbol(displayState)} ${displayState}`],
-            ["Queue", currentQueueLabel],
-            ["Artifacts", `${run.artifacts.length} tracked`],
+            [t("state"), `${statusSymbol(displayState)} ${displayState}`],
+            [t("queue"), currentQueueLabel],
             [
-              "Evidence",
-              `${(run.sources ?? []).length + (selectedArtifact?.checks.length ?? 0)} inspectable`,
+              t("artifacts"),
+              t("trackedCount", { count: run.artifacts.length }),
+            ],
+            [
+              t("evidence"),
+              t("inspectableCount", {
+                count:
+                  (run.sources ?? []).length +
+                  (selectedArtifact?.checks.length ?? 0),
+              }),
             ],
           ].map(([label, value]) => (
             <div
@@ -160,34 +166,40 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
           <aside className="space-y-5 lg:order-1 lg:space-y-3">
             <section className="border border-white/10 bg-white/[0.025] p-5 lg:p-3">
               <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-                Employee
+                {t("employee")}
               </p>
               <h2 className="mt-1 text-base font-semibold text-crew-heading">
                 {run.employee_name ?? run.employee_id}
               </h2>
               <dl className="mt-4 space-y-2 text-sm leading-6 text-crew-body lg:mt-2 lg:space-y-1 lg:text-xs lg:leading-5">
                 <div>
-                  <dt className="font-mono text-xs text-crew-muted">Role</dt>
-                  <dd>{run.role ?? "Not reported"}</dd>
+                  <dt className="font-mono text-xs text-crew-muted">
+                    {t("role")}
+                  </dt>
+                  <dd>{run.role ?? t("notReported")}</dd>
                 </div>
                 <div>
-                  <dt className="font-mono text-xs text-crew-muted">Model</dt>
+                  <dt className="font-mono text-xs text-crew-muted">
+                    {t("model")}
+                  </dt>
                   <dd className="break-words font-mono text-xs">
-                    {run.model ?? "Not reported"}
+                    {run.model ?? t("notReported")}
                   </dd>
                 </div>
                 <div>
-                  <dt className="font-mono text-xs text-crew-muted">Started</dt>
-                  <dd>{fmtTime(run.started_at)}</dd>
+                  <dt className="font-mono text-xs text-crew-muted">
+                    {t("started")}
+                  </dt>
+                  <dd>{formatDate(run.started_at)}</dd>
                 </div>
               </dl>
             </section>
             <section className="border border-white/10 bg-white/[0.025] p-5 lg:p-3">
               <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-                Queue
+                {t("queue")}
               </p>
               <h2 className="mt-1 text-base font-semibold text-crew-heading">
-                Trial task
+                {t("trialTask")}
               </h2>
               <div className="mt-4 border border-white/10 bg-black/10 p-3 lg:mt-2 lg:p-2">
                 <p className="text-sm leading-6 text-crew-heading">
@@ -208,21 +220,25 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
             />
             <section className="border border-white/10 bg-white/[0.025] p-5 lg:p-3">
               <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-                Detail
+                {t("detail")}
               </p>
               <h2 className="mt-1 text-base font-semibold text-crew-heading">
-                Event detail
+                {t("eventDetail")}
               </h2>
               {selectedEvent ? (
                 <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2 lg:mt-2 lg:gap-2 lg:text-xs">
                   <div className="border border-white/10 bg-black/10 p-3">
-                    <dt className="font-mono text-xs text-crew-muted">Title</dt>
+                    <dt className="font-mono text-xs text-crew-muted">
+                      {t("title")}
+                    </dt>
                     <dd className="mt-1 text-crew-heading">
                       {selectedEvent.summary}
                     </dd>
                   </div>
                   <div className="border border-white/10 bg-black/10 p-3">
-                    <dt className="font-mono text-xs text-crew-muted">Actor</dt>
+                    <dt className="font-mono text-xs text-crew-muted">
+                      {t("actor")}
+                    </dt>
                     <dd className="mt-1 text-crew-heading">
                       {selectedEvent.tool_name ??
                         run.employee_name ??
@@ -230,23 +246,25 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
                     </dd>
                   </div>
                   <div className="border border-white/10 bg-black/10 p-3">
-                    <dt className="font-mono text-xs text-crew-muted">Type</dt>
+                    <dt className="font-mono text-xs text-crew-muted">
+                      {t("type")}
+                    </dt>
                     <dd className="mt-1 font-mono text-xs">
                       {selectedEvent.type}
                     </dd>
                   </div>
                   <div className="border border-white/10 bg-black/10 p-3">
                     <dt className="font-mono text-xs text-crew-muted">
-                      Status
+                      {t("status")}
                     </dt>
                     <dd className="mt-1 font-mono text-xs">
-                      {selectedEvent.status ?? "recorded"}
+                      {selectedEvent.status ?? t("recorded")}
                     </dd>
                   </div>
                 </dl>
               ) : (
                 <p className="mt-4 text-sm text-crew-muted">
-                  No timeline event has been emitted yet.
+                  {t("noTimelineEvent")}
                 </p>
               )}
             </section>
@@ -290,14 +308,14 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
         <div className="mx-auto flex max-w-7xl flex-col gap-2 md:flex-row md:items-end">
           <label className="min-w-0 flex-1">
             <span className="font-mono text-xs uppercase tracking-[0.14em] text-crew-muted">
-              Input
+              {t("input")}
             </span>
             <textarea
               value={command}
               onChange={event => setCommand(event.target.value)}
               rows={2}
               className="mt-1 w-full resize-none border border-white/10 bg-black/30 px-3 py-2 text-sm text-crew-heading outline-none focus:border-crew-copper/60"
-              placeholder="/ask employee to clarify evidence, or type a review note"
+              placeholder={t("inputPlaceholder")}
             />
           </label>
           <div className="flex flex-wrap items-center gap-2">
@@ -309,7 +327,10 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
                   queueAction(`pending.run ${action.key} ${action.command}`)
                 }
                 className="border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-crew-body hover:border-crew-copper/50 hover:text-crew-heading"
-                aria-label={`Run pending action ${action.key}: ${action.label}`}
+                aria-label={t("runPendingAction", {
+                  key: action.key,
+                  label: action.label,
+                })}
               >
                 <span className="font-mono text-crew-copper">
                   [{action.key}]
@@ -326,7 +347,7 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
               }}
               className="border border-crew-copper/50 bg-crew-copper/10 px-3 py-2 text-sm text-crew-heading enabled:hover:border-crew-copper disabled:cursor-not-allowed disabled:opacity-45"
             >
-              Send
+              {t("send")}
             </button>
           </div>
           {lastAction ? (

@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { getLatestTaskRun } from "../src/data/task-runs";
+import { localizeTaskRun } from "../src/i18n/task-run-content";
 
 const run = getLatestTaskRun();
-const primaryArtifact = run.artifacts[0];
+const localizedRun = localizeTaskRun(run, "en");
+const primaryArtifact = localizedRun.artifacts[0];
 
 test("task run workbench exposes event-driven supervision panels", async ({
   page,
@@ -11,14 +13,14 @@ test("task run workbench exposes event-driven supervision panels", async ({
 
   await expect(page).toHaveTitle(/CrewClaw/);
   await expect(
-    page.getByRole("heading", { name: run.user_goal })
+    page.getByRole("heading", { name: localizedRun.user_goal })
   ).toBeVisible();
   await expect(page.getByText("[1] Workbench", { exact: true })).toBeVisible();
 
   await expect(page.getByText("Timeline", { exact: true })).toBeVisible();
-  await expect(page.getByText("员工动作")).toBeVisible();
-  await expect(page.getByText(run.events[0].summary)).toBeVisible();
-  await expect(page.getByText(run.events[2].summary)).toBeVisible();
+  await expect(page.getByText("Employee actions")).toBeVisible();
+  await expect(page.getByText(localizedRun.events[0].summary)).toBeVisible();
+  await expect(page.getByText(localizedRun.events[2].summary)).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Time" })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Actor" })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Type" })).toBeVisible();
@@ -34,7 +36,7 @@ test("task run workbench exposes event-driven supervision panels", async ({
   await expect(page.getByText("Queue", { exact: true }).last()).toBeVisible();
   await expect(page.getByText("Event detail")).toBeVisible();
   const firstTimelineRow = page.getByRole("row").filter({
-    has: page.getByText(run.events[0].summary),
+    has: page.getByText(localizedRun.events[0].summary),
   });
   await firstTimelineRow.focus();
   await expect(firstTimelineRow).toBeFocused();
@@ -44,7 +46,7 @@ test("task run workbench exposes event-driven supervision panels", async ({
   const eventDetail = page
     .getByRole("heading", { name: "Event detail" })
     .locator("..");
-  await expect(eventDetail).toContainText(run.events[0].summary);
+  await expect(eventDetail).toContainText(localizedRun.events[0].summary);
 
   await expect(
     page.getByText("Artifacts", { exact: true }).last()
@@ -79,7 +81,7 @@ test("task run workbench exposes event-driven supervision panels", async ({
   await expect(
     page.getByText("Evidence", { exact: true }).last()
   ).toBeVisible();
-  await expect(page.getByText("审批前证据")).toBeVisible();
+  await expect(page.getByText("Pre-approval evidence")).toBeVisible();
   await page
     .getByRole("button", { name: /Inspect evidence/i })
     .first()
@@ -87,7 +89,7 @@ test("task run workbench exposes event-driven supervision panels", async ({
   await expect(page.getByText("Inspect selected evidence")).toBeVisible();
 
   await expect(page.getByText("Approval", { exact: true })).toBeVisible();
-  await expect(page.getByText("人工交付门禁")).toBeVisible();
+  await expect(page.getByText("Human delivery gate")).toBeVisible();
   await expect(page.getByText("Accept delivery")).toBeVisible();
   await page
     .getByPlaceholder("Missing source, wrong scope, unclear claim...")
@@ -100,9 +102,9 @@ test("task run workbench exposes event-driven supervision panels", async ({
   await expect(page.getByText(/"reason":/)).toBeVisible();
   await expect(page.getByText(/"revisionTask":/)).toBeVisible();
 
-  await expect(page.getByText("工具与权限")).toBeVisible();
+  await expect(page.getByText("Tools and permissions")).toBeVisible();
   const toolAudit = page
-    .getByRole("heading", { name: "工具与权限" })
+    .getByRole("heading", { name: "Tools and permissions" })
     .locator("..");
   const searchRow = toolAudit.getByRole("row").filter({
     has: page.getByText("web.search", { exact: true }),

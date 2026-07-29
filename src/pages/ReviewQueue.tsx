@@ -46,26 +46,50 @@ import { Textarea } from "@/components/ui/textarea";
 import { track } from "@/hooks/use-analytics";
 import type { CreatorSubmission } from "@/hooks/use-submissions";
 import { useSubmissions } from "@/hooks/use-submissions";
+import { useI18n, useMessages, type MessageValues } from "@/i18n";
+import { adminEn } from "@/i18n/locales/en/admin";
+import { adminZhCN } from "@/i18n/locales/zh-CN/admin";
 import { cn } from "@/lib/utils";
 
-function formatDate(value: string | null) {
-  if (!value) return "Not yet";
+const adminMessages = {
+  en: adminEn,
+  "zh-CN": adminZhCN,
+} as const;
 
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+type AdminMessageKey = keyof typeof adminEn;
+type Translate = (key: AdminMessageKey, values?: MessageValues) => string;
+
+const ACTION_MESSAGE_KEYS = {
+  "Submission not found.": "hookSubmissionNotFound",
+  "Only pending submissions can be approved.": "hookOnlyPendingApprovable",
+  "Employee published.": "hookEmployeePublished",
+  "Only pending submissions can be rejected.": "hookOnlyPendingRejectable",
+  "Employee returned to creator with review notes.": "hookEmployeeReturned",
+  "Only published employees can be disabled.": "hookOnlyPublishedDisable",
+  "Employee disabled and removed from the public bench.":
+    "hookEmployeeDisabled",
+} as const satisfies Record<string, AdminMessageKey>;
+
+function localizedActionMessage(message: string, t: Translate) {
+  const key = ACTION_MESSAGE_KEYS[message as keyof typeof ACTION_MESSAGE_KEYS];
+  return key ? t(key) : message;
 }
 
-function submissionStatus(submission: CreatorSubmission) {
-  if (submission.disabled) return "Disabled";
-  if (submission.status === "submitted") return "Pending";
-  if (submission.status === "published") return "Published";
-  if (submission.status === "rejected") return "Rejected";
-  return "Draft";
+function submissionStatus(submission: CreatorSubmission, t: Translate) {
+  if (submission.disabled) return t("statusDisabled");
+  if (submission.status === "submitted") return t("statusPending");
+  if (submission.status === "published") return t("statusPublished");
+  if (submission.status === "rejected") return t("statusRejected");
+  return t("statusDraft");
 }
 
-function StatusBadge({ submission }: { submission: CreatorSubmission }) {
+function StatusBadge({
+  submission,
+  t,
+}: {
+  submission: CreatorSubmission;
+  t: Translate;
+}) {
   const className = submission.disabled
     ? "border-zinc-400/35 bg-zinc-400/10 text-zinc-200"
     : submission.status === "published"
@@ -78,19 +102,25 @@ function StatusBadge({ submission }: { submission: CreatorSubmission }) {
 
   return (
     <Badge className={cn("rounded-[8px] border", className)} variant="outline">
-      {submissionStatus(submission)}
+      {submissionStatus(submission, t)}
     </Badge>
   );
 }
 
-function RiskBadge({ submission }: { submission: CreatorSubmission }) {
+function RiskBadge({
+  submission,
+  t,
+}: {
+  submission: CreatorSubmission;
+  t: Translate;
+}) {
   if (submission.high_risk_permissions.length === 0) {
     return (
       <Badge
         className="rounded-[8px] border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
         variant="outline"
       >
-        Standard
+        {t("riskStandard")}
       </Badge>
     );
   }
@@ -101,7 +131,7 @@ function RiskBadge({ submission }: { submission: CreatorSubmission }) {
       variant="outline"
     >
       <ShieldAlert className="size-3" />
-      High risk
+      {t("riskHigh")}
     </Badge>
   );
 }
@@ -125,15 +155,21 @@ function SummaryList({ label, items }: { label: string; items: string[] }) {
   );
 }
 
-function SubmissionDetail({ submission }: { submission: CreatorSubmission }) {
-  const flags = evidenceFlags(submission);
+function SubmissionDetail({
+  submission,
+  t,
+}: {
+  submission: CreatorSubmission;
+  t: Translate;
+}) {
+  const flags = evidenceFlags(submission, t);
 
   return (
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-[8px] border border-white/10 bg-white/[0.03] p-4">
           <p className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
-            Employee
+            {t("reviewEmployeeLabel")}
           </p>
           <h3 className="mt-2 text-xl font-semibold text-crew-heading">
             {submission.manifest.name}
@@ -144,7 +180,7 @@ function SubmissionDetail({ submission }: { submission: CreatorSubmission }) {
         </div>
         <div className="rounded-[8px] border border-white/10 bg-white/[0.03] p-4">
           <p className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
-            Creator
+            {t("reviewCreatorLabel")}
           </p>
           <h3 className="mt-2 text-xl font-semibold text-crew-heading">
             {submission.manifest.creator}
@@ -157,7 +193,7 @@ function SubmissionDetail({ submission }: { submission: CreatorSubmission }) {
 
       <div className="rounded-[8px] border border-white/10 bg-white/[0.03] p-4">
         <h3 className="text-sm font-medium text-crew-heading">
-          Manifest summary
+          {t("reviewManifestSummaryTitle")}
         </h3>
         <p className="mt-3 text-sm leading-6 text-crew-body">
           {submission.manifest.description}
@@ -170,7 +206,7 @@ function SubmissionDetail({ submission }: { submission: CreatorSubmission }) {
       {submission.high_risk_permissions.length > 0 ? (
         <Alert className="rounded-[8px] border-amber-300/30 bg-amber-300/10 text-amber-100">
           <ShieldAlert className="size-4" />
-          <AlertTitle>High-risk permissions require manual review</AlertTitle>
+          <AlertTitle>{t("reviewHighRiskManualTitle")}</AlertTitle>
           <AlertDescription className="text-amber-100/85">
             {submission.high_risk_permissions.join(", ")}
           </AlertDescription>
@@ -179,7 +215,7 @@ function SubmissionDetail({ submission }: { submission: CreatorSubmission }) {
 
       <div className="rounded-[8px] border border-white/10 bg-white/[0.03] p-4">
         <h3 className="text-sm font-medium text-crew-heading">
-          Review evidence flags
+          {t("reviewEvidenceFlagsTitle")}
         </h3>
         <div className="mt-3 flex flex-wrap gap-2">
           {flags.map(flag => (
@@ -198,31 +234,35 @@ function SubmissionDetail({ submission }: { submission: CreatorSubmission }) {
           ))}
         </div>
         <p className="mt-3 text-xs leading-5 text-crew-muted">
-          Approval is enabled only after this detail view has been opened, so
-          publishing cannot happen before a human sees the manifest,
-          permissions, tools, and evidence flags.
+          {t("reviewEvidenceGateBody")}
         </p>
       </div>
 
       <div className="grid gap-5 md:grid-cols-2">
-        <SummaryList label="Skills" items={submission.manifest.skills} />
-        <SummaryList label="Tools" items={submission.manifest.tools} />
         <SummaryList
-          label="Onboarding"
+          label={t("reviewSkills")}
+          items={submission.manifest.skills}
+        />
+        <SummaryList
+          label={t("reviewTools")}
+          items={submission.manifest.tools}
+        />
+        <SummaryList
+          label={t("reviewOnboarding")}
           items={submission.manifest.install_requirements}
         />
         <SummaryList
-          label="Limitations"
+          label={t("reviewLimitations")}
           items={submission.manifest.limitations}
         />
         <SummaryList
-          label="Input examples"
+          label={t("reviewInputExamples")}
           items={submission.manifest.input_examples}
         />
       </div>
       <div>
         <h3 className="mb-3 text-sm font-medium text-crew-heading">
-          Permissions
+          {t("reviewPermissions")}
         </h3>
         <PermissionLevelList
           compact
@@ -233,22 +273,22 @@ function SubmissionDetail({ submission }: { submission: CreatorSubmission }) {
   );
 }
 
-function evidenceFlags(submission: CreatorSubmission) {
+function evidenceFlags(submission: CreatorSubmission, t: Translate) {
   const flags: { label: string; tone: "ok" | "warning" }[] = [];
   if (submission.high_risk_permissions.length > 0) {
-    flags.push({ label: "High-risk permission", tone: "warning" });
+    flags.push({ label: t("evidenceHighRiskPermission"), tone: "warning" });
   }
   if (submission.manifest.input_examples.length === 0) {
-    flags.push({ label: "No input examples", tone: "warning" });
+    flags.push({ label: t("evidenceNoInputExamples"), tone: "warning" });
   }
   if (submission.manifest.limitations.length === 0) {
-    flags.push({ label: "No limitations listed", tone: "warning" });
+    flags.push({ label: t("evidenceNoLimitations"), tone: "warning" });
   }
   if (submission.manifest.tools.length === 0) {
-    flags.push({ label: "No tool evidence", tone: "warning" });
+    flags.push({ label: t("evidenceNoToolEvidence"), tone: "warning" });
   }
   if (flags.length === 0) {
-    flags.push({ label: "Manifest evidence reviewed", tone: "ok" });
+    flags.push({ label: t("evidenceManifestReviewed"), tone: "ok" });
   }
   return flags;
 }
@@ -278,28 +318,29 @@ function Metric({
 function RejectDialog({
   onReject,
   submission,
+  t,
 }: {
   onReject: (id: string, reason: string) => void;
   submission: CreatorSubmission;
+  t: Translate;
 }) {
-  const [reason, setReason] = useState(
-    "High-risk write permissions need clearer confirmation language."
-  );
+  const [reason, setReason] = useState(t("rejectDefaultReason"));
 
   return (
     <Dialog>
       <DialogTrigger asChild>
         <Button className="rounded-[8px]" size="sm" variant="destructive">
           <XCircle className="size-4" />
-          Reject
+          {t("actionReject")}
         </Button>
       </DialogTrigger>
       <DialogContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
         <DialogHeader>
-          <DialogTitle>Reject {submission.manifest.name}?</DialogTitle>
+          <DialogTitle>
+            {t("rejectDialogTitle", { name: submission.manifest.name })}
+          </DialogTitle>
           <DialogDescription className="text-crew-body">
-            The creator will see these review notes and can edit the employee
-            draft.
+            {t("rejectDialogDescription")}
           </DialogDescription>
         </DialogHeader>
         <Textarea
@@ -313,7 +354,7 @@ function RejectDialog({
             onClick={() => onReject(submission.submission_id, reason)}
             variant="destructive"
           >
-            Reject employee
+            {t("rejectEmployee")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -322,6 +363,8 @@ function RejectDialog({
 }
 
 export default function ReviewQueue() {
+  const t = useMessages(adminMessages);
+  const { formatDate: formatLocaleDate } = useI18n();
   const submissionsApi = useSubmissions();
   const submissions = submissionsApi.list();
   const [message, setMessage] = useState<string | null>(null);
@@ -343,10 +386,14 @@ export default function ReviewQueue() {
     submission =>
       submission.status === "submitted" || submission.status === "published"
   );
+  const formatSubmissionDate = (value: string | null) =>
+    value
+      ? formatLocaleDate(value, { dateStyle: "medium", timeStyle: "short" })
+      : t("notYet");
 
   function approve(id: string) {
     if (!reviewedSubmissionIds.includes(id)) {
-      setMessage("Open the review detail before approving this employee.");
+      setMessage(t("approveNeedsReview"));
       return;
     }
     const result = submissionsApi.approve(id);
@@ -357,7 +404,7 @@ export default function ReviewQueue() {
         submission_id: result.submission.submission_id,
       });
     }
-    setMessage(result.message);
+    setMessage(localizedActionMessage(result.message, t));
   }
 
   function markReviewed(id: string) {
@@ -368,12 +415,12 @@ export default function ReviewQueue() {
 
   function reject(id: string, reason: string) {
     const result = submissionsApi.reject(id, reason);
-    setMessage(result.message);
+    setMessage(localizedActionMessage(result.message, t));
   }
 
   function disable(id: string) {
     const result = submissionsApi.disable(id);
-    setMessage(result.message);
+    setMessage(localizedActionMessage(result.message, t));
   }
 
   return (
@@ -382,14 +429,13 @@ export default function ReviewQueue() {
         <div className="flex flex-col gap-5 border-b border-white/10 pb-8 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <Badge className="border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
-              Review Queue
+              {t("reviewBadge")}
             </Badge>
             <h1 className="mt-5 text-4xl font-light leading-tight md:text-6xl">
-              Verify employee submissions
+              {t("reviewTitle")}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              Review manifest quality, flag risky permissions, and only publish
-              employees after operator approval.
+              {t("reviewDescription")}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -398,13 +444,13 @@ export default function ReviewQueue() {
               className="rounded-[8px] border-white/15"
               variant="outline"
             >
-              <Link to="/creator">Creator Console</Link>
+              <Link to="/creator">{t("navCreatorConsole")}</Link>
             </Button>
             <Button
               asChild
               className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
             >
-              <Link to="/marketplace">Marketplace</Link>
+              <Link to="/marketplace">{t("navMarketplace")}</Link>
             </Button>
           </div>
         </div>
@@ -412,17 +458,17 @@ export default function ReviewQueue() {
         <section className="mt-8 grid gap-4 md:grid-cols-3">
           <Metric
             icon={AlertTriangle}
-            label="Pending"
+            label={t("metricPending")}
             value={pending.length.toString()}
           />
           <Metric
             icon={ShieldAlert}
-            label="High risk"
+            label={t("metricHighRisk")}
             value={highRiskCount.toString()}
           />
           <Metric
             icon={BadgeCheck}
-            label="Published"
+            label={t("metricPublished")}
             value={published.length.toString()}
           />
         </section>
@@ -430,7 +476,7 @@ export default function ReviewQueue() {
         {message ? (
           <Alert className="mt-6 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <CheckCircle2 className="size-4 text-crew-copper" />
-            <AlertTitle>Review update</AlertTitle>
+            <AlertTitle>{t("reviewUpdateTitle")}</AlertTitle>
             <AlertDescription className="text-crew-body">
               {message}
             </AlertDescription>
@@ -439,26 +485,24 @@ export default function ReviewQueue() {
 
         <Alert className="mt-6 rounded-[8px] border-crew-copper/25 bg-crew-copper/10 text-crew-heading">
           <ShieldAlert className="size-4 text-crew-copper" />
-          <AlertTitle>Safety policy</AlertTitle>
+          <AlertTitle>{t("reviewSafetyPolicyTitle")}</AlertTitle>
           <AlertDescription className="text-crew-body">
-            Mail sending, contacts write, payment, and delete permissions must
-            be reviewed before an employee can be published.
+            {t("reviewSafetyPolicyBody")}
           </AlertDescription>
         </Alert>
 
         <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
-            <CardTitle className="text-xl font-semibold">Queue</CardTitle>
+            <CardTitle className="text-xl font-semibold">
+              {t("reviewQueueTitle")}
+            </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {rows.length === 0 ? (
               <div className="px-6 pb-8">
-                <h2 className="text-2xl font-light">
-                  No employees waiting for review.
-                </h2>
+                <h2 className="text-2xl font-light">{t("reviewEmptyTitle")}</h2>
                 <p className="mt-3 max-w-xl text-sm leading-6 text-crew-body">
-                  Submitted employees from Creator Console will appear here
-                  before they can become public employees.
+                  {t("reviewEmptyBody")}
                 </p>
               </div>
             ) : (
@@ -466,20 +510,22 @@ export default function ReviewQueue() {
                 <TableHeader>
                   <TableRow className="border-white/10 hover:bg-transparent">
                     <TableHead className="px-5 text-crew-muted">
-                      Employee
+                      {t("tableEmployee")}
                     </TableHead>
                     <TableHead className="px-5 text-crew-muted">
-                      Manifest summary
-                    </TableHead>
-                    <TableHead className="px-5 text-crew-muted">Risk</TableHead>
-                    <TableHead className="px-5 text-crew-muted">
-                      Status
+                      {t("tableManifestSummary")}
                     </TableHead>
                     <TableHead className="px-5 text-crew-muted">
-                      Submitted
+                      {t("tableRisk")}
+                    </TableHead>
+                    <TableHead className="px-5 text-crew-muted">
+                      {t("tableStatus")}
+                    </TableHead>
+                    <TableHead className="px-5 text-crew-muted">
+                      {t("tableSubmitted")}
                     </TableHead>
                     <TableHead className="px-5 text-right text-crew-muted">
-                      Actions
+                      {t("tableActions")}
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -515,13 +561,13 @@ export default function ReviewQueue() {
                         </div>
                       </TableCell>
                       <TableCell className="px-5 py-5">
-                        <RiskBadge submission={submission} />
+                        <RiskBadge submission={submission} t={t} />
                       </TableCell>
                       <TableCell className="px-5 py-5">
-                        <StatusBadge submission={submission} />
+                        <StatusBadge submission={submission} t={t} />
                       </TableCell>
                       <TableCell className="px-5 py-5 text-sm text-crew-body">
-                        {formatDate(submission.submitted_at)}
+                        {formatSubmissionDate(submission.submitted_at)}
                       </TableCell>
                       <TableCell className="px-5 py-5">
                         <div className="flex flex-wrap justify-end gap-2">
@@ -533,7 +579,7 @@ export default function ReviewQueue() {
                                 variant="outline"
                               >
                                 <Eye className="size-4" />
-                                Review
+                                {t("actionReview")}
                               </Button>
                             </DialogTrigger>
                             <DialogContent
@@ -547,11 +593,10 @@ export default function ReviewQueue() {
                                   {submission.manifest.name}
                                 </DialogTitle>
                                 <DialogDescription className="text-crew-body">
-                                  Manifest summary, permissions, onboarding, and
-                                  safety notes.
+                                  {t("reviewDialogDescription")}
                                 </DialogDescription>
                               </DialogHeader>
-                              <SubmissionDetail submission={submission} />
+                              <SubmissionDetail submission={submission} t={t} />
                             </DialogContent>
                           </Dialog>
 
@@ -572,16 +617,17 @@ export default function ReviewQueue() {
                                   reviewedSubmissionIds.includes(
                                     submission.submission_id
                                   )
-                                    ? "Approve reviewed employee"
-                                    : "Open Review before approving"
+                                    ? t("approveReviewedTitle")
+                                    : t("approveOpenReviewTitle")
                                 }
                               >
                                 <CheckCircle2 className="size-4" />
-                                Approve
+                                {t("actionApprove")}
                               </Button>
                               <RejectDialog
                                 onReject={reject}
                                 submission={submission}
+                                t={t}
                               />
                             </>
                           ) : null}
@@ -596,22 +642,23 @@ export default function ReviewQueue() {
                                   variant="destructive"
                                 >
                                   <Ban className="size-4" />
-                                  Disable
+                                  {t("actionDisable")}
                                 </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>
-                                    Disable {submission.manifest.name}?
+                                    {t("disableDialogTitle", {
+                                      name: submission.manifest.name,
+                                    })}
                                   </AlertDialogTitle>
                                   <AlertDialogDescription className="leading-6 text-crew-body">
-                                    This employee will be taken off the public
-                                    bench and will lose published status.
+                                    {t("disableDialogDescription")}
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel className="rounded-[8px] border-white/15">
-                                    Keep published
+                                    {t("disableKeepPublished")}
                                   </AlertDialogCancel>
                                   <AlertDialogAction
                                     className="rounded-[8px] bg-destructive text-white hover:bg-destructive/90"
@@ -619,7 +666,7 @@ export default function ReviewQueue() {
                                       disable(submission.submission_id)
                                     }
                                   >
-                                    Disable employee
+                                    {t("disableEmployee")}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>

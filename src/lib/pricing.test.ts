@@ -37,6 +37,12 @@ describe("formatPricingLabel", () => {
     expect(formatPricingLabel("免费")).toBe("免费");
   });
 
+  it("localizes known pricing tokens without changing their stored value", () => {
+    expect(formatPricingLabel("free-preview", "zh-CN")).toBe("免费预览");
+    expect(formatPricingLabel("pro-subscription", "zh-CN")).toBe("专业版订阅");
+    expect(formatPricingLabel("free-preview", "en")).toBe("Free Preview");
+  });
+
   it("is idempotent for an already formatted label", () => {
     const once = formatPricingLabel("pro-subscription");
 

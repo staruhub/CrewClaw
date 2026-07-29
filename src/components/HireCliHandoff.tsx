@@ -5,6 +5,14 @@ import {
   type EmployeePackageMetadata,
 } from "@/lib/employee-package";
 import { writeClipboard } from "@/lib/clipboard";
+import { useMessages, type LocalizedCatalog } from "@/i18n";
+import { hireEn } from "@/i18n/locales/en/hire";
+import { hireZhCN } from "@/i18n/locales/zh-CN/hire";
+
+const hireMessages = {
+  en: hireEn,
+  "zh-CN": hireZhCN,
+} as const satisfies LocalizedCatalog;
 
 type HireCliHandoffProps = {
   slug: string;
@@ -29,6 +37,7 @@ function grantArguments(capabilities: string[]): string {
 }
 
 function CopyCommand({ value }: { value: string }) {
+  const t = useMessages(hireMessages);
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -40,7 +49,7 @@ function CopyCommand({ value }: { value: string }) {
       }}
       className="shrink-0 border border-white/15 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.16em] text-white/70 transition hover:border-[#ec9552]/70 hover:text-[#ec9552]"
     >
-      {copied ? "Copied" : "Copy"}
+      {copied ? t("cliCopied") : t("cliCopy")}
     </button>
   );
 }
@@ -50,6 +59,7 @@ export function HireCliHandoff({
   capabilities = [],
   intent,
 }: HireCliHandoffProps) {
+  const t = useMessages(hireMessages);
   const [packageState, setPackageState] = useState<{
     slug: string;
     metadata: EmployeePackageMetadata | null;
@@ -75,45 +85,42 @@ export function HireCliHandoff({
             error:
               reason instanceof Error
                 ? reason.message
-                : "Package metadata unavailable",
+                : t("packageMetadataUnavailable"),
           });
         }
       });
     return () => controller.abort();
-  }, [slug]);
+  }, [slug, t]);
 
   return (
     <section className="mt-8 border border-white/10 bg-[#12110f] p-5 text-left shadow-[0_18px_60px_rgba(0,0,0,0.22)]">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#ec9552]">
-            Local handoff
+            {t("cliLocalHandoff")}
           </p>
           <h2 className="mt-2 text-xl font-semibold text-white">
-            Finish hiring on your machine
+            {t("cliFinishTitle")}
           </h2>
         </div>
         <span className="border border-amber-400/30 bg-amber-400/5 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-amber-300">
-          Not hired yet
+          {t("cliNotHiredYet")}
         </span>
       </div>
       <p className="max-w-2xl text-sm leading-6 text-white/55">
-        Use these CLI paths when hiring on another machine, offline, or from a
-        verified package tarball. On this machine, the hire page can also write{" "}
-        <code className="font-mono text-white/75">.crewclaw/team.json</code>{" "}
-        through the local API (same trust boundary as fire).
+        {t("cliBody")}
       </p>
       {intent ? (
         <dl className="mt-5 grid gap-3 border border-white/10 bg-black/20 p-4 text-xs sm:grid-cols-2">
           <div className="sm:col-span-2">
             <dt className="font-mono uppercase tracking-[0.16em] text-white/35">
-              Intended task
+              {t("intendedTask")}
             </dt>
             <dd className="mt-1 leading-5 text-white/70">{intent.task}</dd>
           </div>
           <div>
             <dt className="font-mono uppercase tracking-[0.16em] text-white/35">
-              Budget / runtime
+              {t("budgetRuntime")}
             </dt>
             <dd className="mt-1 leading-5 text-white/70">
               {intent.budget} · {intent.runtime}
@@ -121,12 +128,12 @@ export function HireCliHandoff({
           </div>
           <div>
             <dt className="font-mono uppercase tracking-[0.16em] text-white/35">
-              Requested access
+              {t("requestedAccess")}
             </dt>
             <dd className="mt-1 leading-5 text-white/70">
               {intent.requested_access.length > 0
                 ? intent.requested_access.join(", ")
-                : "Required capability contract only"}
+                : t("cliRequiredContractOnly")}
             </dd>
           </div>
         </dl>
@@ -134,7 +141,7 @@ export function HireCliHandoff({
 
       <div className="mt-5">
         <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">
-          Option A / trusted registry
+          {t("cliOptionRegistry")}
         </p>
         <div className="flex items-start gap-2 border border-white/10 bg-black/30 p-2">
           <code className="min-w-0 flex-1 overflow-x-auto px-2 py-2 font-mono text-xs leading-5 text-[#e8ddcc]">
@@ -147,22 +154,22 @@ export function HireCliHandoff({
       <div className="mt-5 border-t border-white/10 pt-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">
-            Option B / verified package
+            {t("cliOptionPackage")}
           </p>
           <a
             href={employeePackageUrl(slug)}
             download={metadata?.filename}
             className="border border-[#ec9552]/45 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.16em] text-[#ec9552] transition hover:bg-[#ec9552] hover:text-[#17120d]"
           >
-            Download package
+            {t("cliDownloadPackage")}
           </a>
         </div>
         {metadata && packageCommand ? (
           <>
             <dl className="mt-3 grid gap-2 font-mono text-[11px] text-white/45 sm:grid-cols-[72px_1fr]">
-              <dt>FILE</dt>
+              <dt>{t("cliFile")}</dt>
               <dd className="break-all text-white/70">{metadata.filename}</dd>
-              <dt>SHA-256</dt>
+              <dt>{t("cliSha256")}</dt>
               <dd className="break-all text-white/70">{metadata.sha256}</dd>
             </dl>
             <div className="mt-3 flex items-start gap-2 border border-white/10 bg-black/30 p-2">
@@ -176,7 +183,7 @@ export function HireCliHandoff({
           <p
             className={`mt-3 text-xs ${error ? "text-red-300" : "text-white/35"}`}
           >
-            {error ?? "Loading signed package metadata..."}
+            {error ?? t("cliLoadingMetadata")}
           </p>
         )}
       </div>

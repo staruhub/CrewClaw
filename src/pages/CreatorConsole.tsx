@@ -61,38 +61,74 @@ import {
   useSubmissions,
 } from "@/hooks/use-submissions";
 import { track } from "@/hooks/use-analytics";
+import { useI18n, useMessages, type MessageValues } from "@/i18n";
+import { adminEn } from "@/i18n/locales/en/admin";
+import { adminZhCN } from "@/i18n/locales/zh-CN/admin";
 import { cn } from "@/lib/utils";
 
-const listText = z.string().refine(value => parseList(value).length > 0, {
-  message: "Add at least one item.",
-});
-
-const creatorFormSchema = z.object({
-  id: z.string().trim().min(1, "Employee id is required."),
-  name: z.string().trim().min(1, "Employee name is required."),
-  role: z.string().trim().min(1, "Role is required."),
-  version: z.string().trim().min(1, "Version is required."),
-  creator: z.string().trim().min(1, "Creator is required."),
-  description: z.string().trim().min(1, "Description is required."),
-  identity: z.string().trim().min(1, "Identity is required."),
-  soul: z.string().trim().min(1, "Soul is required."),
-  skills: listText,
-  tools: listText,
-  permissions: listText,
-  input_examples: listText,
-  output_examples: listText,
-  limitations: listText,
-  install_requirements: listText,
-});
-
-type CreatorFormValues = z.infer<typeof creatorFormSchema>;
-
-const STATUS_COPY = {
-  draft: "Draft",
-  submitted: "Pending",
-  rejected: "Rejected",
-  published: "Approved",
+const adminMessages = {
+  en: adminEn,
+  "zh-CN": adminZhCN,
 } as const;
+
+type AdminMessageKey = keyof typeof adminEn;
+type Translate = (key: AdminMessageKey, values?: MessageValues) => string;
+
+type CreatorFormValues = {
+  id: string;
+  name: string;
+  role: string;
+  version: string;
+  creator: string;
+  description: string;
+  identity: string;
+  soul: string;
+  skills: string;
+  tools: string;
+  permissions: string;
+  input_examples: string;
+  output_examples: string;
+  limitations: string;
+  install_requirements: string;
+};
+
+const ACTION_MESSAGE_KEYS = {
+  "Only draft or rejected submissions can be edited.": "hookOnlyDraftEditable",
+  "Draft saved.": "hookDraftSaved",
+  "Submission not found.": "hookSubmissionNotFound",
+  "Only draft or rejected employees can be submitted.":
+    "hookOnlyDraftSubmittable",
+  "Required manifest fields are missing.": "hookRequiredFieldsMissing",
+  "Employee submitted for review.": "hookEmployeeSubmitted",
+} as const satisfies Record<string, AdminMessageKey>;
+
+function createListText(t: Translate) {
+  return z.string().refine(value => parseList(value).length > 0, {
+    message: t("validationListRequired"),
+  });
+}
+
+function createCreatorFormSchema(t: Translate) {
+  const listText = createListText(t);
+
+  return z.object({
+    id: z.string().trim().min(1, t("validationEmployeeIdRequired")),
+    name: z.string().trim().min(1, t("validationEmployeeNameRequired")),
+    role: z.string().trim().min(1, t("validationRoleRequired")),
+    version: z.string().trim().min(1, t("validationVersionRequired")),
+    creator: z.string().trim().min(1, t("validationCreatorRequired")),
+    description: z.string().trim().min(1, t("validationDescriptionRequired")),
+    identity: z.string().trim().min(1, t("validationIdentityRequired")),
+    soul: z.string().trim().min(1, t("validationSoulRequired")),
+    skills: listText,
+    tools: listText,
+    permissions: listText,
+    input_examples: listText,
+    output_examples: listText,
+    limitations: listText,
+    install_requirements: listText,
+  });
+}
 
 function parseList(value: string) {
   return value
@@ -145,21 +181,26 @@ function formToManifest(values: CreatorFormValues): SubmissionManifestFields {
   };
 }
 
-function formatDate(value: string | null) {
-  if (!value) return "Not yet";
-
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+function localizedActionMessage(message: string, t: Translate) {
+  const key = ACTION_MESSAGE_KEYS[message as keyof typeof ACTION_MESSAGE_KEYS];
+  return key ? t(key) : message;
 }
 
-function statusLabel(submission: CreatorSubmission) {
-  if (submission.disabled) return "Disabled";
-  return STATUS_COPY[submission.status];
+function statusLabel(submission: CreatorSubmission, t: Translate) {
+  if (submission.disabled) return t("statusDisabled");
+  if (submission.status === "draft") return t("statusDraft");
+  if (submission.status === "submitted") return t("statusPending");
+  if (submission.status === "rejected") return t("statusRejected");
+  return t("statusApproved");
 }
 
-function StatusBadge({ submission }: { submission: CreatorSubmission }) {
+function StatusBadge({
+  submission,
+  t,
+}: {
+  submission: CreatorSubmission;
+  t: Translate;
+}) {
   const className = submission.disabled
     ? "border-zinc-400/35 bg-zinc-400/10 text-zinc-200"
     : submission.status === "published"
@@ -172,7 +213,7 @@ function StatusBadge({ submission }: { submission: CreatorSubmission }) {
 
   return (
     <Badge className={cn("rounded-[8px] border", className)} variant="outline">
-      {statusLabel(submission)}
+      {statusLabel(submission, t)}
     </Badge>
   );
 }
@@ -201,13 +242,17 @@ function Metric({
 
 function SubmissionTable({
   empty,
+  formatDate,
   onSelect,
   submissions,
+  t,
   title,
 }: {
   empty: string;
+  formatDate: (value: string | null) => string;
   onSelect: (id: string) => void;
   submissions: CreatorSubmission[];
+  t: Translate;
   title: string;
 }) {
   return (
@@ -222,11 +267,17 @@ function SubmissionTable({
           <Table>
             <TableHeader>
               <TableRow className="border-white/10 hover:bg-transparent">
-                <TableHead className="px-5 text-crew-muted">Employee</TableHead>
-                <TableHead className="px-5 text-crew-muted">Status</TableHead>
-                <TableHead className="px-5 text-crew-muted">Updated</TableHead>
+                <TableHead className="px-5 text-crew-muted">
+                  {t("tableEmployee")}
+                </TableHead>
+                <TableHead className="px-5 text-crew-muted">
+                  {t("tableStatus")}
+                </TableHead>
+                <TableHead className="px-5 text-crew-muted">
+                  {t("tableUpdated")}
+                </TableHead>
                 <TableHead className="px-5 text-right text-crew-muted">
-                  Action
+                  {t("tableAction")}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -238,16 +289,16 @@ function SubmissionTable({
                 >
                   <TableCell className="px-5 py-4">
                     <div className="font-medium text-crew-heading">
-                      {submission.manifest.name || "Untitled employee"}
+                      {submission.manifest.name || t("creatorUntitledEmployee")}
                     </div>
                     <div className="mt-1 text-xs text-crew-muted">
                       {submission.manifest.role ||
                         submission.manifest.id ||
-                        "Draft role"}
+                        t("creatorDraftRole")}
                     </div>
                   </TableCell>
                   <TableCell className="px-5 py-4">
-                    <StatusBadge submission={submission} />
+                    <StatusBadge submission={submission} t={t} />
                   </TableCell>
                   <TableCell className="px-5 py-4 text-sm text-crew-body">
                     {formatDate(submission.updated_at)}
@@ -259,7 +310,7 @@ function SubmissionTable({
                       size="sm"
                       variant="outline"
                     >
-                      Edit
+                      {t("actionEdit")}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -273,6 +324,8 @@ function SubmissionTable({
 }
 
 export default function CreatorConsole() {
+  const t = useMessages(adminMessages);
+  const { formatDate: formatLocaleDate } = useI18n();
   const submissionsApi = useSubmissions();
   const submissions = submissionsApi.list();
   const [activeId, setActiveId] = useState<string | null>(
@@ -280,6 +333,11 @@ export default function CreatorConsole() {
   );
   const [message, setMessage] = useState<string | null>(null);
   const activeSubmission = activeId ? submissionsApi.get(activeId) : undefined;
+  const creatorFormSchema = useMemo(() => createCreatorFormSchema(t), [t]);
+  const formatSubmissionDate = (value: string | null) =>
+    value
+      ? formatLocaleDate(value, { dateStyle: "medium", timeStyle: "short" })
+      : t("notYet");
   const form = useForm<CreatorFormValues>({
     resolver: zodResolver(creatorFormSchema),
     defaultValues: manifestToForm(EMPTY_MANIFEST_FIELDS),
@@ -316,7 +374,7 @@ export default function CreatorConsole() {
       creator: "Local Creator",
     });
     setActiveId(draft.submission_id);
-    setMessage("New employee draft created.");
+    setMessage(t("creatorDraftCreated"));
   }
 
   function saveDraft(values: CreatorFormValues) {
@@ -326,7 +384,7 @@ export default function CreatorConsole() {
       activeSubmission.submission_id,
       formToManifest(values)
     );
-    setMessage(result.message);
+    setMessage(localizedActionMessage(result.message, t));
   }
 
   function submitActive(values: CreatorFormValues) {
@@ -345,8 +403,10 @@ export default function CreatorConsole() {
     }
     setMessage(
       result.ok
-        ? result.message
-        : `${result.message} ${result.missingFields?.join(", ") ?? ""}`.trim()
+        ? localizedActionMessage(result.message, t)
+        : `${localizedActionMessage(result.message, t)} ${
+            result.missingFields?.join(", ") ?? ""
+          }`.trim()
     );
   }
 
@@ -360,14 +420,13 @@ export default function CreatorConsole() {
         <div className="flex flex-col gap-5 border-b border-white/10 pb-8 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <Badge className="border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
-              Creator Console
+              {t("creatorBadge")}
             </Badge>
             <h1 className="mt-5 text-4xl font-light leading-tight md:text-6xl">
-              Submit AI employees
+              {t("creatorTitle")}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              Create drafts, complete the employee manifest, and send it into
-              review before it can become a published employee.
+              {t("creatorDescription")}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -376,21 +435,21 @@ export default function CreatorConsole() {
               className="rounded-[8px] border-white/15"
               variant="outline"
             >
-              <Link to="/marketplace">Marketplace</Link>
+              <Link to="/marketplace">{t("navMarketplace")}</Link>
             </Button>
             <Button
               asChild
               className="rounded-[8px] border-white/15"
               variant="outline"
             >
-              <Link to="/review">Review queue</Link>
+              <Link to="/review">{t("navReviewQueue")}</Link>
             </Button>
             <Button
               className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
               onClick={createNewDraft}
             >
               <Plus className="size-4" />
-              New draft
+              {t("creatorNewDraft")}
             </Button>
           </div>
         </div>
@@ -398,13 +457,17 @@ export default function CreatorConsole() {
         <section className="mt-8 grid gap-4 md:grid-cols-3">
           <Metric
             icon={FileText}
-            label="Drafts"
+            label={t("metricDrafts")}
             value={drafts.length.toString()}
           />
-          <Metric icon={Send} label="Pending" value={pendingCount.toString()} />
+          <Metric
+            icon={Send}
+            label={t("metricPending")}
+            value={pendingCount.toString()}
+          />
           <Metric
             icon={BadgeCheck}
-            label="Published"
+            label={t("metricPublished")}
             value={published.length.toString()}
           />
         </section>
@@ -412,7 +475,7 @@ export default function CreatorConsole() {
         {message ? (
           <Alert className="mt-6 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <AlertCircle className="size-4 text-crew-copper" />
-            <AlertTitle>Console update</AlertTitle>
+            <AlertTitle>{t("creatorUpdateTitle")}</AlertTitle>
             <AlertDescription className="text-crew-body">
               {message}
             </AlertDescription>
@@ -422,22 +485,28 @@ export default function CreatorConsole() {
         <section className="mt-8 grid gap-6 xl:grid-cols-[420px_1fr]">
           <div className="space-y-5">
             <SubmissionTable
-              empty="No drafts yet. Create a draft to start an employee package."
+              empty={t("creatorDraftsEmpty")}
+              formatDate={formatSubmissionDate}
               onSelect={setActiveId}
               submissions={drafts}
-              title="Drafts"
+              t={t}
+              title={t("creatorDraftsTitle")}
             />
             <SubmissionTable
-              empty="No review status yet. Submitted employees appear here as Pending, Approved, or Rejected."
+              empty={t("creatorReviewStatusEmpty")}
+              formatDate={formatSubmissionDate}
               onSelect={setActiveId}
               submissions={reviewStatuses}
-              title="Review status"
+              t={t}
+              title={t("creatorReviewStatusTitle")}
             />
             <SubmissionTable
-              empty="No employees published from this console yet."
+              empty={t("creatorPublishedEmpty")}
+              formatDate={formatSubmissionDate}
               onSelect={setActiveId}
               submissions={published}
-              title="Published employees"
+              t={t}
+              title={t("creatorPublishedTitle")}
             />
           </div>
 
@@ -447,33 +516,33 @@ export default function CreatorConsole() {
                 <div>
                   <CardTitle className="text-xl font-semibold">
                     {activeSubmission
-                      ? "Employee manifest"
-                      : "No draft selected"}
+                      ? t("creatorManifestTitle")
+                      : t("creatorNoDraftSelected")}
                   </CardTitle>
                   <p className="mt-2 text-sm leading-6 text-crew-body">
-                    All required fields must be complete before Submit is
-                    enabled by validation.
+                    {t("creatorManifestHelp")}
                   </p>
                 </div>
                 {activeSubmission ? (
-                  <StatusBadge submission={activeSubmission} />
+                  <StatusBadge submission={activeSubmission} t={t} />
                 ) : null}
               </div>
             </CardHeader>
             <CardContent>
               {!activeSubmission ? (
                 <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-6">
-                  <h2 className="text-xl font-light">Start with a draft.</h2>
+                  <h2 className="text-xl font-light">
+                    {t("creatorStartDraftTitle")}
+                  </h2>
                   <p className="mt-3 max-w-xl text-sm leading-6 text-crew-body">
-                    Creator Console stores drafts locally for this front-end
-                    demo.
+                    {t("creatorStartDraftBody")}
                   </p>
                   <Button
                     className="mt-5 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
                     onClick={createNewDraft}
                   >
                     <Plus className="size-4" />
-                    New draft
+                    {t("creatorNewDraft")}
                   </Button>
                 </div>
               ) : (
@@ -486,7 +555,7 @@ export default function CreatorConsole() {
                     activeSubmission.rejection_reason ? (
                       <Alert className="rounded-[8px] border-red-300/25 bg-red-400/10 text-red-100">
                         <AlertCircle className="size-4" />
-                        <AlertTitle>Rejected</AlertTitle>
+                        <AlertTitle>{t("creatorRejectedTitle")}</AlertTitle>
                         <AlertDescription className="text-red-100/85">
                           {activeSubmission.rejection_reason}
                         </AlertDescription>
@@ -496,10 +565,11 @@ export default function CreatorConsole() {
                     {liveHighRiskPermissions.length > 0 ? (
                       <Alert className="rounded-[8px] border-amber-300/30 bg-amber-300/10 text-amber-100">
                         <ShieldAlert className="size-4" />
-                        <AlertTitle>High-risk permissions flagged</AlertTitle>
+                        <AlertTitle>{t("creatorHighRiskTitle")}</AlertTitle>
                         <AlertDescription className="text-amber-100/85">
-                          {liveHighRiskPermissions.join(", ")} will be
-                          highlighted for operator review.
+                          {t("creatorHighRiskBody", {
+                            permissions: liveHighRiskPermissions.join(", "),
+                          })}
                         </AlertDescription>
                       </Alert>
                     ) : null}
@@ -514,11 +584,11 @@ export default function CreatorConsole() {
                           name="id"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>id</FormLabel>
+                              <FormLabel>{t("fieldId")}</FormLabel>
                               <FormControl>
                                 <Input
                                   className="rounded-[8px] border-white/10 bg-white/[0.04]"
-                                  placeholder="macao-networking-agent"
+                                  placeholder={t("placeholderEmployeeId")}
                                   {...field}
                                 />
                               </FormControl>
@@ -531,11 +601,11 @@ export default function CreatorConsole() {
                           name="name"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>name</FormLabel>
+                              <FormLabel>{t("fieldName")}</FormLabel>
                               <FormControl>
                                 <Input
                                   className="rounded-[8px] border-white/10 bg-white/[0.04]"
-                                  placeholder="Macao Networking Agent"
+                                  placeholder={t("placeholderEmployeeName")}
                                   {...field}
                                 />
                               </FormControl>
@@ -548,11 +618,11 @@ export default function CreatorConsole() {
                           name="role"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>role</FormLabel>
+                              <FormLabel>{t("fieldRole")}</FormLabel>
                               <FormControl>
                                 <Input
                                   className="rounded-[8px] border-white/10 bg-white/[0.04]"
-                                  placeholder="Macao Networking Specialist"
+                                  placeholder={t("placeholderEmployeeRole")}
                                   {...field}
                                 />
                               </FormControl>
@@ -565,11 +635,11 @@ export default function CreatorConsole() {
                           name="version"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>version</FormLabel>
+                              <FormLabel>{t("fieldVersion")}</FormLabel>
                               <FormControl>
                                 <Input
                                   className="rounded-[8px] border-white/10 bg-white/[0.04]"
-                                  placeholder="1.0.0"
+                                  placeholder={t("placeholderVersion")}
                                   {...field}
                                 />
                               </FormControl>
@@ -582,11 +652,11 @@ export default function CreatorConsole() {
                           name="creator"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>creator</FormLabel>
+                              <FormLabel>{t("fieldCreator")}</FormLabel>
                               <FormControl>
                                 <Input
                                   className="rounded-[8px] border-white/10 bg-white/[0.04]"
-                                  placeholder="CrewClaw Labs"
+                                  placeholder={t("placeholderCreator")}
                                   {...field}
                                 />
                               </FormControl>
@@ -602,11 +672,11 @@ export default function CreatorConsole() {
                           name="description"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>description</FormLabel>
+                              <FormLabel>{t("fieldDescription")}</FormLabel>
                               <FormControl>
                                 <Textarea
                                   className="min-h-28 rounded-[8px] border-white/10 bg-white/[0.04]"
-                                  placeholder="One-line employee promise."
+                                  placeholder={t("placeholderDescription")}
                                   {...field}
                                 />
                               </FormControl>
@@ -619,11 +689,11 @@ export default function CreatorConsole() {
                           name="identity"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>identity</FormLabel>
+                              <FormLabel>{t("fieldIdentity")}</FormLabel>
                               <FormControl>
                                 <Textarea
                                   className="min-h-28 rounded-[8px] border-white/10 bg-white/[0.04]"
-                                  placeholder="Who this employee is and where it fits."
+                                  placeholder={t("placeholderIdentity")}
                                   {...field}
                                 />
                               </FormControl>
@@ -636,11 +706,11 @@ export default function CreatorConsole() {
                           name="soul"
                           render={({ field }) => (
                             <FormItem className="md:col-span-2">
-                              <FormLabel>soul</FormLabel>
+                              <FormLabel>{t("fieldSoul")}</FormLabel>
                               <FormControl>
                                 <Textarea
                                   className="min-h-28 rounded-[8px] border-white/10 bg-white/[0.04]"
-                                  placeholder="Working style, principles, tone, and boundaries."
+                                  placeholder={t("placeholderSoul")}
                                   {...field}
                                 />
                               </FormControl>
@@ -652,25 +722,16 @@ export default function CreatorConsole() {
 
                       <div className="grid gap-5 md:grid-cols-2">
                         {[
-                          ["skills", "One skill per line."],
-                          [
-                            "tools",
-                            "browser, calendar, contacts, or local tools.",
-                          ],
-                          [
-                            "permissions",
-                            "Use human-readable scopes such as read-only or mailbox:send.",
-                          ],
+                          ["skills", t("descriptionSkills")],
+                          ["tools", t("descriptionTools")],
+                          ["permissions", t("descriptionPermissions")],
                           [
                             "install_requirements",
-                            "Onboarding requirements and environment needs.",
+                            t("descriptionInstallRequirements"),
                           ],
-                          ["input_examples", "Example user requests."],
-                          ["output_examples", "Expected employee outputs."],
-                          [
-                            "limitations",
-                            "Risks, boundaries, and failure cases.",
-                          ],
+                          ["input_examples", t("descriptionInputExamples")],
+                          ["output_examples", t("descriptionOutputExamples")],
+                          ["limitations", t("descriptionLimitations")],
                         ].map(([name, description]) => (
                           <FormField
                             control={form.control}
@@ -678,7 +739,18 @@ export default function CreatorConsole() {
                             name={name as keyof CreatorFormValues}
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>{name}</FormLabel>
+                                <FormLabel>
+                                  {t(
+                                    `field${name
+                                      .split("_")
+                                      .map(
+                                        part =>
+                                          part.charAt(0).toUpperCase() +
+                                          part.slice(1)
+                                      )
+                                      .join("")}` as AdminMessageKey
+                                  )}
+                                </FormLabel>
                                 <FormControl>
                                   <Textarea
                                     className="min-h-32 rounded-[8px] border-white/10 bg-white/[0.04]"
@@ -698,7 +770,11 @@ export default function CreatorConsole() {
 
                     <div className="flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
                       <div className="text-sm text-crew-muted">
-                        Submitted at {formatDate(activeSubmission.submitted_at)}
+                        {t("creatorSubmittedAt", {
+                          date: formatSubmissionDate(
+                            activeSubmission.submitted_at
+                          ),
+                        })}
                       </div>
                       <div className="flex flex-wrap gap-3">
                         <Dialog>
@@ -707,17 +783,16 @@ export default function CreatorConsole() {
                               className="rounded-[8px] border-white/15"
                               variant="outline"
                             >
-                              Preview manifest
+                              {t("creatorPreviewManifest")}
                             </Button>
                           </DialogTrigger>
                           <DialogContent className="max-h-[80vh] overflow-auto rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading sm:max-w-3xl">
                             <DialogHeader>
                               <DialogTitle>
-                                Contract manifest preview
+                                {t("creatorManifestPreviewTitle")}
                               </DialogTitle>
                               <DialogDescription className="text-crew-body">
-                                This is the generated CrewClaw employee manifest
-                                shape.
+                                {t("creatorManifestPreviewDescription")}
                               </DialogDescription>
                             </DialogHeader>
                             <pre className="overflow-auto rounded-[8px] border border-white/10 bg-black/25 p-4 text-xs leading-5 text-crew-body">
@@ -736,7 +811,7 @@ export default function CreatorConsole() {
                               type="submit"
                               variant="outline"
                             >
-                              Save draft
+                              {t("creatorSaveDraft")}
                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -745,29 +820,27 @@ export default function CreatorConsole() {
                                   type="button"
                                 >
                                   <Send className="size-4" />
-                                  Submit
+                                  {t("creatorSubmit")}
                                 </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>
-                                    Submit employee for review?
+                                    {t("creatorSubmitDialogTitle")}
                                   </AlertDialogTitle>
                                   <AlertDialogDescription className="leading-6 text-crew-body">
-                                    Missing required manifest fields will block
-                                    submission. High-risk permissions will stay
-                                    flagged for the operator.
+                                    {t("creatorSubmitDialogDescription")}
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel className="rounded-[8px] border-white/15">
-                                    Keep editing
+                                    {t("creatorKeepEditing")}
                                   </AlertDialogCancel>
                                   <AlertDialogAction
                                     className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
                                     onClick={form.handleSubmit(submitActive)}
                                   >
-                                    Submit
+                                    {t("creatorSubmit")}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>

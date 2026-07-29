@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { LocalEmployeePerformance } from "../contracts/local-performance";
 import { getLatestTaskRun } from "../src/data/task-runs";
+import { localizeTaskRun } from "../src/i18n/task-run-content";
 
 const teamStorageKey = "crewclaw.team.v1";
 const analyticsStorageKey = "crewclaw.analytics.events.v1";
@@ -8,6 +9,9 @@ const employeeId = "macao-networking-agent";
 const employeeName = "Macao Networking Agent";
 const employeeVersion = "0.2.0";
 const run = getLatestTaskRun();
+const localizedRun = localizeTaskRun(run, "en");
+
+test.use({ locale: "en-US" });
 
 function selectedCapabilities() {
   return ["capability:web.search", "capability:places.search"];
@@ -270,13 +274,13 @@ test("activation gates require checkout Doctor and accepted trial before hire in
 
   await page.goto(`/task-run/${run.id}`);
   await expect(
-    page.getByRole("heading", { name: run.user_goal })
+    page.getByRole("heading", { name: localizedRun.user_goal })
   ).toBeVisible();
   await expect(
     page.getByText("Evidence", { exact: true }).last()
   ).toBeVisible();
   await expect(page.getByText("Approval", { exact: true })).toBeVisible();
-  await expect(page.getByText("人工交付门禁")).toBeVisible();
+  await expect(page.getByText("Human delivery gate")).toBeVisible();
   await expect(page.getByText("Delivery is mandatory-gated")).toBeVisible();
   await expect(page.getByText("inspect before approval")).toBeVisible();
   await page

@@ -17,96 +17,114 @@ import {
   isToolCapabilityEnabledByDefault,
   isToolCapabilitySelectable,
 } from "@/data/employees";
+import { useMessages } from "@/i18n";
+import { marketplaceMessages } from "@/i18n/locales/marketplace";
+import type { MarketplaceT } from "@/i18n/marketplace-format";
 import { cn } from "@/lib/utils";
 
 const NECESSITY: Record<
   EmployeeToolNecessity,
-  { label: string; className: string }
+  {
+    labelKey: "conditional" | "optionalOff" | "policyDisabled" | "required";
+    className: string;
+  }
 > = {
   required: {
-    label: "Required",
+    labelKey: "required",
     className: "border-sky-300/35 bg-sky-400/10 text-sky-100",
   },
   conditional: {
-    label: "Conditional",
+    labelKey: "conditional",
     className: "border-crew-copper/40 bg-crew-copper/12 text-crew-copper",
   },
   non_default: {
-    label: "Optional · Off by default",
+    labelKey: "optionalOff",
     className: "border-violet-300/35 bg-violet-400/10 text-violet-100",
   },
   disabled: {
-    label: "Policy disabled",
+    labelKey: "policyDisabled",
     className: "border-white/10 bg-white/[0.025] text-crew-muted",
   },
 };
 
-const RISK_COPY: Record<EmployeeToolCapability["risk_tier"], string> = {
-  P0: "Read-only or no meaningful side effect.",
-  P1: "Writes only task-scoped CrewClaw records or artifacts.",
-  P2: "May execute bounded work or contact a configured service.",
-  P3: "May access private context or execute a workspace action.",
-  P4: "Can change external state or send data outside the workspace.",
+const RISK_COPY: Record<
+  EmployeeToolCapability["risk_tier"],
+  "p1Risk" | "p2Risk" | "p3Risk" | "p4Risk" | "readOnlyRisk"
+> = {
+  P0: "readOnlyRisk",
+  P1: "p1Risk",
+  P2: "p2Risk",
+  P3: "p3Risk",
+  P4: "p4Risk",
 };
 
-function invocationCopy(capability: EmployeeToolCapability) {
+function invocationCopy(capability: EmployeeToolCapability, t: MarketplaceT) {
   if (capability.runtime_tool) {
-    return `Model tool: ${capability.runtime_tool}`;
+    return t("modelTool", { tool: capability.runtime_tool });
   }
   if (capability.invocation === "engine") {
-    return "CrewClaw engine service";
+    return t("engineService");
   }
   const providers = capability.provider_bindings
     .map(binding => binding.provider)
     .join(", ");
-  return providers ? `Provider adapter: ${providers}` : "Provider adapter";
+  return providers
+    ? t("providerAdapterList", { providers })
+    : t("providerAdapter");
 }
 
-function availabilityCopy(capability: EmployeeToolCapability) {
+function availabilityCopy(capability: EmployeeToolCapability, t: MarketplaceT) {
   switch (capability.availability) {
     case "policy_disabled":
-      return "Unavailable: this employee's role policy blocks it.";
+      return t("capabilityUnavailablePolicy");
     case "adapter_required":
-      return "Available only after its provider adapter is configured and authorized.";
+      return t("capabilityAdapterRequired");
     case "engine_service":
-      return "Implemented by CrewClaw's task engine; runtime preflight verifies readiness.";
+      return t("capabilityEngineService");
     default:
-      return "Runtime implementation exists; preflight still checks credentials and provider health.";
+      return t("capabilityRuntimeExists");
   }
 }
 
-function authorizationCopy(capability: EmployeeToolCapability) {
+function authorizationCopy(
+  capability: EmployeeToolCapability,
+  t: MarketplaceT
+) {
   if (capability.permission === "disabled") {
-    return "Cannot be enabled or called by this employee.";
+    return t("capabilityCannotEnable");
   }
   if (capability.permission === "requires_authorization") {
     return capability.approval === "always"
-      ? "Human approval is required for every call."
-      : "CrewClaw pauses for human approval when the capability is needed.";
+      ? t("capabilityHumanEveryCall")
+      : t("capabilityHumanWhenNeeded");
   }
   if (capability.permission === "write") {
     return capability.supports_preview
-      ? "May write within its declared scope; a preview is supported."
-      : "May write only within its declared task scope.";
+      ? t("capabilityMayWritePreview")
+      : t("capabilityMayWriteScope");
   }
-  return "Read-only within the declared scope.";
+  return t("capabilityReadonlyScope");
 }
 
-function selectionCopy(capability: EmployeeToolCapability, checked: boolean) {
+function selectionCopy(
+  capability: EmployeeToolCapability,
+  checked: boolean,
+  t: MarketplaceT
+) {
   if (capability.necessity === "required") {
-    return "Required by the role and always enabled.";
+    return t("capabilityRequiredSelection");
   }
   if (capability.necessity === "disabled") {
-    return "Blocked by role policy and cannot be selected.";
+    return t("capabilityBlockedSelection");
   }
   if (capability.necessity === "non_default") {
     return checked
-      ? "Explicitly enabled for this hire."
-      : "Optional capability; opt in only when you need it.";
+      ? t("capabilityExplicitlyEnabled")
+      : t("capabilityOptionalOff");
   }
   return checked
-    ? "Enabled, but called only for relevant tasks."
-    : "Disabled for this hire; tasks that need it may degrade or ask you.";
+    ? t("capabilityConditionalEnabled")
+    : t("capabilityConditionalOff");
 }
 
 function CapabilityBody({
@@ -120,6 +138,7 @@ function CapabilityBody({
   selectable: boolean;
   onToggle?: (capability: EmployeeToolCapability) => void;
 }) {
+  const t = useMessages(marketplaceMessages);
   const necessity = NECESSITY[capability.necessity];
   const Icon =
     capability.necessity === "disabled"
@@ -135,10 +154,14 @@ function CapabilityBody({
         <Checkbox
           aria-label={
             capability.necessity === "required"
-              ? `${capability.capability} required capability`
+              ? t("requiredCapabilityAria", {
+                  capability: capability.capability,
+                })
               : capability.necessity === "disabled"
-                ? `${capability.capability} policy-disabled capability`
-                : `${capability.capability} capability`
+                ? t("disabledCapabilityAria", {
+                    capability: capability.capability,
+                  })
+                : t("capabilityAria", { capability: capability.capability })
           }
           checked={checked}
           className="mt-1 border-white/25 data-[state=checked]:border-crew-copper data-[state=checked]:bg-crew-copper"
@@ -163,7 +186,7 @@ function CapabilityBody({
             {capability.capability}
           </code>
           <Badge className={necessity.className} variant="outline">
-            {necessity.label}
+            {t(necessity.labelKey)}
           </Badge>
           <Badge
             className="border-white/10 bg-white/[0.04] font-mono text-crew-muted"
@@ -178,40 +201,44 @@ function CapabilityBody({
         </p>
         {onToggle ? (
           <p className="mt-2 text-xs leading-5 text-crew-muted">
-            {selectionCopy(capability, checked)}
+            {selectionCopy(capability, checked, t)}
           </p>
         ) : null}
         <dl className="mt-4 grid gap-x-6 gap-y-3 text-xs leading-5 text-crew-body sm:grid-cols-2">
           <div className="min-w-0">
             <dt className="flex items-center gap-1.5 text-crew-muted">
               <Boxes aria-hidden="true" className="size-3.5" />
-              Invocation
+              {t("invocation")}
             </dt>
-            <dd className="mt-1 break-words">{invocationCopy(capability)}</dd>
+            <dd className="mt-1 break-words">
+              {invocationCopy(capability, t)}
+            </dd>
           </div>
           <div className="min-w-0">
             <dt className="flex items-center gap-1.5 text-crew-muted">
               <CheckCircle2 aria-hidden="true" className="size-3.5" />
-              Availability
+              {t("availability")}
             </dt>
-            <dd className="mt-1 break-words">{availabilityCopy(capability)}</dd>
+            <dd className="mt-1 break-words">
+              {availabilityCopy(capability, t)}
+            </dd>
           </div>
           <div className="min-w-0">
             <dt className="flex items-center gap-1.5 text-crew-muted">
               <LockKeyhole aria-hidden="true" className="size-3.5" />
-              Authorization
+              {t("authorization")}
             </dt>
             <dd className="mt-1 break-words">
-              {authorizationCopy(capability)}
+              {authorizationCopy(capability, t)}
             </dd>
           </div>
           <div className="min-w-0">
             <dt className="flex items-center gap-1.5 text-crew-muted">
               <CircleAlert aria-hidden="true" className="size-3.5" />
-              Risk
+              {t("risk")}
             </dt>
             <dd className="mt-1 break-words">
-              {RISK_COPY[capability.risk_tier]}
+              {t(RISK_COPY[capability.risk_tier])}
               {capability.side_effects.length > 0
                 ? ` ${capability.side_effects.join(" ")}`
                 : ""}
@@ -220,7 +247,9 @@ function CapabilityBody({
         </dl>
         {capability.on_unavailable ? (
           <p className="mt-3 text-xs leading-5 text-crew-muted">
-            If unavailable: {capability.on_unavailable.replaceAll("_", " ")}.
+            {t("ifUnavailable", {
+              mode: capability.on_unavailable.replaceAll("_", " "),
+            })}
           </p>
         ) : null}
       </div>
@@ -237,10 +266,12 @@ export function ToolCapabilityList({
   enabledCapabilities?: string[];
   onToggle?: (capability: EmployeeToolCapability) => void;
 }) {
+  const t = useMessages(marketplaceMessages);
+
   if (capabilities.length === 0) {
     return (
       <p className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4 text-sm text-crew-muted">
-        No tool capabilities are declared for this employee.
+        {t("noToolCapabilities")}
       </p>
     );
   }

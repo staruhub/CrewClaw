@@ -1,5 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import type { TaskRun, WorkbenchArtifact } from "@/data/task-runs";
+import { useMessages } from "@/i18n";
+import { workbenchMessages } from "@/i18n/locales/workbench";
 import { cn } from "@/lib/utils";
 import { statusClass, statusSymbol } from "./status";
 
@@ -10,6 +12,7 @@ export function OutcomeChecks({
   run: TaskRun;
   artifact: WorkbenchArtifact | null;
 }) {
+  const t = useMessages(workbenchMessages);
   const checks = artifact?.checks ?? [];
 
   return (
@@ -17,10 +20,10 @@ export function OutcomeChecks({
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-            Checks
+            {t("checks")}
           </p>
           <h2 className="mt-1 text-base font-semibold text-crew-heading">
-            验收
+            {t("checksHeading")}
           </h2>
         </div>
         <Badge
@@ -50,9 +53,9 @@ export function OutcomeChecks({
           </div>
         ))}
         <div className="flex items-center justify-between gap-3 pt-1">
-          <span>有效任务</span>
+          <span>{t("effectiveTask")}</span>
           <span className={run.effective ? "text-emerald-300" : "text-red-300"}>
-            {run.effective ? "✓ useful" : "✗ missing feedback"}
+            {run.effective ? `✓ ${t("useful")}` : `✗ ${t("missingFeedback")}`}
           </span>
         </div>
       </div>

@@ -17,6 +17,21 @@ import {
   type Employee,
 } from "@/data/employees";
 import { track } from "@/hooks/use-analytics";
+import { useI18n, useMessages } from "@/i18n";
+import { localizeEmployees } from "@/i18n/employee-content";
+import {
+  acceptanceText,
+  averageCostText,
+  categoryLabel,
+  evidenceFilterLabel,
+  type MarketplaceT,
+  runtimeText,
+  taskCountText,
+} from "@/i18n/marketplace-format";
+import {
+  marketplaceMessages,
+  type MarketplaceMessageKey,
+} from "@/i18n/locales/marketplace";
 import {
   EMPLOYEE_SORT_OPTIONS,
   isEmployeeSort,
@@ -24,30 +39,26 @@ import {
 } from "@/lib/employee-sort";
 import { cn } from "@/lib/utils";
 import {
-  acceptanceLabel,
-  averageCostLabel,
   EMPLOYEE_EVIDENCE_FILTERS,
   employeeMatchesEvidenceFilter,
   hireHandoffUrl,
   matchesEmployeeQuery,
-  runtimeSummary,
-  taskCountLabel,
   type EmployeeEvidenceFilter,
 } from "@/components/employee/employeeSignals";
 import { useEmployeePerformance } from "@/components/employee/useEmployeePerformance";
 
 const categoryLinks = [
-  { label: "All", value: "" },
-  { label: "AI advisory", value: "ai-advisory" },
-  { label: "Community", value: "community" },
-  { label: "Engineering", value: "engineering" },
-  { label: "Product", value: "product" },
-  { label: "Research", value: "research" },
-  { label: "Sales", value: "sales" },
-  { label: "Operations", value: "operations" },
-  { label: "Strategy", value: "strategy" },
-  { label: "Local Expert", value: "local-expert" },
-  { label: "Marketing", value: "marketing" },
+  { value: "" },
+  { value: "ai-advisory" },
+  { value: "community" },
+  { value: "engineering" },
+  { value: "product" },
+  { value: "research" },
+  { value: "sales" },
+  { value: "operations" },
+  { value: "strategy" },
+  { value: "local-expert" },
+  { value: "marketing" },
 ];
 
 function toSearchUrl(
@@ -67,9 +78,15 @@ function toSearchUrl(
   return value ? `/search?${value}` : "/search";
 }
 
-function SearchCompareRow({ employee }: { employee: Employee }) {
+function SearchCompareRow({
+  employee,
+  t,
+}: {
+  employee: Employee;
+  t: MarketplaceT;
+}) {
   const { loading, performance } = useEmployeePerformance(employee.employee_id);
-  const runtime = runtimeSummary(employee);
+  const runtime = runtimeText(employee, t);
 
   return (
     <article className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
@@ -87,37 +104,39 @@ function SearchCompareRow({ employee }: { employee: Employee }) {
           asChild
           className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
         >
-          <Link to={hireHandoffUrl(employee, "search_compare")}>Hire</Link>
+          <Link to={hireHandoffUrl(employee, "search_compare")}>
+            {t("hire")}
+          </Link>
         </Button>
       </div>
       <dl className="mt-4 grid gap-2 text-xs sm:grid-cols-4">
         <div>
           <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-            Tasks
+            {t("tasks")}
           </dt>
           <dd className="mt-1 text-crew-heading">
-            {loading ? "Loading" : taskCountLabel(performance)}
+            {loading ? t("loading") : taskCountText(performance, t)}
           </dd>
         </div>
         <div>
           <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-            Acceptance
+            {t("acceptance")}
           </dt>
           <dd className="mt-1 text-crew-heading">
-            {loading ? "Loading" : acceptanceLabel(performance)}
+            {loading ? t("loading") : acceptanceText(performance, t)}
           </dd>
         </div>
         <div>
           <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-            Cost
+            {t("cost")}
           </dt>
           <dd className="mt-1 text-crew-heading">
-            {loading ? "Loading" : averageCostLabel(performance)}
+            {loading ? t("loading") : averageCostText(performance, t)}
           </dd>
         </div>
         <div>
           <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-            Runtime
+            {t("runtime")}
           </dt>
           <dd className="mt-1 text-crew-heading">{runtime.label}</dd>
         </div>
@@ -127,6 +146,8 @@ function SearchCompareRow({ employee }: { employee: Employee }) {
 }
 
 export default function Search() {
+  const { locale } = useI18n();
+  const t = useMessages(marketplaceMessages);
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get("q") ?? "";
   const selectedCategory = searchParams.get("category") ?? "";
@@ -138,11 +159,15 @@ export default function Search() {
       ? (evidenceParam as EmployeeEvidenceFilter)
       : "all";
   const [compareIds, setCompareIds] = useState<string[]>([]);
+  const localizedAvailableEmployees = useMemo(
+    () => localizeEmployees(availableEmployees, locale),
+    [locale]
+  );
   const results = useMemo(() => {
     const categoryIds = selectedCategory
       ? new Set(byCategory(selectedCategory).map(item => item.employee_id))
       : null;
-    const filtered = availableEmployees.filter(employee => {
+    const filtered = localizedAvailableEmployees.filter(employee => {
       const categoryMatch =
         !categoryIds || categoryIds.has(employee.employee_id);
       return (
@@ -153,10 +178,38 @@ export default function Search() {
     });
 
     return sortEmployees(filtered, selectedSort);
-  }, [initialQuery, selectedCategory, selectedEvidence, selectedSort]);
+  }, [
+    initialQuery,
+    localizedAvailableEmployees,
+    selectedCategory,
+    selectedEvidence,
+    selectedSort,
+  ]);
   const comparedEmployees = compareIds
-    .map(id => availableEmployees.find(employee => employee.employee_id === id))
+    .map(id =>
+      localizedAvailableEmployees.find(employee => employee.employee_id === id)
+    )
     .filter((employee): employee is Employee => Boolean(employee));
+  const resultSummary = t(
+    results.length === 1 ? "searchResultsOne" : "searchResultsMany",
+    {
+      category: selectedCategory
+        ? t("searchResultsCategory", {
+            category: categoryLabel(selectedCategory, t),
+          })
+        : "",
+      count: results.length,
+      evidence:
+        selectedEvidence !== "all"
+          ? t("searchResultsEvidence", {
+              evidence: evidenceFilterLabel(selectedEvidence, t),
+            })
+          : "",
+      query: initialQuery
+        ? t("searchResultsQuery", { query: initialQuery })
+        : "",
+    }
+  );
 
   function nextParams(overrides: {
     category?: string;
@@ -206,18 +259,17 @@ export default function Search() {
         <div className="flex flex-col gap-5 border-b border-white/10 pb-8 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.24em] text-crew-muted">
-              Search Results
+              {t("searchEyebrow")}
             </p>
             <h1 className="mt-3 text-3xl font-light md:text-5xl">
-              Find your next AI employee
+              {t("searchTitle")}
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-crew-body">
-              Search by role, field, task, category, or local expertise before
-              you hire.
+              {t("searchDescription")}
             </p>
           </div>
           <Button asChild className="rounded-[8px]" variant="outline">
-            <Link to="/marketplace">Marketplace</Link>
+            <Link to="/marketplace">{t("marketplace")}</Link>
           </Button>
         </div>
 
@@ -243,11 +295,11 @@ export default function Search() {
             defaultValue={initialQuery}
             key={initialQuery}
             name="q"
-            placeholder="Try Macao, research, PRD, review"
+            placeholder={t("searchPlaceholder")}
           />
           <Button className="h-11 rounded-[8px] bg-crew-copper px-6 text-white hover:bg-crew-bronze">
             <SearchIcon className="size-4" />
-            Search
+            {t("search")}
           </Button>
         </form>
 
@@ -255,7 +307,7 @@ export default function Search() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-1 inline-flex items-center gap-1.5 font-mono text-xs uppercase tracking-[0.2em] text-crew-muted">
               <SlidersHorizontal className="size-3.5" />
-              Category
+              {t("category")}
             </span>
             {categoryLinks.map(category => (
               <Button
@@ -277,7 +329,7 @@ export default function Search() {
                     selectedEvidence
                   )}
                 >
-                  {category.label}
+                  {categoryLabel(category.value, t)}
                 </Link>
               </Button>
             ))}
@@ -285,7 +337,7 @@ export default function Search() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex items-center gap-3">
               <span className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-                Evidence
+                {t("evidence")}
               </span>
               <Select
                 onValueChange={value =>
@@ -303,7 +355,7 @@ export default function Search() {
                 <SelectContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
                   {EMPLOYEE_EVIDENCE_FILTERS.map(option => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      {evidenceFilterLabel(option.value, t)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -311,7 +363,7 @@ export default function Search() {
             </div>
             <div className="flex items-center gap-3">
               <span className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-                Sort
+                {t("sort")}
               </span>
               <Select
                 onValueChange={value => {
@@ -331,7 +383,7 @@ export default function Search() {
                 <SelectContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
                   {EMPLOYEE_SORT_OPTIONS.map(option => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      {t(option.labelKey as MarketplaceMessageKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -341,18 +393,13 @@ export default function Search() {
         </div>
 
         <div className="mt-7 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <p className="text-sm text-crew-muted">
-            {results.length} employee{results.length === 1 ? "" : "s"} found
-            {initialQuery ? ` for "${initialQuery}"` : ""}
-            {selectedCategory ? ` in ${selectedCategory}` : ""}
-            {selectedEvidence !== "all" ? ` with ${selectedEvidence}` : ""}.
-          </p>
+          <p className="text-sm text-crew-muted">{resultSummary}</p>
           {(initialQuery || selectedCategory || selectedEvidence !== "all") && (
             <Link
               className="text-sm text-crew-copper hover:text-crew-heading"
               to="/search"
             >
-              Clear search
+              {t("clearSearch")}
             </Link>
           )}
         </div>
@@ -364,11 +411,10 @@ export default function Search() {
                 <GitCompareArrows className="mt-1 size-5 shrink-0 text-crew-copper" />
                 <div>
                   <h2 className="text-lg font-light text-crew-heading">
-                    Search comparison
+                    {t("searchComparisonTitle")}
                   </h2>
                   <p className="mt-1 text-sm leading-6 text-crew-body">
-                    Compare two or three results using registry fields and
-                    receipt-backed local KPI data when it exists.
+                    {t("searchComparisonDescription")}
                   </p>
                 </div>
               </div>
@@ -378,19 +424,20 @@ export default function Search() {
                 type="button"
                 variant="outline"
               >
-                Clear
+                {t("clear")}
               </Button>
             </div>
             <div className="mt-5 grid gap-3">
               {comparedEmployees.length < 2 ? (
                 <p className="rounded-[8px] border border-dashed border-white/10 bg-white/[0.025] p-4 text-sm leading-6 text-crew-muted">
-                  Add at least one more employee to compare.
+                  {t("searchCompareNeedMore")}
                 </p>
               ) : (
                 comparedEmployees.map(employee => (
                   <SearchCompareRow
                     employee={employee}
                     key={employee.employee_id}
+                    t={t}
                   />
                 ))
               )}
@@ -416,17 +463,16 @@ export default function Search() {
         ) : (
           <section className="mt-8 rounded-[8px] border border-white/10 bg-white/[0.03] p-8">
             <p className="text-xl font-light text-crew-heading">
-              No employees found
+              {t("noSearchResultsTitle")}
             </p>
             <p className="mt-3 max-w-xl text-sm leading-6 text-crew-body">
-              Try a broader role, task, or category. Macao, research, review,
-              and PRD all match available employees.
+              {t("noSearchResultsDescription")}
             </p>
             <Button
               asChild
               className="mt-5 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
             >
-              <Link to="/marketplace">Back to marketplace</Link>
+              <Link to="/marketplace">{t("backToMarketplace")}</Link>
             </Button>
           </section>
         )}

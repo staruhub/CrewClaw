@@ -21,7 +21,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { getEmployee, type Employee } from "@/data/employees";
 import { track } from "@/hooks/use-analytics";
 import { useTeam } from "@/hooks/use-team";
+import { defineCatalog, type MessageValues, useMessages } from "@/i18n";
+import { operationsEn } from "@/i18n/locales/en/operations";
+import { operationsZhCN } from "@/i18n/locales/zh-CN/operations";
 import { cn } from "@/lib/utils";
+
+const operationsMessages = defineCatalog(operationsEn, operationsZhCN);
+type OperationsTranslator = (
+  key: keyof typeof operationsEn,
+  values?: MessageValues
+) => string;
 
 type CrewContribution = {
   employee: Employee;
@@ -38,71 +47,72 @@ type LearningProposal = {
   memoryUpdate: string;
 };
 
-function commandBrief(brief: string) {
+function commandBrief(brief: string, t: OperationsTranslator) {
   const normalized = brief.trim().replace(/\s+/g, " ");
-  return (normalized || "Plan a useful first task for this AI crew.").replace(
-    /"/g,
-    "'"
-  );
+  return (normalized || t("commandBriefFallback")).replace(/"/g, "'");
 }
 
 function buildContribution(
   employee: Employee,
   brief: string,
-  index: number
+  index: number,
+  t: OperationsTranslator
 ): CrewContribution {
   const topSkills = employee.skills
     .slice(0, 2)
     .map(skill => skill.replaceAll("-", " "));
   const role = employee.role.toLowerCase();
   const focus = role.includes("code")
-    ? "Review the implementation path, risks, and merge conditions."
+    ? t("contributionFocusCode")
     : role.includes("product")
-      ? "Turn the brief into acceptance criteria, edge cases, and launch signals."
+      ? t("contributionFocusProduct")
       : role.includes("network")
-        ? "Map public context, local entry points, and human-reviewed outreach angles."
-        : "Own one workstream and return a concise teammate-ready update.";
+        ? t("contributionFocusNetwork")
+        : t("contributionFocusDefault");
 
   return {
     employee,
     focus,
-    output: `${employee.name} uses ${topSkills.join(" + ")} to advance: ${brief || employee.first_task}`,
-    handoff: `Workstream ${index + 1} returns blockers, next actions, and a clean handoff for the crew lead.`,
+    output: t("contributionOutput", {
+      name: employee.name,
+      skills: topSkills.join(" + "),
+      brief: brief || employee.first_task,
+    }),
+    handoff: t("contributionHandoff", { index: index + 1 }),
   };
 }
 
 function buildLearningProposal(
   brief: string,
-  contributions: CrewContribution[]
+  contributions: CrewContribution[],
+  t: OperationsTranslator
 ): LearningProposal {
   const ownerNames = contributions
     .map(contribution => contribution.employee.name)
     .join(", ");
   return {
     worked: [
-      `Clear crew split across ${ownerNames || "selected employees"}.`,
-      "Each workstream has an explicit handoff instead of a silent merge.",
+      t("learningWorkedSplit", {
+        owners: ownerNames || t("selectedEmployees"),
+      }),
+      t("learningWorkedHandoff"),
     ],
-    failed: [
-      "No runtime delivery receipt exists yet, so completion cannot be claimed.",
-      "No accepted TaskRun review exists yet, so market reputation cannot change.",
-    ],
+    failed: [t("learningFailedNoReceipt"), t("learningFailedNoReview")],
     knowledge: [
-      `Assignment pattern: ${commandBrief(brief)}`,
-      "Use employee role and declared skills to split product, code, research, and launch-risk work.",
+      t("learningKnowledgeAssignment", { brief: commandBrief(brief, t) }),
+      t("learningKnowledgeSplit"),
     ],
     playbookDiff: {
-      before: "Run one AI employee against the whole assignment.",
-      after:
-        "Split the assignment by employee role, require blockers and handoff notes, then route delivery to human review.",
+      before: t("playbookBefore"),
+      after: t("playbookAfter"),
     },
-    memoryUpdate:
-      "Staged only: remember this crew split after a human accepts delivered evidence.",
+    memoryUpdate: t("stagedMemoryUpdate"),
   };
 }
 
 export default function CrewMode() {
   const { list } = useTeam();
+  const t = useMessages(operationsMessages);
   const employees = useMemo(
     () =>
       list()
@@ -127,8 +137,8 @@ export default function CrewMode() {
     });
   }, [employees.length]);
 
-  // 不再用 effect 修剪 selectedIds（setState-in-effect 触发级联渲染）：selectedEmployees 本身
-  // 就按现存员工过滤，凡是消费"有效选择"的地方都用它派生——失效 id 留在原始 state 里无副作用。
+  // Avoid trimming selectedIds in an effect: selectedEmployees already filters
+  // stale ids at every consumption site without triggering cascaded renders.
   const selectedEmployees = useMemo(
     () =>
       employees.filter(employee => selectedIds.includes(employee.employee_id)),
@@ -137,15 +147,15 @@ export default function CrewMode() {
   const contributions = useMemo(
     () =>
       selectedEmployees.map((employee, index) =>
-        buildContribution(employee, brief, index)
+        buildContribution(employee, brief, index, t)
       ),
-    [brief, selectedEmployees]
+    [brief, selectedEmployees, t]
   );
-  const cliCommand = `crew standup "${commandBrief(brief)}"`;
+  const cliCommand = `crew standup "${commandBrief(brief, t)}"`;
   const canGenerate = selectedEmployees.length > 0 && brief.trim().length > 0;
   const learningProposal = useMemo(
-    () => buildLearningProposal(brief, contributions),
-    [brief, contributions]
+    () => buildLearningProposal(brief, contributions, t),
+    [brief, contributions, t]
   );
 
   function toggleEmployee(employeeId: string, checked: boolean) {
@@ -185,7 +195,6 @@ export default function CrewMode() {
     setCopied(true);
     track("demo_task_copied", {
       source: "crew_mode",
-      // 派生的有效选择（不含已下架员工的失效 id）。
       selected_employee_ids: selectedEmployees.map(e => e.employee_id),
     });
   }
@@ -200,7 +209,7 @@ export default function CrewMode() {
         >
           <Link to="/marketplace">
             <ArrowLeft className="size-4" />
-            Marketplace
+            {t("marketplace")}
           </Link>
         </Button>
 
@@ -208,20 +217,18 @@ export default function CrewMode() {
           <div className="max-w-3xl">
             <Badge className="gap-1 border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
               <Users className="size-3" />
-              Crew Mode
+              {t("crewModeBadge")}
             </Badge>
             <h1 className="mt-5 text-4xl font-light leading-tight md:text-6xl">
-              Put multiple AI employees on one task
+              {t("crewModeTitle")}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              Select teammates who have joined your crew, write the assignment,
-              and preview how they will divide the work before running the real
-              CLI crew.
+              {t("crewModeDescription")}
             </p>
           </div>
           <div className="rounded-[8px] border border-white/10 bg-white/[0.025] px-4 py-3">
             <p className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
-              Active employees
+              {t("activeEmployees")}
             </p>
             <p className="mt-2 text-3xl font-semibold text-crew-heading">
               {employees.length}
@@ -232,17 +239,16 @@ export default function CrewMode() {
         {employees.length === 0 ? (
           <section className="mt-8 rounded-[8px] border border-white/10 bg-white/[0.03] p-6">
             <h2 className="text-xl font-semibold text-crew-heading">
-              Hire employees first
+              {t("hireEmployeesFirst")}
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-crew-body">
-              Crew Mode only assigns active employees. Hire at least two
-              employees, then come back to run a multi-teammate standup.
+              {t("hireEmployeesFirstDescription")}
             </p>
             <Button
               className="mt-5 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
               asChild
             >
-              <Link to="/marketplace">Browse employees</Link>
+              <Link to="/marketplace">{t("browseEmployees")}</Link>
             </Button>
           </section>
         ) : (
@@ -251,10 +257,10 @@ export default function CrewMode() {
               <div className="space-y-3">
                 <div>
                   <p className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
-                    Team roster
+                    {t("teamRoster")}
                   </p>
                   <h2 className="mt-2 text-2xl font-light text-crew-heading">
-                    Choose who joins this standup
+                    {t("chooseStandupMembers")}
                   </h2>
                 </div>
                 <div className="grid gap-3">
@@ -303,7 +309,7 @@ export default function CrewMode() {
 
               <div>
                 <p className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
-                  Assignment brief
+                  {t("assignmentBrief")}
                 </p>
                 <Textarea
                   className="mt-3 min-h-40 rounded-[8px] border-white/10 bg-white/[0.04] text-crew-heading placeholder:text-crew-muted"
@@ -311,7 +317,7 @@ export default function CrewMode() {
                     setPlanVersion(0);
                     setBrief(event.target.value);
                   }}
-                  placeholder="Example: Review the CrewClaw P2 frontend and split product, code, and launch-risk workstreams."
+                  placeholder={t("assignmentBriefPlaceholder")}
                   value={brief}
                 />
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row">
@@ -322,7 +328,7 @@ export default function CrewMode() {
                     type="button"
                   >
                     <Play className="size-4" />
-                    Generate crew plan
+                    {t("generateCrewPlan")}
                   </Button>
                   <Button
                     className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
@@ -337,7 +343,7 @@ export default function CrewMode() {
                     variant="outline"
                   >
                     <Sparkles className="size-4" />
-                    Select all
+                    {t("selectAll")}
                   </Button>
                 </div>
 
@@ -345,7 +351,7 @@ export default function CrewMode() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
-                        Real CLI crew
+                        {t("realCliCrew")}
                       </p>
                       <code className="mt-2 block break-all rounded-[6px] bg-black/20 px-3 py-2 text-sm text-crew-heading">
                         {cliCommand}
@@ -362,7 +368,7 @@ export default function CrewMode() {
                       ) : (
                         <Copy className="size-4" />
                       )}
-                      {copied ? "Copied" : "Copy"}
+                      {copied ? t("copied") : t("copy")}
                     </Button>
                   </div>
                 </div>
@@ -374,7 +380,7 @@ export default function CrewMode() {
                 <div className="flex items-center gap-2">
                   <Clipboard className="size-5 text-crew-copper" />
                   <h2 className="text-2xl font-light text-crew-heading">
-                    Parallel work split
+                    {t("parallelWorkSplit")}
                   </h2>
                 </div>
                 <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -393,19 +399,19 @@ export default function CrewMode() {
                       </CardHeader>
                       <CardContent>
                         <p className="text-sm font-medium text-crew-copper">
-                          Focus
+                          {t("focus")}
                         </p>
                         <p className="mt-2 text-sm leading-6 text-crew-body">
                           {contribution.focus}
                         </p>
                         <p className="mt-4 text-sm font-medium text-crew-copper">
-                          Mock contribution
+                          {t("mockContribution")}
                         </p>
                         <p className="mt-2 text-sm leading-6 text-crew-body">
                           {contribution.output}
                         </p>
                         <p className="mt-4 text-sm font-medium text-crew-copper">
-                          Handoff
+                          {t("handoff")}
                         </p>
                         <p className="mt-2 text-sm leading-6 text-crew-body">
                           {contribution.handoff}
@@ -420,12 +426,10 @@ export default function CrewMode() {
                       <div>
                         <CardTitle className="flex items-center gap-2 text-xl font-semibold">
                           <FileDiff className="size-5 text-crew-copper" />
-                          Dream review proposal
+                          {t("dreamReviewProposal")}
                         </CardTitle>
                         <p className="mt-2 text-sm leading-6 text-crew-body">
-                          Learning stays staged until a human reviews the diff.
-                          This page does not write active memory or update
-                          marketplace reputation.
+                          {t("dreamReviewDescription")}
                         </p>
                       </div>
                       <Badge
@@ -440,10 +444,10 @@ export default function CrewMode() {
                         variant="outline"
                       >
                         {learningDecision === "pending"
-                          ? "Awaiting human review"
+                          ? t("awaitingHumanReview")
                           : learningDecision === "approved"
-                            ? "Approved as staged note"
-                            : "Rejected"}
+                            ? t("approvedAsStagedNote")
+                            : t("rejected")}
                       </Badge>
                     </div>
                   </CardHeader>
@@ -451,7 +455,7 @@ export default function CrewMode() {
                     <div className="grid gap-4 lg:grid-cols-2">
                       <div>
                         <h3 className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
-                          Worked
+                          {t("worked")}
                         </h3>
                         <ul className="mt-3 space-y-2 text-sm leading-6 text-crew-body">
                           {learningProposal.worked.map(item => (
@@ -466,7 +470,7 @@ export default function CrewMode() {
                       </div>
                       <div>
                         <h3 className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
-                          Failed / unknown
+                          {t("failedUnknown")}
                         </h3>
                         <ul className="mt-3 space-y-2 text-sm leading-6 text-crew-body">
                           {learningProposal.failed.map(item => (
@@ -483,7 +487,7 @@ export default function CrewMode() {
                     <div className="mt-5 grid gap-4 lg:grid-cols-2">
                       <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
                         <h3 className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
-                          Knowledge candidate
+                          {t("knowledgeCandidate")}
                         </h3>
                         <ul className="mt-3 space-y-2 text-sm leading-6 text-crew-body">
                           {learningProposal.knowledge.map(item => (
@@ -493,7 +497,7 @@ export default function CrewMode() {
                       </div>
                       <div className="rounded-[8px] border border-white/10 bg-[#17120F] p-4">
                         <h3 className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
-                          Playbook diff
+                          {t("playbookDiff")}
                         </h3>
                         <p className="mt-3 text-sm leading-6 text-red-100">
                           - {learningProposal.playbookDiff.before}
@@ -505,11 +509,11 @@ export default function CrewMode() {
                     </div>
                     <Alert className="mt-5 rounded-[8px] border-amber-300/25 bg-amber-300/10 text-crew-heading">
                       <FileWarning className="size-4 text-amber-100" />
-                      <AlertTitle>Controlled memory update</AlertTitle>
+                      <AlertTitle>{t("controlledMemoryUpdate")}</AlertTitle>
                       <AlertDescription className="text-amber-100/85">
-                        {learningProposal.memoryUpdate} Permission standards,
-                        deliverable standards, and external behavior still
-                        require a real approval receipt outside this preview.
+                        {t("memoryUpdateDisclaimer", {
+                          update: learningProposal.memoryUpdate,
+                        })}
                       </AlertDescription>
                     </Alert>
                     <div className="mt-5 flex flex-col gap-3 sm:flex-row">
@@ -529,7 +533,7 @@ export default function CrewMode() {
                         variant="outline"
                       >
                         <Eye className="size-4" />
-                        Mark reviewed
+                        {t("markReviewed")}
                       </Button>
                       <Button
                         className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
@@ -543,7 +547,7 @@ export default function CrewMode() {
                         }}
                         type="button"
                       >
-                        Approve staged note
+                        {t("approveStagedNote")}
                       </Button>
                       <Button
                         className="rounded-[8px]"
@@ -558,7 +562,7 @@ export default function CrewMode() {
                         type="button"
                         variant="destructive"
                       >
-                        Reject update
+                        {t("rejectUpdate")}
                       </Button>
                     </div>
                   </CardContent>

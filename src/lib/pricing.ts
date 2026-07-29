@@ -41,7 +41,23 @@ export const CHECKOUT_PLANS: CheckoutPlan[] = [
   },
 ];
 
-export function formatPricingLabel(pricing: string) {
+const zhPricingLabels: Record<string, string> = {
+  custom: "定制",
+  free: "免费",
+  "free-preview": "免费预览",
+  "mock monthly seat": "模拟月度席位",
+  "pro-subscription": "专业版订阅",
+  usage_based: "按用量计费",
+};
+
+export function formatPricingLabel(
+  pricing: string,
+  locale: "en" | "zh-CN" = "en"
+) {
+  if (locale === "zh-CN" && zhPricingLabels[pricing]) {
+    return zhPricingLabels[pricing];
+  }
+
   return pricing
     .split(/[-_\s]+/)
     .filter(Boolean)

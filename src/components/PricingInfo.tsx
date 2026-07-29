@@ -7,9 +7,11 @@ import {
   pricingTone,
   type CheckoutPlanId,
 } from "@/lib/pricing";
+import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 export function PricingBadge({ pricing }: { pricing: string }) {
+  const { locale } = useI18n();
   const tone = pricingTone(pricing);
 
   return (
@@ -24,7 +26,7 @@ export function PricingBadge({ pricing }: { pricing: string }) {
       )}
       variant="outline"
     >
-      {formatPricingLabel(pricing)}
+      {formatPricingLabel(pricing, locale)}
     </Badge>
   );
 }

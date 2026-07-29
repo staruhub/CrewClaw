@@ -23,6 +23,26 @@ import {
 import { availableEmployees, byCategory, getEmployee } from "@/data/employees";
 import { track } from "@/hooks/use-analytics";
 import { useSavedEmployees } from "@/hooks/use-saved";
+import { useI18n, useMessages } from "@/i18n";
+import {
+  localizeEmployeeContent,
+  localizeEmployees,
+} from "@/i18n/employee-content";
+import {
+  acceptanceText,
+  averageCostText,
+  availabilityText,
+  categoryLabel,
+  evidenceFilterLabel,
+  type MarketplaceT,
+  reputationText,
+  runtimeText,
+  taskCountText,
+} from "@/i18n/marketplace-format";
+import {
+  marketplaceMessages,
+  type MarketplaceMessageKey,
+} from "@/i18n/locales/marketplace";
 import {
   EMPLOYEE_SORT_OPTIONS,
   isEmployeeSort,
@@ -31,33 +51,27 @@ import {
 } from "@/lib/employee-sort";
 import { cn } from "@/lib/utils";
 import {
-  acceptanceLabel,
-  availabilityLabel,
-  averageCostLabel,
   EMPLOYEE_EVIDENCE_FILTERS,
   employeeMatchesEvidenceFilter,
   hireHandoffUrl,
   matchesEmployeeQuery,
-  reputationLabel,
-  runtimeSummary,
-  taskCountLabel,
   type EmployeeEvidenceFilter,
 } from "@/components/employee/employeeSignals";
 import { useEmployeePerformance } from "@/components/employee/useEmployeePerformance";
 import type { Employee } from "@/data/employees";
 
 const categoryLinks = [
-  { label: "All", value: "" },
-  { label: "AI advisory", value: "ai-advisory" },
-  { label: "Community", value: "community" },
-  { label: "Engineering", value: "engineering" },
-  { label: "Product", value: "product" },
-  { label: "Research", value: "research" },
-  { label: "Sales", value: "sales" },
-  { label: "Operations", value: "operations" },
-  { label: "Strategy", value: "strategy" },
-  { label: "Local Expert", value: "local-expert" },
-  { label: "Marketing", value: "marketing" },
+  { value: "" },
+  { value: "ai-advisory" },
+  { value: "community" },
+  { value: "engineering" },
+  { value: "product" },
+  { value: "research" },
+  { value: "sales" },
+  { value: "operations" },
+  { value: "strategy" },
+  { value: "local-expert" },
+  { value: "marketing" },
 ];
 
 function SectionHeading({
@@ -92,9 +106,15 @@ function CompareCell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function CompareEmployeeColumn({ employee }: { employee: Employee }) {
+function CompareEmployeeColumn({
+  employee,
+  t,
+}: {
+  employee: Employee;
+  t: MarketplaceT;
+}) {
   const { loading, performance } = useEmployeePerformance(employee.employee_id);
-  const runtime = runtimeSummary(employee);
+  const runtime = runtimeText(employee, t);
 
   return (
     <>
@@ -111,35 +131,43 @@ function CompareEmployeeColumn({ employee }: { employee: Employee }) {
       </CompareCell>
       <CompareCell>{employee.certification}</CompareCell>
       <CompareCell>
-        {loading ? "Loading local KPI" : taskCountLabel(performance)}
+        {loading ? t("loadingLocalKpi") : taskCountText(performance, t)}
       </CompareCell>
       <CompareCell>
-        {loading ? "Loading local KPI" : acceptanceLabel(performance)}
+        {loading ? t("loadingLocalKpi") : acceptanceText(performance, t)}
       </CompareCell>
       <CompareCell>
-        {loading ? "Loading local KPI" : averageCostLabel(performance)}
+        {loading ? t("loadingLocalKpi") : averageCostText(performance, t)}
       </CompareCell>
       <CompareCell>
         <span className="block text-crew-heading">{runtime.label}</span>
         <span className="text-xs text-crew-muted">{runtime.detail}</span>
       </CompareCell>
-      <CompareCell>{availabilityLabel(employee)}</CompareCell>
-      <CompareCell>{reputationLabel(performance)}</CompareCell>
+      <CompareCell>{availabilityText(employee, t)}</CompareCell>
+      <CompareCell>{reputationText(performance, t)}</CompareCell>
       <CompareCell>
         <Button
           asChild
           className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
         >
-          <Link to={hireHandoffUrl(employee, "marketplace_compare")}>Hire</Link>
+          <Link to={hireHandoffUrl(employee, "marketplace_compare")}>
+            {t("hire")}
+          </Link>
         </Button>
       </CompareCell>
     </>
   );
 }
 
-function MarketplaceConsoleRow({ employee }: { employee: Employee }) {
+function MarketplaceConsoleRow({
+  employee,
+  t,
+}: {
+  employee: Employee;
+  t: MarketplaceT;
+}) {
   const { performance } = useEmployeePerformance(employee.employee_id);
-  const runtime = runtimeSummary(employee);
+  const runtime = runtimeText(employee, t);
   const hasLocalPerformance = performance?.kpi.state === "available";
 
   return (
@@ -155,14 +183,16 @@ function MarketplaceConsoleRow({ employee }: { employee: Employee }) {
       </span>
       <span>
         {hasLocalPerformance
-          ? taskCountLabel(performance)
-          : `${employee.demo_tasks.length} demos`}
+          ? taskCountText(performance, t)
+          : `${employee.demo_tasks.length} ${t("demos")}`}
       </span>
       <span className="text-emerald-300">
-        {hasLocalPerformance ? acceptanceLabel(performance) : "no ledger"}
+        {hasLocalPerformance ? acceptanceText(performance, t) : t("noLedger")}
       </span>
       <span>
-        {hasLocalPerformance ? averageCostLabel(performance) : employee.pricing}
+        {hasLocalPerformance
+          ? averageCostText(performance, t)
+          : employee.pricing}
       </span>
       <span className="flex items-center justify-between gap-2">
         <span>{runtime.label}</span>
@@ -185,24 +215,24 @@ function MarketplaceConsoleRow({ employee }: { employee: Employee }) {
 function ComparePanel({
   employees,
   onClear,
+  t,
 }: {
   employees: Employee[];
   onClear: () => void;
+  t: MarketplaceT;
 }) {
   return (
     <section className="mt-8 rounded-[8px] border border-white/10 bg-white/[0.03] p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.2em] text-crew-copper">
-            Compare
+            {t("compareEyebrow")}
           </p>
           <h2 className="mt-2 text-xl font-light text-crew-heading">
-            Evidence-backed shortlist
+            {t("compareTitle")}
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-crew-body">
-            Select two or three employees to compare package evidence, runtime
-            readiness, receipt-backed KPI data, permission risk, and hiring
-            availability without leaving the marketplace.
+            {t("compareDescription")}
           </p>
         </div>
         <Button
@@ -211,34 +241,33 @@ function ComparePanel({
           type="button"
           variant="outline"
         >
-          Clear
+          {t("clear")}
         </Button>
       </div>
       {employees.length < 2 ? (
         <p className="mt-5 rounded-[8px] border border-dashed border-white/10 bg-white/[0.025] p-4 text-sm leading-6 text-crew-muted">
-          Add at least one more employee. Comparison starts at two and stops at
-          three so the table remains readable.
+          {t("compareNeedMore")}
         </p>
       ) : (
         <div className="mt-5 overflow-x-auto">
           <table className="min-w-[920px] w-full border-collapse">
             <thead>
               <tr className="text-left font-mono text-[11px] uppercase tracking-[0.14em] text-crew-muted">
-                <th className="px-3 py-2">Employee</th>
-                <th className="px-3 py-2">Cert</th>
-                <th className="px-3 py-2">Tasks</th>
-                <th className="px-3 py-2">Acceptance</th>
-                <th className="px-3 py-2">Avg cost</th>
-                <th className="px-3 py-2">Runtime</th>
-                <th className="px-3 py-2">Availability</th>
-                <th className="px-3 py-2">Reputation</th>
-                <th className="px-3 py-2">Next</th>
+                <th className="px-3 py-2">{t("employee")}</th>
+                <th className="px-3 py-2">{t("cert")}</th>
+                <th className="px-3 py-2">{t("tasks")}</th>
+                <th className="px-3 py-2">{t("acceptance")}</th>
+                <th className="px-3 py-2">{t("avgCost")}</th>
+                <th className="px-3 py-2">{t("runtime")}</th>
+                <th className="px-3 py-2">{t("availability")}</th>
+                <th className="px-3 py-2">{t("reputation")}</th>
+                <th className="px-3 py-2">{t("next")}</th>
               </tr>
             </thead>
             <tbody>
               {employees.map(employee => (
                 <tr key={employee.employee_id}>
-                  <CompareEmployeeColumn employee={employee} />
+                  <CompareEmployeeColumn employee={employee} t={t} />
                 </tr>
               ))}
             </tbody>
@@ -250,6 +279,8 @@ function ComparePanel({
 }
 
 export default function Marketplace() {
+  const { locale } = useI18n();
+  const t = useMessages(marketplaceMessages);
   const [searchParams, setSearchParams] = useSearchParams();
   const sortParam = searchParams.get("sort");
   const categoryParam = searchParams.get("category") ?? "";
@@ -264,24 +295,33 @@ export default function Marketplace() {
       : "all";
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const handoffFrom = searchParams.get("handoff_from");
-  const departingEmployee = handoffFrom ? getEmployee(handoffFrom) : undefined;
+  const rawDepartingEmployee = handoffFrom
+    ? getEmployee(handoffFrom)
+    : undefined;
+  const departingEmployee = rawDepartingEmployee
+    ? localizeEmployeeContent(rawDepartingEmployee, locale)
+    : undefined;
   const handoffQuery = departingEmployee?.identity.title ?? "";
   const saved = useSavedEmployees();
   const categoryGroups = byCategory();
+  const localizedAvailableEmployees = useMemo(
+    () => localizeEmployees(availableEmployees, locale),
+    [locale]
+  );
   // Lab-certified means a registry-published signed credential, not merely a validated package.
   const featuredEmployees = sortEmployees(
-    availableEmployees,
+    localizedAvailableEmployees,
     "recommended"
   ).slice(0, 2);
   const certifiedEmployees = sortEmployees(
-    availableEmployees.filter(employee => employee.verified),
+    localizedAvailableEmployees.filter(employee => employee.verified),
     "recommended"
   ).slice(0, 3);
   const sortedEmployees = useMemo(() => {
     const categoryIds = categoryParam
       ? new Set(byCategory(categoryParam).map(employee => employee.employee_id))
       : null;
-    const filtered = availableEmployees.filter(employee => {
+    const filtered = localizedAvailableEmployees.filter(employee => {
       const categoryMatch =
         !categoryIds || categoryIds.has(employee.employee_id);
       return (
@@ -292,7 +332,13 @@ export default function Marketplace() {
     });
 
     return sortEmployees(filtered, sortBy);
-  }, [categoryParam, queryParam, selectedEvidence, sortBy]);
+  }, [
+    categoryParam,
+    localizedAvailableEmployees,
+    queryParam,
+    selectedEvidence,
+    sortBy,
+  ]);
   const savedEmployees = useMemo(() => {
     const savedIds = new Set(saved.savedIds);
     return sortedEmployees.filter(employee =>
@@ -300,7 +346,9 @@ export default function Marketplace() {
     );
   }, [saved.savedIds, sortedEmployees]);
   const comparedEmployees = compareIds
-    .map(id => availableEmployees.find(employee => employee.employee_id === id))
+    .map(id =>
+      localizedAvailableEmployees.find(employee => employee.employee_id === id)
+    )
     .filter((employee): employee is Employee => Boolean(employee));
 
   function setMarketplaceParams(next: {
@@ -346,14 +394,13 @@ export default function Marketplace() {
           <div className="max-w-2xl lg:max-w-none">
             <Badge className="gap-1 border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
               <Users className="size-3" />
-              AI Employee Marketplace
+              {t("marketplaceBadge")}
             </Badge>
             <h1 className="mt-5 text-4xl font-light leading-tight md:text-6xl lg:mt-3 lg:whitespace-nowrap lg:text-4xl">
-              Browse agents like candidates.
+              {t("marketplaceTitle")}
             </h1>
             <p className="mt-5 text-base leading-7 text-crew-body lg:mt-2">
-              Discover, compare, hire, and manage AI employees like real
-              teammates.
+              {t("marketplaceDescription")}
             </p>
           </div>
           <div className="flex flex-wrap gap-3 lg:gap-1">
@@ -364,7 +411,7 @@ export default function Marketplace() {
             >
               <Link to="/crew">
                 <Users className="size-4" />
-                Crew Mode
+                {t("crewMode")}
               </Link>
             </Button>
             <Button
@@ -374,7 +421,7 @@ export default function Marketplace() {
             >
               <Link to="/performance">
                 <BarChart3 className="size-4" />
-                Performance
+                {t("performance")}
               </Link>
             </Button>
             <Button
@@ -382,20 +429,20 @@ export default function Marketplace() {
               className="rounded-[8px] border-white/15 lg:h-7 lg:border-transparent lg:px-2 lg:font-mono lg:text-[10px]"
               variant="outline"
             >
-              <Link to="/creator">Submit</Link>
+              <Link to="/creator">{t("submit")}</Link>
             </Button>
             <Button
               asChild
               className="rounded-[8px] border-white/15 lg:h-7 lg:border-transparent lg:px-2 lg:font-mono lg:text-[10px]"
               variant="outline"
             >
-              <Link to="/review">Review</Link>
+              <Link to="/review">{t("review")}</Link>
             </Button>
             <Button
               asChild
               className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze lg:h-7 lg:px-2 lg:font-mono lg:text-[10px]"
             >
-              <Link to="/team">View team</Link>
+              <Link to="/team">{t("viewTeam")}</Link>
             </Button>
           </div>
         </div>
@@ -403,12 +450,10 @@ export default function Marketplace() {
         {departingEmployee ? (
           <div className="mt-8 rounded-[8px] border border-crew-copper/35 bg-crew-copper/[0.08] p-4">
             <p className="text-sm font-medium text-crew-heading">
-              Successor handoff for {departingEmployee.name}
+              {t("successorHandoffTitle", { name: departingEmployee.name })}
             </p>
             <p className="mt-1 text-sm leading-6 text-crew-body">
-              The role query below is prefilled from the departing employee. The
-              checksum-bound memory pack remains in the local offboarding
-              receipt until you choose a successor.
+              {t("successorHandoffDescription")}
             </p>
           </div>
         ) : null}
@@ -433,11 +478,11 @@ export default function Marketplace() {
             defaultValue={queryParam || handoffQuery}
             key={queryParam || handoffQuery}
             name="q"
-            placeholder="Search roles, fields, tasks, or Macao"
+            placeholder={t("marketplaceSearchPlaceholder")}
           />
           <Button className="h-11 rounded-[8px] bg-[#F2EDE6] px-6 text-[#17120F] hover:bg-white">
             <Search className="size-4" />
-            Search
+            {t("search")}
           </Button>
         </form>
 
@@ -449,7 +494,7 @@ export default function Marketplace() {
             value={categoryParam || "all"}
           >
             <SelectTrigger className="h-10 rounded-[8px] border-white/10 bg-white/[0.04] text-crew-heading">
-              <SelectValue placeholder="Category" />
+              <SelectValue placeholder={t("category")} />
             </SelectTrigger>
             <SelectContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
               {categoryLinks.map(category => (
@@ -457,7 +502,7 @@ export default function Marketplace() {
                   key={category.value || "all"}
                   value={category.value || "all"}
                 >
-                  {category.label}
+                  {categoryLabel(category.value, t)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -471,12 +516,12 @@ export default function Marketplace() {
             value={selectedEvidence}
           >
             <SelectTrigger className="h-10 rounded-[8px] border-white/10 bg-white/[0.04] text-crew-heading">
-              <SelectValue placeholder="Evidence" />
+              <SelectValue placeholder={t("evidence")} />
             </SelectTrigger>
             <SelectContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
               {EMPLOYEE_EVIDENCE_FILTERS.map(option => (
                 <SelectItem key={option.value} value={option.value}>
-                  {option.label}
+                  {evidenceFilterLabel(option.value, t)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -486,7 +531,7 @@ export default function Marketplace() {
             className="h-10 rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
             variant="outline"
           >
-            <Link to="/marketplace">Reset filters</Link>
+            <Link to="/marketplace">{t("resetFilters")}</Link>
           </Button>
         </div>
 
@@ -494,6 +539,7 @@ export default function Marketplace() {
           <ComparePanel
             employees={comparedEmployees}
             onClear={() => setCompareIds([])}
+            t={t}
           />
         ) : null}
 
@@ -503,13 +549,13 @@ export default function Marketplace() {
               <span className="text-red-400">●</span>
               <span className="text-amber-300">●</span>
               <span className="text-emerald-400">●</span>
-              CrewClaw marketplace
+              {t("consoleTitle")}
             </span>
             <span className="flex items-center gap-3">
               <label className="flex items-center gap-1.5">
-                <span>category:</span>
+                <span>{t("category")}:</span>
                 <select
-                  aria-label="Marketplace category"
+                  aria-label={t("consoleCategoryAria")}
                   className="bg-transparent text-crew-heading outline-none"
                   onChange={event =>
                     setMarketplaceParams({
@@ -525,15 +571,15 @@ export default function Marketplace() {
                       key={category.value || "all"}
                       value={category.value || "all"}
                     >
-                      {category.label}
+                      {categoryLabel(category.value, t)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="flex items-center gap-1.5">
-                <span>evidence:</span>
+                <span>{t("evidence")}:</span>
                 <select
-                  aria-label="Marketplace evidence"
+                  aria-label={t("consoleEvidenceAria")}
                   className="bg-transparent text-crew-heading outline-none"
                   onChange={event =>
                     setMarketplaceParams({
@@ -548,7 +594,7 @@ export default function Marketplace() {
                       key={option.value}
                       value={option.value}
                     >
-                      {option.label}
+                      {evidenceFilterLabel(option.value, t)}
                     </option>
                   ))}
                 </select>
@@ -570,48 +616,46 @@ export default function Marketplace() {
           >
             <span aria-hidden="true">/</span>
             <Input
-              aria-label="Search digital employees"
+              aria-label={t("consoleSearchAria")}
               className="h-10 flex-1 border-0 bg-transparent px-2 font-mono text-xs text-crew-heading shadow-none placeholder:text-crew-muted focus-visible:ring-0"
               defaultValue={queryParam || handoffQuery}
               key={`console-${queryParam || handoffQuery}`}
               name="q"
-              placeholder="search digital employees…"
+              placeholder={t("consoleSearchPlaceholder")}
             />
             <Button
               className="h-7 rounded-[3px] border border-crew-copper/40 bg-transparent px-3 font-mono text-[10px] text-crew-copper hover:bg-crew-copper/10"
               type="submit"
             >
-              run ↵
+              {t("consoleRun")} ↵
             </Button>
           </form>
           <div className="grid grid-cols-[1.35fr_1.2fr_0.72fr_0.8fr_0.72fr_0.95fr] gap-3 border-b border-white/10 px-4 py-2 font-mono text-[9px] uppercase tracking-[0.14em] text-crew-muted">
-            <span>Employee</span>
-            <span>Role</span>
-            <span>Tasks / demos</span>
-            <span>Field KPI</span>
-            <span>Pricing</span>
-            <span>Runtime</span>
+            <span>{t("employee")}</span>
+            <span>{t("role")}</span>
+            <span>{t("tasksDemos")}</span>
+            <span>{t("fieldKpi")}</span>
+            <span>{t("pricing")}</span>
+            <span>{t("runtime")}</span>
           </div>
           {sortedEmployees.slice(0, 5).map(employee => (
             <MarketplaceConsoleRow
               employee={employee}
               key={employee.employee_id}
+              t={t}
             />
           ))}
           <div className="flex items-center justify-between px-4 py-3 font-mono text-[10px] text-crew-muted">
-            <span>
-              {sortedEmployees.length} published · receipt-backed fields stay
-              unavailable until local work exists
-            </span>
-            <span className="text-crew-copper">$ crewclaw market --open →</span>
+            <span>{t("consoleFooter", { count: sortedEmployees.length })}</span>
+            <span className="text-crew-copper">{t("consoleCommand")}</span>
           </div>
         </section>
 
         <section className="mt-12">
           <SectionHeading
-            eyebrow="Featured"
-            title="Recommended employees"
-            description="Platform picks for high-signal work: local research, product judgment, and code review."
+            eyebrow={t("featuredEyebrow")}
+            title={t("featuredTitle")}
+            description={t("featuredDescription")}
           />
           <div className="mt-6 grid gap-5 md:grid-cols-2">
             {featuredEmployees.map(employee => (
@@ -623,9 +667,9 @@ export default function Marketplace() {
         {savedEmployees.length > 0 ? (
           <section className="mt-12">
             <SectionHeading
-              eyebrow="Saved"
-              title="Saved employees"
-              description="Employees you bookmarked before deciding who should join the crew."
+              eyebrow={t("savedEyebrow")}
+              title={t("savedTitle")}
+              description={t("savedDescription")}
             />
             <div className="mt-6 grid gap-5 md:grid-cols-3">
               {savedEmployees.map(employee => (
@@ -639,11 +683,10 @@ export default function Marketplace() {
               <Heart className="mt-1 size-5 shrink-0 text-crew-copper" />
               <div>
                 <h2 className="text-base font-semibold text-crew-heading">
-                  Save employees before you hire
+                  {t("saveBeforeHireTitle")}
                 </h2>
                 <p className="mt-1 text-sm leading-6 text-crew-body">
-                  Use the heart button on any resume card to build a shortlist
-                  for your crew.
+                  {t("saveBeforeHireDescription")}
                 </p>
               </div>
             </div>
@@ -652,9 +695,9 @@ export default function Marketplace() {
 
         <section className="mt-12">
           <SectionHeading
-            eyebrow="Categories"
-            title="Popular hiring lanes"
-            description="Filter the marketplace by the kind of employee your team needs next."
+            eyebrow={t("categoriesEyebrow")}
+            title={t("categoriesTitle")}
+            description={t("categoriesDescription")}
           />
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {categoryLinks.map(category => {
@@ -676,10 +719,12 @@ export default function Marketplace() {
                   }
                 >
                   <span className="text-base text-crew-heading group-hover:text-white">
-                    {category.label}
+                    {categoryLabel(category.value, t)}
                   </span>
                   <span className="font-mono text-xs text-crew-muted">
-                    {count} employee{count === 1 ? "" : "s"}
+                    {t(count === 1 ? "categoryCountOne" : "categoryCountMany", {
+                      count,
+                    })}
                   </span>
                 </Link>
               );
@@ -690,13 +735,13 @@ export default function Marketplace() {
         <section className="mt-12">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <SectionHeading
-              eyebrow="Browse"
-              title="Employee bench"
-              description="Every published employee includes a role, registry-backed evidence status, version, and pricing."
+              eyebrow={t("browseEyebrow")}
+              title={t("browseTitle")}
+              description={t("browseDescription")}
             />
             <div className="flex items-center gap-3">
               <span className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-                Sort
+                {t("sort")}
               </span>
               <Select
                 onValueChange={value => {
@@ -717,7 +762,7 @@ export default function Marketplace() {
                 <SelectContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
                   {EMPLOYEE_SORT_OPTIONS.map(option => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      {t(option.labelKey as MarketplaceMessageKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -727,10 +772,12 @@ export default function Marketplace() {
           <div className="mt-5 flex flex-wrap items-center gap-3 rounded-[8px] border border-white/10 bg-white/[0.025] px-4 py-3 text-sm text-crew-muted">
             <GitCompareArrows className="size-4 text-crew-copper" />
             <span>
-              {sortedEmployees.length} employee
-              {sortedEmployees.length === 1 ? "" : "s"} match the current
-              marketplace filters. Select 2-3 Compare buttons for an in-page
-              decision table.
+              {t(
+                sortedEmployees.length === 1
+                  ? "filterMatchOne"
+                  : "filterMatchMany",
+                { count: sortedEmployees.length }
+              )}
             </span>
           </div>
           <div className="mt-6 grid gap-5 md:grid-cols-3">
@@ -750,11 +797,10 @@ export default function Marketplace() {
           {sortedEmployees.length === 0 ? (
             <div className="mt-6 rounded-[8px] border border-white/10 bg-white/[0.03] p-6">
               <p className="text-lg font-light text-crew-heading">
-                No employees match those filters
+                {t("noMarketplaceMatchesTitle")}
               </p>
               <p className="mt-2 text-sm leading-6 text-crew-body">
-                Try all evidence levels or a broader role/task query. The empty
-                state is based on the generated registry projection only.
+                {t("noMarketplaceMatchesDescription")}
               </p>
             </div>
           ) : null}
@@ -762,9 +808,9 @@ export default function Marketplace() {
 
         <section className="mt-12 pb-8">
           <SectionHeading
-            eyebrow="Trusted"
-            title="Lab-certified employees"
-            description="Only employees with a registry-published, signed mock:false credential appear here. A validated package alone is C1, not certification."
+            eyebrow={t("trustedEyebrow")}
+            title={t("trustedTitle")}
+            description={t("trustedDescription")}
           />
           {certifiedEmployees.length > 0 ? (
             <div className="mt-6 grid gap-5 md:grid-cols-3">
@@ -781,7 +827,7 @@ export default function Marketplace() {
                     >
                       <Link to={`/employee/${employee.employee_id}`}>
                         <Trophy className="size-4" />
-                        View
+                        {t("view")}
                       </Link>
                     </Button>
                   }
@@ -790,9 +836,7 @@ export default function Marketplace() {
             </div>
           ) : (
             <p className="mt-6 rounded-[8px] border border-white/10 bg-white/[0.025] px-5 py-4 text-sm leading-6 text-crew-muted">
-              No employee currently has a published signed lab credential.
-              Validated C1 packages remain hireable for trial work, with their
-              status shown explicitly.
+              {t("noCertifiedEmployees")}
             </p>
           )}
         </section>
@@ -805,7 +849,7 @@ export default function Marketplace() {
           >
             <Link to="/search">
               <Sparkles className="size-4" />
-              Explore all employees
+              {t("exploreAllEmployees")}
             </Link>
           </Button>
           <Button
@@ -815,7 +859,7 @@ export default function Marketplace() {
           >
             <Link to="/metrics">
               <BarChart3 className="size-4" />
-              Metrics
+              {t("metrics")}
             </Link>
           </Button>
         </div>

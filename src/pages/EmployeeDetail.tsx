@@ -29,31 +29,34 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import {
-  employeeEvidenceBadge,
-  employeeEvidenceLevel,
-  getEmployee,
-  type Employee,
-} from "@/data/employees";
-import { capabilityOnboardingRequirements } from "@/lib/capability-onboarding";
+import { getEmployee, type Employee } from "@/data/employees";
 import { isLocalDevelopment, localCrewClawCommand } from "@/data/experts";
 import { track } from "@/hooks/use-analytics";
 import { useEmployeeReviews } from "@/hooks/use-reviews";
 import { useSavedEmployees } from "@/hooks/use-saved";
 import { writeClipboard } from "@/lib/clipboard";
-import {
-  acceptanceLabel,
-  averageCostLabel,
-  formatDuration,
-  formatMoney,
-  formatPercentValue,
-  hireHandoffUrl,
-  kpiStateLabel,
-  reputationLabel,
-  runtimeSummary,
-  taskCountLabel,
-} from "@/components/employee/employeeSignals";
+import { hireHandoffUrl } from "@/components/employee/employeeSignals";
 import { useEmployeePerformance } from "@/components/employee/useEmployeePerformance";
+import { useI18n, useMessages } from "@/i18n";
+import { localizeEmployeeContent } from "@/i18n/employee-content";
+import {
+  acceptanceText,
+  averageCostText,
+  availabilityText,
+  categoryLabel,
+  employeeEvidenceBadge as localizedEmployeeEvidenceBadge,
+  employeeEvidenceLevel as localizedEmployeeEvidenceLevel,
+  formatDurationText,
+  formatMoneyText,
+  formatPercentText,
+  kpiStateText,
+  reputationText,
+  runtimeText,
+  registryStatusLabel,
+  taskCountText,
+  type MarketplaceT,
+} from "@/i18n/marketplace-format";
+import { marketplaceMessages } from "@/i18n/locales/marketplace";
 
 type ResumeSectionProps = {
   title: string;
@@ -138,17 +141,21 @@ function DetailRow({
   );
 }
 
-function formatReviewDate(value: string) {
-  return new Intl.DateTimeFormat("en", {
+function formatReviewDate(
+  value: string,
+  formatDate: ReturnType<typeof useI18n>["formatDate"]
+) {
+  return formatDate(value, {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value));
+  });
 }
 
-function formatEmployeeDate(value: string) {
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(
-    new Date(value)
-  );
+function formatEmployeeDate(
+  value: string,
+  formatDate: ReturnType<typeof useI18n>["formatDate"]
+) {
+  return formatDate(value, { dateStyle: "medium" });
 }
 
 function ratingStars(value: number) {
@@ -169,43 +176,119 @@ function demoCommand(employeeId: string, task: string) {
   return `crew run ${employeeId} "${task.replaceAll('"', '\\"')}"`;
 }
 
-function onboardingRequirements(employee: Employee) {
-  const requirements = capabilityOnboardingRequirements(employee);
+function onboardingRequirements(employee: Employee, t: MarketplaceT) {
+  const active = employee.tool_capabilities.filter(
+    capability =>
+      capability.necessity !== "disabled" &&
+      capability.permission !== "disabled"
+  );
+  const requirements = [
+    active.length > 0
+      ? t(
+          active.length === 1
+            ? "onboardingReviewCapabilitiesOne"
+            : "onboardingReviewCapabilitiesMany",
+          { count: active.length }
+        )
+      : t("onboardingReviewCapabilityDefault"),
+  ];
+  const scopedReadCapabilities = active.filter(
+    capability =>
+      capability.operation === "read" && capability.scopes.length > 0
+  );
+  if (scopedReadCapabilities.length > 0) {
+    requirements.push(
+      t(
+        scopedReadCapabilities.length === 1
+          ? "onboardingReadScopesOne"
+          : "onboardingReadScopesMany",
+        { count: scopedReadCapabilities.length }
+      )
+    );
+  }
+
+  const adapterCapabilities = active.filter(
+    capability => capability.availability === "adapter_required"
+  );
+  if (adapterCapabilities.length > 0) {
+    requirements.push(
+      t(
+        adapterCapabilities.length === 1
+          ? "onboardingAdaptersOne"
+          : "onboardingAdaptersMany",
+        { count: adapterCapabilities.length }
+      )
+    );
+  }
+
+  const approvalCapabilities = active.filter(
+    capability =>
+      capability.permission === "requires_authorization" ||
+      capability.approval === "always"
+  );
+  if (approvalCapabilities.length > 0) {
+    requirements.push(
+      t(
+        approvalCapabilities.length === 1
+          ? "onboardingApprovalsOne"
+          : "onboardingApprovalsMany",
+        { count: approvalCapabilities.length }
+      )
+    );
+  }
+
+  const boundedCapabilities = active.filter(
+    capability =>
+      capability.limits?.max_calls_per_task !== undefined ||
+      capability.limits?.timeout_ms !== undefined
+  );
+  if (boundedCapabilities.length > 0) {
+    requirements.push(
+      t(
+        boundedCapabilities.length === 1
+          ? "onboardingTaskLimitsOne"
+          : "onboardingTaskLimitsMany",
+        { count: boundedCapabilities.length }
+      )
+    );
+  }
 
   if (employee.install_command) {
     requirements.push(
       isLocalDevelopment
-        ? `Local CrewClaw launcher available: ${localCrewClawCommand}`
-        : "Public package distribution is pending; use the CrewClaw repository local setup guide."
+        ? t("localLauncherAvailable", { command: localCrewClawCommand })
+        : t("publicPackagePending")
     );
   }
 
   if (employee.repo || employee.local_source) {
     requirements.push(
       employee.repo
-        ? `Source package: ${employee.repo}`
-        : `Local package: ${employee.local_source}`
+        ? t("sourcePackage", { source: employee.repo })
+        : t("localPackage", { source: employee.local_source ?? "" })
     );
   }
 
   return requirements;
 }
 
-function pricingDescription(pricing: string) {
+function pricingDescription(pricing: string, t: MarketplaceT) {
   const tone = pricingTone(pricing);
 
   if (tone === "Pro") {
-    return "This employee is shown with paid-market pricing. The hire flow uses a simulated checkout for the demo and does not charge a real card.";
+    return t("pricingProDescription");
   }
 
   if (tone === "Custom") {
-    return "This employee uses custom commercial terms. The demo hire flow still treats checkout as a simulation before onboarding.";
+    return t("pricingCustomDescription");
   }
 
-  return "This employee can join your local demo crew without payment. Any checkout screen in this prototype is clearly marked as simulated.";
+  return t("pricingFreeDescription");
 }
 
 function NotFound() {
+  const t = useMessages(marketplaceMessages);
+
   return (
     <main className="min-h-screen bg-crew-bg px-4 py-10 text-crew-heading sm:px-6">
       <section className="mx-auto max-w-3xl">
@@ -213,14 +296,14 @@ function NotFound() {
           className="border-white/10 bg-white/[0.04] text-crew-muted"
           variant="outline"
         >
-          Resume
+          {t("resume")}
         </Badge>
-        <h1 className="mt-5 text-3xl font-light">Employee not found</h1>
+        <h1 className="mt-5 text-3xl font-light">{t("employeeNotFound")}</h1>
         <p className="mt-4 text-sm leading-6 text-crew-body">
-          This AI employee is not available in the marketplace.
+          {t("employeeNotFoundDescription")}
         </p>
         <Button asChild className="mt-6 rounded-[8px]">
-          <Link to="/marketplace">Back to marketplace</Link>
+          <Link to="/marketplace">{t("backToMarketplace")}</Link>
         </Button>
       </section>
     </main>
@@ -229,7 +312,12 @@ function NotFound() {
 
 export default function EmployeeDetail() {
   const { id } = useParams();
-  const employee = id ? getEmployee(id) : undefined;
+  const { locale, formatDate } = useI18n();
+  const t = useMessages(marketplaceMessages);
+  const rawEmployee = id ? getEmployee(id) : undefined;
+  const employee = rawEmployee
+    ? localizeEmployeeContent(rawEmployee, locale)
+    : undefined;
   const saved = useSavedEmployees();
   // Fallback 0 (not the fabricated employee.rating) so the reviews average reflects only real,
   // user-submitted reviews — no invented baseline.
@@ -255,9 +343,9 @@ export default function EmployeeDetail() {
   if (!employee) return <NotFound />;
 
   const currentEmployee = employee;
-  const requirements = onboardingRequirements(employee);
+  const requirements = onboardingRequirements(employee, t);
   const isSaved = saved.isSaved(employee.employee_id);
-  const runtime = runtimeSummary(employee);
+  const runtime = runtimeText(employee, t);
   const performance = performanceState.performance;
   const kpi = performance?.kpi;
   const effectiveTaskRunId = reviews.reviewableTasks.some(
@@ -303,14 +391,14 @@ export default function EmployeeDetail() {
           className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
           variant="outline"
         >
-          <Link to="/marketplace">Marketplace</Link>
+          <Link to="/marketplace">{t("marketplace")}</Link>
         </Button>
 
         <section className="mt-8 grid gap-8 border-b border-white/10 pb-10 lg:grid-cols-[1fr_340px]">
           <div>
             <div className="flex flex-wrap gap-2">
               <Badge className="border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
-                {employeeEvidenceBadge(employee)}
+                {localizedEmployeeEvidenceBadge(employee, t)}
               </Badge>
               {employee.categories.map(category => (
                 <Badge
@@ -318,7 +406,7 @@ export default function EmployeeDetail() {
                   key={category}
                   variant="outline"
                 >
-                  {category}
+                  {categoryLabel(category, t)}
                 </Badge>
               ))}
             </div>
@@ -335,15 +423,21 @@ export default function EmployeeDetail() {
                 <dl className="mt-4 grid gap-2 text-sm text-crew-body sm:grid-cols-2">
                   <div className="flex items-center gap-2">
                     <BriefcaseBusiness className="size-4 text-crew-copper" />
-                    <span>Creator: ChaoGeek</span>
+                    <span>
+                      {t("creator")}: {t("creatorName")}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <BadgeCheck className="size-4 text-crew-copper" />
-                    <span>{employeeEvidenceLevel(employee)}</span>
+                    <span>{localizedEmployeeEvidenceLevel(employee, t)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <PricingBadge pricing={employee.pricing} />
-                    <span>{pricingTone(employee.pricing)} hiring terms</span>
+                    <span>
+                      {t("hiringTerms", {
+                        tone: pricingTone(employee.pricing),
+                      })}
+                    </span>
                   </div>
                 </dl>
               </div>
@@ -368,7 +462,7 @@ export default function EmployeeDetail() {
                   }
                   to={hireHandoffUrl(employee, "employee_detail_hero")}
                 >
-                  Hire
+                  {t("hire")}
                 </Link>
               </Button>
               <Button
@@ -385,14 +479,14 @@ export default function EmployeeDetail() {
                 variant="outline"
               >
                 <Heart className={cn("size-4", isSaved && "fill-current")} />
-                {isSaved ? "Saved" : "Save"}
+                {isSaved ? t("saved") : t("save")}
               </Button>
               <Button
                 asChild
                 className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
                 variant="outline"
               >
-                <Link to="/team">View team</Link>
+                <Link to="/team">{t("viewTeam")}</Link>
               </Button>
               {employee.local_source && (
                 // v0.18 Phase 2: a REAL download — the packaged employee (gzipped tar + sha256)
@@ -413,7 +507,7 @@ export default function EmployeeDetail() {
                     }
                   >
                     <Download className="size-4" />
-                    Download package
+                    {t("downloadPackage")}
                   </a>
                 </Button>
               )}
@@ -423,31 +517,31 @@ export default function EmployeeDetail() {
           <Card className="h-fit rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading shadow-[0_18px_54px_rgba(0,0,0,0.18)]">
             <CardHeader>
               <CardTitle className="text-base font-semibold">
-                Resume snapshot
+                {t("resumeSnapshot")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <dl>
                 <DetailRow
-                  label="Reports to"
-                  value={employee.identity.reports_to ?? "Team owner"}
+                  label={t("reportsTo")}
+                  value={employee.identity.reports_to ?? t("teamOwner")}
                 />
                 <DetailRow
-                  label="Location"
-                  value={employee.identity.location ?? "Remote"}
+                  label={t("location")}
+                  value={employee.identity.location ?? t("remote")}
                 />
                 <DetailRow
-                  label="Pricing"
+                  label={t("pricing")}
                   value={<PricingBadge pricing={employee.pricing} />}
                 />
                 <DetailRow
-                  label="Trial period"
+                  label={t("trialPeriod")}
                   value={employee.lifecycle.trial_period}
                 />
                 <DetailRow
-                  label="Lifecycle"
-                  value={`${employee.lifecycle.hireable ? "Hireable" : "Closed"} / ${
-                    employee.lifecycle.fireable ? "Fireable" : "Locked"
+                  label={t("lifecycle")}
+                  value={`${employee.lifecycle.hireable ? t("hireable") : t("closed")} / ${
+                    employee.lifecycle.fireable ? t("fireable") : t("locked")
                   }`}
                 />
               </dl>
@@ -462,63 +556,68 @@ export default function EmployeeDetail() {
         <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Stat
             icon={ShieldCheck}
-            label="Evidence level"
-            value={employeeEvidenceLevel(employee)}
+            label={t("evidenceLevel")}
+            value={localizedEmployeeEvidenceLevel(employee, t)}
           />
           <Stat
             icon={Tag}
-            label="Package"
-            value={employee.evidence_state.package_status}
+            label={t("package")}
+            value={registryStatusLabel(
+              employee.evidence_state.package_status,
+              t
+            )}
           />
           <Stat
             icon={ClipboardCheck}
-            label="Lab certification"
+            label={t("labCertification")}
             value={
               employee.certified_evaluation
                 ? `${Math.round(employee.certified_evaluation.success_rate * 100)}%`
-                : employee.evidence_state.lab_status
+                : registryStatusLabel(employee.evidence_state.lab_status, t)
             }
           />
           <Stat
             icon={Clock3}
-            label="Field evidence"
-            value={employee.evidence_state.field_status}
+            label={t("fieldEvidence")}
+            value={registryStatusLabel(employee.evidence_state.field_status, t)}
           />
         </section>
 
         <section className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Stat
             icon={Gauge}
-            label="Formal tasks"
+            label={t("formalTasks")}
             value={
-              performanceState.loading ? "Loading" : taskCountLabel(performance)
+              performanceState.loading
+                ? t("loading")
+                : taskCountText(performance, t)
             }
           />
           <Stat
             icon={ClipboardCheck}
-            label="Acceptance"
+            label={t("acceptance")}
             value={
               performanceState.loading
-                ? "Loading"
-                : acceptanceLabel(performance)
+                ? t("loading")
+                : acceptanceText(performance, t)
             }
           />
           <Stat
             icon={Tag}
-            label="Average cost"
+            label={t("avgCost")}
             value={
               performanceState.loading
-                ? "Loading"
-                : averageCostLabel(performance)
+                ? t("loading")
+                : averageCostText(performance, t)
             }
           />
           <Stat
             icon={Star}
-            label="Reputation"
+            label={t("reputation")}
             value={
               performanceState.loading
-                ? "Loading"
-                : reputationLabel(performance)
+                ? t("loading")
+                : reputationText(performance, t)
             }
           />
         </section>
@@ -528,7 +627,7 @@ export default function EmployeeDetail() {
             <dl className="grid gap-4 text-sm sm:grid-cols-3">
               <div>
                 <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-crew-muted">
-                  Evaluation source
+                  {t("evaluationSource")}
                 </dt>
                 <dd className="mt-2 text-crew-body">
                   {employee.certified_evaluation.source}
@@ -536,95 +635,96 @@ export default function EmployeeDetail() {
               </div>
               <div>
                 <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-crew-muted">
-                  Issued
+                  {t("issued")}
                 </dt>
                 <dd className="mt-2 text-crew-body">
-                  {formatEmployeeDate(employee.certified_evaluation.issued_at)}
+                  {formatEmployeeDate(
+                    employee.certified_evaluation.issued_at,
+                    formatDate
+                  )}
                 </dd>
               </div>
               <div>
                 <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-crew-muted">
-                  Verified sample
+                  {t("verifiedSample")}
                 </dt>
                 <dd className="mt-2 text-crew-body">
-                  {employee.certified_evaluation.sample_size} runs · confidence
-                  floor{" "}
-                  {Math.round(
-                    employee.certified_evaluation.success_confidence_low * 100
-                  )}
-                  % · mock:false
+                  {t("verifiedSampleValue", {
+                    count: employee.certified_evaluation.sample_size,
+                    percent: Math.round(
+                      employee.certified_evaluation.success_confidence_low * 100
+                    ),
+                  })}
                 </dd>
               </div>
             </dl>
           ) : (
             <p className="text-sm leading-6 text-crew-muted">
-              Package validation is available, but no registry-published signed
-              mock:false lab credential exists yet. This employee is C1, not
-              certified; it can reach C2 only after repeated profile runs pass
-              and a verifiable credential is published.
+              {t("noSignedCredential")}
             </p>
           )}
         </div>
 
         <ResumeSection
           className="mt-8"
-          eyebrow="Manifest"
-          title="Hiring contract and runtime snapshot"
+          eyebrow={t("manifest")}
+          title={t("hiringContractRuntime")}
         >
           <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
             <dl className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
-              <DetailRow label="Manifest id" value={employee.employee_id} />
-              <DetailRow label="Version" value={`v${employee.version}`} />
+              <DetailRow label={t("manifestId")} value={employee.employee_id} />
+              <DetailRow label={t("version")} value={`v${employee.version}`} />
               <DetailRow
-                label="Evidence"
-                value={employeeEvidenceLevel(employee)}
+                label={t("evidence")}
+                value={localizedEmployeeEvidenceLevel(employee, t)}
               />
               <DetailRow
-                label="Source"
+                label={t("source")}
                 value={
                   employee.repo ??
                   employee.local_source ??
-                  "Package source not published"
+                  t("packageSourceNotPublished")
                 }
               />
               <DetailRow
-                label="Trial"
+                label={t("trial")}
                 value={employee.lifecycle.trial_period}
               />
             </dl>
             <dl className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
               <DetailRow
-                label="Runtime compatibility"
+                label={t("runtimeCompatibility")}
                 value={`${runtime.label}; ${runtime.detail}`}
               />
               <DetailRow
-                label="Declared tools"
+                label={t("declaredTools")}
                 value={
                   employee.tool_capabilities.length === 0
-                    ? "No formal tool capabilities declared"
-                    : `${employee.tool_capabilities.length} capabilities; highest risk ${runtime.highestRisk}`
+                    ? t("noFormalCapabilities")
+                    : t("capabilityCountHighestRisk", {
+                        count: employee.tool_capabilities.length,
+                        risk: runtime.highestRisk,
+                      })
                 }
               />
               <DetailRow
-                label="Availability"
+                label={t("availability")}
                 value={
-                  employee.lifecycle.hireable
-                    ? employee.local_source
-                      ? "Hireable for local trial"
-                      : "Hireable after package source is available"
-                    : "Not hireable"
+                  employee.lifecycle.hireable && !employee.local_source
+                    ? t("hireableAfterPackage")
+                    : availabilityText(employee, t)
                 }
               />
               <DetailRow
-                label="Handoff carries"
-                value="employee, first task, budget label, runtime provider, required access"
+                label={t("handoffCarries")}
+                value={t("handoffCarriesValue")}
               />
             </dl>
           </div>
         </ResumeSection>
 
         <section className="mt-8 grid gap-5 lg:grid-cols-2">
-          <ResumeSection eyebrow="Fit" title="Best for">
+          <ResumeSection eyebrow={t("fit")} title={t("bestFor")}>
             <TextList
               items={
                 employee.demo_tasks.length > 0
@@ -634,7 +734,7 @@ export default function EmployeeDetail() {
             />
           </ResumeSection>
 
-          <ResumeSection eyebrow="Skills" title="Core skills">
+          <ResumeSection eyebrow={t("skills")} title={t("coreSkills")}>
             <div className="flex flex-wrap gap-2">
               {employee.skills.map(skill => (
                 <Badge
@@ -648,36 +748,35 @@ export default function EmployeeDetail() {
             </div>
           </ResumeSection>
 
-          <ResumeSection eyebrow="Deliverables" title="Supported deliverables">
+          <ResumeSection
+            eyebrow={t("deliverables")}
+            title={t("supportedDeliverables")}
+          >
             <div className="space-y-4">
               <p className="text-sm leading-6 text-crew-body">
-                Formal deliverable names are not projected into the browser
-                dataset yet. The list below is taken from package example
-                outputs, so it is labeled as expected deliverables rather than
-                measured delivery history.
+                {t("deliverablesDescription")}
               </p>
               <TextList items={employee.examples.outputs} />
             </div>
           </ResumeSection>
 
-          <ResumeSection eyebrow="Pricing" title="Hiring terms">
+          <ResumeSection eyebrow={t("pricing")} title={t("hiringTermsTitle")}>
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-3">
                 <PricingBadge pricing={employee.pricing} />
                 <span className="text-sm text-crew-body">
-                  {formatPricingLabel(employee.pricing)}
+                  {formatPricingLabel(employee.pricing, locale)}
                 </span>
               </div>
               <p className="text-sm leading-6 text-crew-body">
-                {pricingDescription(employee.pricing)}
+                {pricingDescription(employee.pricing, t)}
               </p>
               <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
                 <h3 className="text-sm font-medium text-crew-heading">
-                  Before onboarding
+                  {t("beforeOnboarding")}
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-crew-body">
-                  Choose a Free or Pro mock plan during hire confirmation, then
-                  review permissions before this employee joins your crew.
+                  {t("beforeOnboardingDescription")}
                 </p>
               </div>
             </div>
@@ -685,8 +784,8 @@ export default function EmployeeDetail() {
 
           <ResumeSection
             className="lg:col-span-2"
-            eyebrow="Access"
-            title="Tool capabilities"
+            eyebrow={t("access")}
+            title={t("toolCapabilities")}
           >
             <div className="space-y-5">
               <div className="grid gap-3 md:grid-cols-3">
@@ -702,33 +801,28 @@ export default function EmployeeDetail() {
                 <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
                   <TerminalSquare className="size-4 text-crew-copper" />
                   <p className="mt-3 text-sm font-medium text-crew-heading">
-                    Runtime provider handoff
+                    {t("runtimeProviderHandoff")}
                   </p>
                   <p className="mt-1 text-xs leading-5 text-crew-muted">
-                    Hire links include the first declared provider when one is
-                    available; the hire page still validates capabilities.
+                    {t("runtimeProviderHandoffDescription")}
                   </p>
                 </div>
                 <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
                   <KeyRound className="size-4 text-crew-copper" />
                   <p className="mt-3 text-sm font-medium text-crew-heading">
-                    Permissions are scoped
+                    {t("permissionsScoped")}
                   </p>
                   <p className="mt-1 text-xs leading-5 text-crew-muted">
-                    Legacy permission strings are context only; capability
-                    tokens are selected during hire.
+                    {t("permissionsScopedDescription")}
                   </p>
                 </div>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-crew-heading">
-                  Role capability contract
+                  {t("roleCapabilityContract")}
                 </h3>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-crew-body">
-                  Required and conditional capabilities are available to the
-                  role. Optional capabilities start off, while policy-disabled
-                  capabilities can never be enabled. Runtime preflight still
-                  verifies providers and credentials before each task.
+                  {t("roleCapabilityContractDescription")}
                 </p>
                 <div className="mt-4">
                   <ToolCapabilityList
@@ -739,7 +833,7 @@ export default function EmployeeDetail() {
               <Separator className="bg-white/10" />
               <div>
                 <h3 className="text-sm font-medium text-crew-heading">
-                  Data access scopes
+                  {t("dataAccessScopes")}
                 </h3>
                 <div className="mt-3">
                   <PermissionLevelList
@@ -751,7 +845,7 @@ export default function EmployeeDetail() {
             </div>
           </ResumeSection>
 
-          <ResumeSection eyebrow="Try first" title="Example tasks">
+          <ResumeSection eyebrow={t("tryFirst")} title={t("exampleTasks")}>
             <div className="space-y-5">
               <div className="space-y-3">
                 {employee.examples.inputs.map(task => {
@@ -775,8 +869,7 @@ export default function EmployeeDetail() {
                       </div>
                       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs leading-5 text-crew-muted">
-                          Copy this command and run it locally when this
-                          employee has joined your crew.
+                          {t("copyCommandHint")}
                         </p>
                         <Button
                           className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
@@ -785,7 +878,7 @@ export default function EmployeeDetail() {
                           variant="outline"
                         >
                           <Copy className="size-4" />
-                          {copiedTask === task ? "Copied" : "Try"}
+                          {copiedTask === task ? t("copied") : t("try")}
                         </Button>
                       </div>
                     </div>
@@ -795,18 +888,18 @@ export default function EmployeeDetail() {
               <Separator className="bg-white/10" />
               <div>
                 <h3 className="mb-3 text-sm font-medium text-crew-heading">
-                  Expected output
+                  {t("expectedOutput")}
                 </h3>
                 <TextList items={employee.examples.outputs} />
               </div>
             </div>
           </ResumeSection>
 
-          <ResumeSection eyebrow="Onboarding" title="Requirements">
+          <ResumeSection eyebrow={t("onboarding")} title={t("requirements")}>
             <TextList items={requirements} />
           </ResumeSection>
 
-          <ResumeSection eyebrow="Risk" title="Limitations and safety notes">
+          <ResumeSection eyebrow={t("risk")} title={t("limitationsSafety")}>
             <div className="space-y-5">
               <TextList items={employee.limitations} />
               <Separator className="bg-white/10" />
@@ -815,87 +908,90 @@ export default function EmployeeDetail() {
           </ResumeSection>
         </section>
 
-        <ResumeSection className="mt-5" eyebrow="KPI" title="Local KPI record">
+        <ResumeSection
+          className="mt-5"
+          eyebrow={t("kpi")}
+          title={t("localKpiRecord")}
+        >
           <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
             <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
               <h3 className="text-sm font-medium text-crew-heading">
                 {performanceState.loading
-                  ? "Loading local performance..."
-                  : kpiStateLabel(performance)}
+                  ? t("loadingLocalPerformance")
+                  : kpiStateText(performance, t)}
               </h3>
               <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
                 <DetailRow
-                  label="Tasks"
+                  label={t("tasks")}
                   value={
                     performanceState.loading
-                      ? "Loading"
-                      : taskCountLabel(performance)
+                      ? t("loading")
+                      : taskCountText(performance, t)
                   }
                 />
                 <DetailRow
-                  label="Accepted"
+                  label={t("accepted")}
                   value={
                     performanceState.loading
-                      ? "Loading"
-                      : acceptanceLabel(performance)
+                      ? t("loading")
+                      : acceptanceText(performance, t)
                   }
                 />
                 <DetailRow
-                  label="Average cost"
+                  label={t("avgCost")}
                   value={
                     performanceState.loading
-                      ? "Loading"
-                      : averageCostLabel(performance)
+                      ? t("loading")
+                      : averageCostText(performance, t)
                   }
                 />
                 <DetailRow
-                  label="Average runtime"
+                  label={t("averageRuntime")}
                   value={
                     performanceState.loading
-                      ? "Loading"
-                      : formatDuration(kpi?.average_duration_ms)
+                      ? t("loading")
+                      : formatDurationText(kpi?.average_duration_ms, t)
                   }
                 />
                 <DetailRow
-                  label="Evidence coverage"
+                  label={t("evidenceCoverage")}
                   value={
                     performanceState.loading
-                      ? "Loading"
-                      : formatPercentValue(kpi?.evidence_coverage)
+                      ? t("loading")
+                      : formatPercentText(kpi?.evidence_coverage, t)
                   }
                 />
                 <DetailRow
-                  label="Total cost"
+                  label={t("totalCost")}
                   value={
                     performanceState.loading
-                      ? "Loading"
-                      : formatMoney(kpi?.total_cost)
+                      ? t("loading")
+                      : formatMoneyText(kpi?.total_cost, t)
                   }
                 />
               </dl>
             </div>
             <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
               <h3 className="text-sm font-medium text-crew-heading">
-                Reputation and proof pack
+                {t("reputationProofPack")}
               </h3>
               <p className="mt-3 text-sm leading-6 text-crew-body">
                 {performanceState.loading
-                  ? "Loading local proof pack..."
-                  : reputationLabel(performance)}
+                  ? t("loadingLocalProofPack")
+                  : reputationText(performance, t)}
               </p>
               {performanceState.error ? (
                 <p className="mt-3 text-xs leading-5 text-crew-muted">
-                  Local performance endpoint did not provide this employee's
-                  ledger in the current browser session:{" "}
-                  {performanceState.error}
+                  {t("localPerformanceError", {
+                    error: performanceState.error,
+                  })}
                 </p>
               ) : null}
               {performance?.warnings.length ? (
                 <TextList items={performance.warnings} />
               ) : (
                 <p className="mt-3 text-xs leading-5 text-crew-muted">
-                  No warning is shown unless it comes from the local proof-pack
-                  projection.
+                  {t("noWarningProofPack")}
                 </p>
               )}
             </div>
@@ -904,22 +1000,25 @@ export default function EmployeeDetail() {
 
         <ResumeSection
           className="mt-5"
-          eyebrow="Version"
-          title="Lifecycle and changelog"
+          eyebrow={t("version")}
+          title={t("lifecycleChangelog")}
         >
           <div className="grid gap-5 md:grid-cols-[280px_1fr]">
             <dl className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
-              <DetailRow label="Version" value={`v${employee.version}`} />
-              <DetailRow label="Status" value={employee.status} />
+              <DetailRow label={t("version")} value={`v${employee.version}`} />
               <DetailRow
-                label="Created"
-                value={new Date(employee.created_at).toLocaleDateString()}
+                label={t("status")}
+                value={registryStatusLabel(employee.status, t)}
+              />
+              <DetailRow
+                label={t("created")}
+                value={formatEmployeeDate(employee.created_at, formatDate)}
               />
             </dl>
             <div>
               <div className="mb-3 flex items-center gap-2 text-sm font-medium text-crew-heading">
                 <FileText className="size-4 text-crew-copper" />
-                <span>Recent changes</span>
+                <span>{t("recentChanges")}</span>
               </div>
               <TextList items={employee.changelog} />
             </div>
@@ -928,8 +1027,8 @@ export default function EmployeeDetail() {
 
         <ResumeSection
           className="mt-5"
-          eyebrow="Reviews"
-          title="Teammate reviews"
+          eyebrow={t("reviews")}
+          title={t("teammateReviews")}
         >
           <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
             <div>
@@ -939,12 +1038,20 @@ export default function EmployeeDetail() {
                 </div>
                 <span className="text-sm text-crew-body">
                   {reviews.localApiAvailable
-                    ? `${reviews.averageRating.toFixed(1)} verified average from ${
-                        reviews.reviewCount === 0
-                          ? "no accepted-task reviews"
-                          : `${reviews.reviewCount} verified review${reviews.reviewCount === 1 ? "" : "s"}`
-                      }`
-                    : "Local TaskRun reviews are available from a local CrewClaw workspace."}
+                    ? reviews.reviewCount === 0
+                      ? t("verifiedAverageNoReviews", {
+                          average: reviews.averageRating.toFixed(1),
+                        })
+                      : t("verifiedAverageReviews", {
+                          average: reviews.averageRating.toFixed(1),
+                          count: reviews.reviewCount,
+                          reviewLabel: t(
+                            reviews.reviewCount === 1
+                              ? "reviewSingular"
+                              : "reviewPlural"
+                          ),
+                        })
+                    : t("localReviewsUnavailable")}
                 </span>
               </div>
               <div className="mt-5 space-y-3">
@@ -959,14 +1066,16 @@ export default function EmployeeDetail() {
                           {ratingStars(review.rating)}
                         </div>
                         <time className="font-mono text-xs text-crew-muted">
-                          {formatReviewDate(review.created_at)}
+                          {formatReviewDate(review.created_at, formatDate)}
                         </time>
                       </div>
                       <p className="mt-3 text-sm leading-6 text-crew-body">
                         {review.text}
                       </p>
                       <p className="mt-2 font-mono text-xs text-emerald-200">
-                        Verified · accepted TaskRun {review.task_run_id}
+                        {t("verifiedAcceptedTaskRun", {
+                          id: review.task_run_id,
+                        })}
                       </p>
                     </article>
                   ))
@@ -975,8 +1084,7 @@ export default function EmployeeDetail() {
                     <div className="flex gap-3">
                       <MessageSquare className="mt-1 size-4 shrink-0 text-crew-copper" />
                       <p className="text-sm leading-6 text-crew-body">
-                        No verified reviews yet. A review becomes available only
-                        after CrewClaw records an accepted TaskRun receipt.
+                        {t("noVerifiedReviews")}
                       </p>
                     </div>
                   </div>
@@ -985,12 +1093,10 @@ export default function EmployeeDetail() {
               {reviews.legacyNotes.length > 0 ? (
                 <div className="mt-6">
                   <h3 className="text-sm font-medium text-crew-heading">
-                    Unverified local notes
+                    {t("unverifiedLocalNotes")}
                   </h3>
                   <p className="mt-2 text-xs leading-5 text-crew-muted">
-                    These historical browser-only notes are preserved for
-                    context. They do not count toward the verified average or
-                    reputation.
+                    {t("unverifiedLocalNotesDescription")}
                   </p>
                   <div className="mt-3 space-y-3">
                     {reviews.legacyNotes.map(note => (
@@ -1002,7 +1108,7 @@ export default function EmployeeDetail() {
                           {note.text}
                         </p>
                         <p className="mt-2 text-xs text-crew-muted">
-                          Unverified local note · {note.rating}/5
+                          {t("unverifiedLocalNote", { rating: note.rating })}
                         </p>
                       </article>
                     ))}
@@ -1015,13 +1121,13 @@ export default function EmployeeDetail() {
               onSubmit={submitReview}
             >
               <h3 className="text-sm font-medium text-crew-heading">
-                Review an accepted task
+                {t("reviewAcceptedTask")}
               </h3>
               <label
                 className="mt-4 block text-xs font-medium text-crew-muted"
                 htmlFor="review-task-run"
               >
-                Accepted TaskRun receipt
+                {t("acceptedTaskRunReceipt")}
               </label>
               <select
                 className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#17120F] px-3 py-2 text-sm text-crew-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crew-copper"
@@ -1034,7 +1140,7 @@ export default function EmployeeDetail() {
                 value={effectiveTaskRunId}
               >
                 {reviews.reviewableTasks.length === 0 ? (
-                  <option value="">No unreviewed accepted tasks</option>
+                  <option value="">{t("noUnreviewedTasks")}</option>
                 ) : null}
                 {reviews.reviewableTasks.map(task => (
                   <option key={task.task_run_id} value={task.task_run_id}>
@@ -1046,7 +1152,7 @@ export default function EmployeeDetail() {
                 {[1, 2, 3, 4, 5].map(rating => (
                   <Button
                     aria-checked={reviewRating === rating}
-                    aria-label={`${rating} star review`}
+                    aria-label={t("starReviewAria", { rating })}
                     className={cn(
                       "size-10 rounded-[8px] border-white/15",
                       reviewRating >= rating
@@ -1070,12 +1176,12 @@ export default function EmployeeDetail() {
                 ))}
               </div>
               <Textarea
-                aria-label="Verified review"
+                aria-label={t("verifiedReviewAria")}
                 className="mt-4 min-h-28 rounded-[8px] border-white/10 bg-white/[0.04] text-crew-heading placeholder:text-crew-muted"
                 disabled={reviews.reviewableTasks.length === 0}
                 name="review_text"
                 onChange={event => setReviewText(event.target.value)}
-                placeholder="Describe the accepted delivery and where it still needs attention…"
+                placeholder={t("reviewPlaceholder")}
                 value={reviewText}
               />
               {reviewMessage ? (
@@ -1092,7 +1198,7 @@ export default function EmployeeDetail() {
                   reviews.loading || reviews.reviewableTasks.length === 0
                 }
               >
-                Submit review
+                {t("submitReview")}
               </Button>
             </form>
           </div>
@@ -1102,12 +1208,9 @@ export default function EmployeeDetail() {
           <div className="flex gap-3">
             <ShieldCheck className="mt-1 size-5 shrink-0 text-crew-copper" />
             <div>
-              <h2 className="text-base font-semibold">
-                Ready to onboard this AI employee?
-              </h2>
+              <h2 className="text-base font-semibold">{t("readyToOnboard")}</h2>
               <p className="mt-1 text-sm leading-6 text-crew-body">
-                Review tool access and confirmation points before this employee
-                joins your team.
+                {t("readyToOnboardDescription")}
               </p>
             </div>
           </div>
@@ -1125,7 +1228,7 @@ export default function EmployeeDetail() {
               }
               to={hireHandoffUrl(employee, "employee_detail_footer")}
             >
-              Hire
+              {t("hire")}
             </Link>
           </Button>
         </div>

@@ -17,6 +17,8 @@ import { expect, test } from "@playwright/test";
 
 const repoRoot = process.cwd();
 
+test.use({ locale: "en-US" });
+
 function cliExecutable() {
   const filename =
     process.platform === "win32" ? "crewclaw-cli.exe" : "crewclaw-cli";
@@ -218,7 +220,9 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
     .getByRole("button", { name: "Hire on this machine", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: /AI 落地鲸 is on your local roster/i })
+    page.getByRole("heading", {
+      name: /AI Adoption Whale is on your local roster/i,
+    })
   ).toBeVisible();
 
   expect(consoleErrors, httpErrors.join("\n")).toEqual([]);

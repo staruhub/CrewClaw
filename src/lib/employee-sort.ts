@@ -1,12 +1,12 @@
 import type { Employee } from "@/data/employees";
 
-// v0.18 收束3: rating/hire_count were fabricated fields and are gone — every sort key below is a
-// real value from the registry / hire.yaml projection.
+// v0.18 cleanup: rating/hire_count were fabricated fields and are gone. Every
+// sort key below is a real value from the registry / hire.yaml projection.
 export const EMPLOYEE_SORT_OPTIONS = [
-  { value: "recommended", label: "推荐" },
-  { value: "version", label: "版本" },
-  { value: "name", label: "名称" },
-  { value: "updated_at", label: "更新时间" },
+  { value: "recommended", label: "Recommended", labelKey: "sortRecommended" },
+  { value: "version", label: "Version", labelKey: "sortVersion" },
+  { value: "name", label: "Name", labelKey: "sortName" },
+  { value: "updated_at", label: "Updated", labelKey: "sortUpdatedAt" },
 ] as const;
 
 export type EmployeeSort = (typeof EMPLOYEE_SORT_OPTIONS)[number]["value"];

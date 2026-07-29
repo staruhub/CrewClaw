@@ -56,8 +56,30 @@ import { track } from "@/hooks/use-analytics";
 import { useTeam } from "@/hooks/use-team";
 import { HireCliHandoff } from "@/components/HireCliHandoff";
 import { capabilityGrantTokensForHire } from "@/lib/capability-grants";
+import {
+  formatMessage,
+  useI18n,
+  useMessages,
+  type LocalizedCatalog,
+} from "@/i18n";
+import { localizeEmployeeContent } from "@/i18n/employee-content";
+import { hireEn, type HireMessageKey } from "@/i18n/locales/en/hire";
+import { hireZhCN } from "@/i18n/locales/zh-CN/hire";
 
 const HIRE_INTENT_STORAGE_KEY = "crewclaw.hire-intent.v1";
+
+const hireMessages = {
+  en: hireEn,
+  "zh-CN": hireZhCN,
+} as const satisfies LocalizedCatalog;
+
+type HireTranslator = (
+  key: HireMessageKey,
+  values?: Record<string, string | number>
+) => string;
+
+const defaultHireT: HireTranslator = (key, values) =>
+  formatMessage(hireEn[key], values);
 
 type PermissionSummary = {
   permission: string;
@@ -69,7 +91,10 @@ type PermissionSummary = {
   enabledByDefault: boolean;
 };
 
-function summarizePermission(permission: string): PermissionSummary {
+function summarizePermission(
+  permission: string,
+  t: HireTranslator = defaultHireT
+): PermissionSummary {
   const disabled = permission.includes("disabled");
   const humanConfirmation = permission.includes("human_confirmation_required");
   const write = permission.includes(":write");
@@ -79,12 +104,11 @@ function summarizePermission(permission: string): PermissionSummary {
   if (permission.startsWith("public_web")) {
     return {
       permission,
-      label: "Public web research",
-      access: "Public websites and open web search results.",
+      label: t("permissionPublicWebLabel"),
+      access: t("permissionPublicWebAccess"),
       action,
-      confirmation:
-        "No write action. User still reviews final recommendations.",
-      risk: "Public sources can be outdated, incomplete, or misleading.",
+      confirmation: t("permissionPublicWebConfirmation"),
+      risk: t("permissionPublicWebRisk"),
       enabledByDefault: true,
     };
   }
@@ -92,11 +116,11 @@ function summarizePermission(permission: string): PermissionSummary {
   if (permission.startsWith("contacts")) {
     return {
       permission,
-      label: "Contacts",
-      access: "Private contact context only if you enable it later.",
+      label: t("permissionContactsLabel"),
+      access: t("permissionContactsAccess"),
       action,
-      confirmation: "Disabled by default. Enable only when a task needs it.",
-      risk: "Contact records may contain private or sensitive relationship data.",
+      confirmation: t("permissionContactsConfirmation"),
+      risk: t("permissionContactsRisk"),
       enabledByDefault: false,
     };
   }
@@ -104,12 +128,11 @@ function summarizePermission(permission: string): PermissionSummary {
   if (permission.startsWith("crm")) {
     return {
       permission,
-      label: "CRM records",
-      access:
-        "CRM records and fields only after explicit future authorization.",
+      label: t("permissionCrmLabel"),
+      access: t("permissionCrmAccess"),
       action,
-      confirmation: "Disabled for MVP onboarding.",
-      risk: "Incorrect writes could pollute lead records or create follow-up mistakes.",
+      confirmation: t("permissionCrmConfirmation"),
+      risk: t("permissionCrmRisk"),
       enabledByDefault: false,
     };
   }
@@ -117,11 +140,11 @@ function summarizePermission(permission: string): PermissionSummary {
   if (permission.startsWith("outbound_messages")) {
     return {
       permission,
-      label: "Outbound messages",
-      access: "Drafts for emails, direct messages, or outreach copy.",
+      label: t("permissionOutboundLabel"),
+      access: t("permissionOutboundAccess"),
       action,
-      confirmation: "Human confirmation is required before anything is sent.",
-      risk: "Poorly reviewed outreach can damage trust or contact the wrong person.",
+      confirmation: t("permissionOutboundConfirmation"),
+      risk: t("permissionOutboundRisk"),
       enabledByDefault: true,
     };
   }
@@ -129,18 +152,14 @@ function summarizePermission(permission: string): PermissionSummary {
   return {
     permission,
     label: permissionLabel(permission),
-    access: read
-      ? "Requested read access for this task area."
-      : "Requested task access.",
+    access: read ? t("permissionReadAccess") : t("permissionTaskAccess"),
     action,
     confirmation: humanConfirmation
-      ? "Human confirmation is required before the action completes."
+      ? t("permissionHumanConfirmation")
       : disabled
-        ? "Disabled by default. Enable only when needed."
-        : "No extra confirmation beyond hiring this employee.",
-    risk: write
-      ? "Incorrect writes could change user data."
-      : "Incorrect reads or outdated data could affect recommendations.",
+        ? t("permissionDisabledConfirmation")
+        : t("permissionNoExtraConfirmation"),
+    risk: write ? t("permissionWriteRisk") : t("permissionReadRisk"),
     enabledByDefault: !disabled && action !== "Sensitive action",
   };
 }
@@ -157,18 +176,25 @@ const TOOL_RISK_RANK: Record<EmployeeToolCapability["risk_tier"], number> = {
   P4: 4,
 };
 
-const TOOL_OPERATION_COPY: Record<EmployeeToolCapability["operation"], string> =
-  {
-    read: "read access",
-    write: "task-scoped writes",
-    send: "external sends",
-    execute: "bounded execution",
+function operationCopy(
+  operation: EmployeeToolCapability["operation"],
+  t: HireTranslator
+) {
+  const keys: Record<EmployeeToolCapability["operation"], HireMessageKey> = {
+    read: "operationRead",
+    write: "operationWrite",
+    send: "operationSend",
+    execute: "operationExecute",
   };
+  return t(keys[operation]);
+}
 
-const listFormatter = new Intl.ListFormat("en", {
-  style: "long",
-  type: "conjunction",
-});
+function formatList(items: string[], locale = "en") {
+  return new Intl.ListFormat(locale, {
+    style: "long",
+    type: "conjunction",
+  }).format(items);
+}
 
 type PermissionAreaKey =
   "tools" | "files" | "browser" | "network" | "budget" | "approval";
@@ -216,7 +242,8 @@ function addAreaItem(
   areas: Record<PermissionAreaKey, PermissionArea>,
   key: PermissionAreaKey,
   capability: EmployeeToolCapability,
-  selected: boolean
+  selected: boolean,
+  t: HireTranslator
 ) {
   const item = capabilityTitle(capability);
   if (capability.necessity === "disabled") {
@@ -227,60 +254,59 @@ function addAreaItem(
     areas[key].required.push(item);
     return;
   }
-  areas[key].optional.push(`${selected ? "Enabled" : "Off"}: ${item}`);
+  areas[key].optional.push(
+    `${selected ? t("capabilityEnabled") : t("capabilityOff")}: ${item}`
+  );
 }
 
 export function buildPermissionAreas(
   capabilities: EmployeeToolCapability[],
   selectedCapabilityIds: string[],
   planName: string,
-  planPrice: string
+  planPrice: string,
+  t: HireTranslator = defaultHireT
 ): PermissionArea[] {
   const selected = new Set(selectedCapabilityIds);
   const areas: Record<PermissionAreaKey, PermissionArea> = {
     tools: {
       key: "tools",
-      label: "Tools",
+      label: t("areaTools"),
       required: [],
       optional: [],
       unavailable: [],
     },
     files: {
       key: "files",
-      label: "Files and workspace",
+      label: t("areaFiles"),
       required: [],
       optional: [],
       unavailable: [],
     },
     browser: {
       key: "browser",
-      label: "Browser",
+      label: t("areaBrowser"),
       required: [],
       optional: [],
       unavailable: [],
     },
     network: {
       key: "network",
-      label: "Network",
+      label: t("areaNetwork"),
       required: [],
       optional: [],
       unavailable: [],
     },
     budget: {
       key: "budget",
-      label: "Budget",
-      required: [
-        `${planName} package selected (${planPrice}); prototype checkout records intent only.`,
-      ],
+      label: t("areaBudget"),
+      required: [t("budgetPackageSelected", { planName, planPrice })],
       optional: [],
       unavailable: [],
     },
     approval: {
       key: "approval",
-      label: "Human approval",
-      required: [
-        "Activation requires all Doctor checks to pass and a human-accepted bounded trial.",
-      ],
+      label: t("areaApproval"),
+      required: [t("approvalRequired")],
       optional: [],
       unavailable: [],
     },
@@ -291,18 +317,18 @@ export function buildPermissionAreas(
       capability.necessity === "required" ||
       (isToolCapabilitySelectable(capability) &&
         selected.has(capability.capability));
-    addAreaItem(areas, "tools", capability, selectedForHire);
+    addAreaItem(areas, "tools", capability, selectedForHire, t);
 
     if (
       /(^|\.)(files?|repo|document|artifact)(\.|$)/.test(capability.capability)
     ) {
-      addAreaItem(areas, "files", capability, selectedForHire);
+      addAreaItem(areas, "files", capability, selectedForHire, t);
     }
     if (
       capability.capability.includes("browser") ||
       capability.capability.includes("render")
     ) {
-      addAreaItem(areas, "browser", capability, selectedForHire);
+      addAreaItem(areas, "browser", capability, selectedForHire, t);
     }
     if (
       capability.capability.includes("web.") ||
@@ -311,16 +337,18 @@ export function buildPermissionAreas(
       capability.provider_bindings.length > 0 ||
       capability.side_effects.length > 0
     ) {
-      addAreaItem(areas, "network", capability, selectedForHire);
+      addAreaItem(areas, "network", capability, selectedForHire, t);
     }
 
     if (capability.limits) {
       const limits = [
         capability.limits.max_calls_per_task
-          ? `${capability.limits.max_calls_per_task} calls/task`
+          ? t("limitCallsPerTask", {
+              count: capability.limits.max_calls_per_task,
+            })
           : null,
         capability.limits.timeout_ms
-          ? `${capability.limits.timeout_ms} ms timeout`
+          ? t("limitTimeout", { ms: capability.limits.timeout_ms })
           : null,
       ].filter((value): value is string => value !== null);
       areas.budget[
@@ -328,7 +356,10 @@ export function buildPermissionAreas(
       ].push(`${capability.capability}: ${limits.join(", ")}`);
     } else if (selectedForHire && capability.timeout_ms) {
       areas.budget.optional.push(
-        `${capability.capability}: runtime timeout ${capability.timeout_ms} ms`
+        t("runtimeTimeout", {
+          capability: capability.capability,
+          ms: capability.timeout_ms,
+        })
       );
     }
 
@@ -337,7 +368,7 @@ export function buildPermissionAreas(
       capability.approval === "always" ||
       capability.approval === "when_needed"
     ) {
-      addAreaItem(areas, "approval", capability, selectedForHire);
+      addAreaItem(areas, "approval", capability, selectedForHire, t);
     }
   }
 
@@ -364,11 +395,13 @@ export function buildDoctorChecks({
   selectedCapabilityIds,
   doctorStarted,
   planName,
+  t = defaultHireT,
 }: {
   employee: NonNullable<ReturnType<typeof getEmployee>>;
   selectedCapabilityIds: string[];
   doctorStarted: boolean;
   planName: string;
+  t?: HireTranslator;
 }): DoctorCheck[] {
   const selected = selectedCapabilities(
     employee.tool_capabilities,
@@ -408,97 +441,132 @@ export function buildDoctorChecks({
   const checks: DoctorCheck[] = [
     {
       id: "contract",
-      name: "Contract manifest",
+      name: t("doctorContractName"),
       status: checkStatus(doctorStarted, packageValid),
       detail: packageValid
-        ? `${employee.name} has a registry-backed hire contract and version ${employee.version}.`
-        : "The package is marked invalid by the registry projection.",
+        ? t("doctorContractPass", {
+            employeeName: employee.name,
+            version: employee.version,
+          })
+        : t("doctorContractFail"),
       action: packageValid
-        ? "No action needed."
-        : "Return to the marketplace and choose a validated employee package.",
+        ? t("doctorContractPassAction")
+        : t("doctorContractFailAction"),
     },
     {
       id: "runtime",
-      name: "Runtime compatibility",
+      name: t("doctorRuntimeName"),
       status: checkStatus(doctorStarted, runtimeKnown),
       detail: runtimeKnown
-        ? `${employee.lifecycle.trial_period} trial is available before activation.`
-        : "This employee is not currently hireable in the registry projection.",
+        ? t("doctorRuntimePass", {
+            trialPeriod: employee.lifecycle.trial_period,
+          })
+        : t("doctorRuntimeFail"),
       action: runtimeKnown
-        ? "No action needed."
-        : "Use CLI validation or update the package metadata before hiring.",
+        ? t("doctorContractPassAction")
+        : t("doctorRuntimeFailAction"),
     },
     {
       id: "tools",
-      name: "Tool availability",
+      name: t("doctorToolsName"),
       status: checkStatus(doctorStarted, blockedSelected.length === 0),
       detail:
         blockedSelected.length === 0
-          ? `${selected.length} selected capabilities avoid policy-disabled or unconfigured adapter paths.`
-          : `${blockedSelected.length} selected capability ${blockedSelected.length === 1 ? "needs" : "need"} configuration: ${blockedSelected.map(capability => capability.capability).join(", ")}.`,
+          ? t("doctorToolsPass", { count: selected.length })
+          : t("doctorToolsFail", {
+              count: blockedSelected.length,
+              capabilityWord:
+                blockedSelected.length === 1
+                  ? t("capabilityWordSingular")
+                  : t("capabilityWordPlural"),
+              needWord:
+                blockedSelected.length === 1
+                  ? t("needsSingular")
+                  : t("needsPlural"),
+              capabilities: blockedSelected
+                .map(capability => capability.capability)
+                .join(", "),
+            }),
       action:
         blockedSelected.length === 0
-          ? "No action needed."
-          : "Turn off optional adapter capabilities here, or configure the provider before activating.",
+          ? t("doctorContractPassAction")
+          : t("doctorToolsFailAction"),
     },
     {
       id: "files",
-      name: "File and workspace scope",
+      name: t("doctorFilesName"),
       status: checkStatus(doctorStarted, missingRequiredScope.length === 0),
       detail:
         missingRequiredScope.length === 0
-          ? "Required workspace capabilities are read-only or declare a task scope."
-          : `${missingRequiredScope.map(capability => capability.capability).join(", ")} lacks an explicit write scope.`,
+          ? t("doctorFilesPass")
+          : t("doctorFilesFail", {
+              capabilities: missingRequiredScope
+                .map(capability => capability.capability)
+                .join(", "),
+            }),
       action:
         missingRequiredScope.length === 0
-          ? "No action needed."
-          : "Add a scope to the employee spec before enabling write access.",
+          ? t("doctorContractPassAction")
+          : t("doctorFilesFailAction"),
     },
     {
       id: "network",
-      name: "Browser and network preflight",
+      name: t("doctorNetworkName"),
       status: checkStatus(doctorStarted, networkSelected.length > 0),
       detail:
         networkSelected.length > 0
-          ? `${networkSelected.length} selected network/browser capability ${networkSelected.length === 1 ? "is" : "are"} declared for the trial.`
-          : "No selected capability can gather or verify external evidence.",
+          ? t("doctorNetworkPass", {
+              count: networkSelected.length,
+              capabilityWord:
+                networkSelected.length === 1
+                  ? t("capabilityWordSingular")
+                  : t("capabilityWordPlural"),
+              beWord:
+                networkSelected.length === 1 ? t("beSingular") : t("bePlural"),
+            })
+          : t("doctorNetworkFail"),
       action:
         networkSelected.length > 0
-          ? "No action needed."
-          : "Enable a verified research capability or choose a non-research trial.",
+          ? t("doctorContractPassAction")
+          : t("doctorNetworkFailAction"),
     },
     {
       id: "budget",
-      name: "Budget and duration ceiling",
+      name: t("doctorBudgetName"),
       status: checkStatus(doctorStarted, budgetBounded),
-      detail: `${planName} is selected; trial duration is capped at ${employee.lifecycle.trial_period}. Browser checkout is a labeled demo and charges nothing.`,
+      detail: t("doctorBudgetDetail", {
+        planName,
+        trialPeriod: employee.lifecycle.trial_period,
+      }),
       action: budgetBounded
-        ? "No action needed."
-        : "Select a package before running the Doctor.",
+        ? t("doctorContractPassAction")
+        : t("doctorBudgetFailAction"),
     },
     {
       id: "approval",
-      name: "Human approval wiring",
+      name: t("doctorApprovalName"),
       status: checkStatus(doctorStarted, riskyWithoutApproval.length === 0),
       detail:
         riskyWithoutApproval.length === 0
-          ? "Risky selected capabilities are read-only, previewable, or routed through human authorization."
-          : `${riskyWithoutApproval.map(capability => capability.capability).join(", ")} needs an approval marker before activation.`,
+          ? t("doctorApprovalPass")
+          : t("doctorApprovalFail", {
+              capabilities: riskyWithoutApproval
+                .map(capability => capability.capability)
+                .join(", "),
+            }),
       action:
         riskyWithoutApproval.length === 0
-          ? "No action needed."
-          : "Change the employee spec to require approval for high-risk writes.",
+          ? t("doctorContractPassAction")
+          : t("doctorApprovalFailAction"),
     },
     {
       id: "evidence",
-      name: "Evidence and artifact capture",
+      name: t("doctorEvidenceName"),
       status: checkStatus(doctorStarted, hasEvidence),
-      detail: hasEvidence
-        ? "The trial can produce inspectable evidence and at least one deliverable artifact summary."
-        : "No evidence or artifact path is declared for this employee.",
+      detail: hasEvidence ? t("doctorEvidencePass") : t("doctorEvidenceFail"),
       action: hasEvidence
-        ? "No action needed."
-        : "Require evidence.create, artifact.report, or documented example outputs.",
+        ? t("doctorContractPassAction")
+        : t("doctorEvidenceFailAction"),
     },
   ];
 
@@ -506,10 +574,7 @@ export function buildDoctorChecks({
     return checks.map((check, index) => ({
       ...check,
       status: index === 0 ? "progress" : "pending",
-      detail:
-        index === 0
-          ? "Ready to validate this browser-side projection against the declared package facts."
-          : check.detail,
+      detail: index === 0 ? t("doctorReadyDetail") : check.detail,
     }));
   }
 
@@ -526,12 +591,14 @@ export function buildTrialSummary({
   planName,
   planPrice,
   accepted,
+  t = defaultHireT,
 }: {
   employee: NonNullable<ReturnType<typeof getEmployee>>;
   selectedCapabilityIds: string[];
   planName: string;
   planPrice: string;
   accepted: boolean;
+  t?: HireTranslator;
 }): TrialSummary {
   const selected = selectedCapabilities(
     employee.tool_capabilities,
@@ -551,30 +618,34 @@ export function buildTrialSummary({
     task: employee.demo_tasks[0] ?? employee.first_task,
     evidence:
       evidenceCapabilities.length > 0
-        ? evidenceCapabilities.map(
-            capability => `${capability.capability}: declared trial evidence`
+        ? evidenceCapabilities.map(capability =>
+            t("trialEvidenceDeclared", {
+              capability: capability.capability,
+            })
           )
-        : [
-            "Demo evidence summary: no live runtime event is available in this browser.",
-          ],
+        : [t("trialEvidenceDemo")],
     artifacts:
       artifactCapabilities.length > 0
-        ? artifactCapabilities.map(
-            capability => `${capability.capability}: bounded trial artifact`
+        ? artifactCapabilities.map(capability =>
+            t("trialArtifactDeclared", {
+              capability: capability.capability,
+            })
           )
         : employee.examples.outputs.slice(0, 2),
-    cost: `${planName} ${planPrice}; trial preview records $0 charged in this prototype.`,
-    duration: `Bounded by ${employee.lifecycle.trial_period}; no long-running OpenWork task starts from this page.`,
-    approval: accepted
-      ? "Accepted by human reviewer in this browser session."
-      : "Waiting for human review before activation.",
+    cost: t("trialCost", { planName, planPrice }),
+    duration: t("trialDuration", {
+      trialPeriod: employee.lifecycle.trial_period,
+    }),
+    approval: accepted ? t("trialApprovalAccepted") : t("trialApprovalWaiting"),
   };
 }
 
 function summarizeToolContract(
   capabilities: EmployeeToolCapability[],
   selectedCapabilityIds: string[],
-  roleBoundary?: string
+  roleBoundary?: string,
+  t: HireTranslator = defaultHireT,
+  locale = "en"
 ) {
   const granted = new Set(
     toolCapabilitiesForHire(capabilities, selectedCapabilityIds)
@@ -600,7 +671,7 @@ function summarizeToolContract(
   ).length;
   const operations = [
     ...new Set(selected.map(capability => capability.operation)),
-  ].map(operation => TOOL_OPERATION_COPY[operation]);
+  ].map(operation => operationCopy(operation, t));
   const authorizationCount = selected.filter(
     capability => capability.permission === "requires_authorization"
   ).length;
@@ -623,21 +694,97 @@ function summarizeToolContract(
 
   const offCopy = [
     optionalOffCount > 0
-      ? `${optionalOffCount} optional ${optionalOffCount === 1 ? "capability remains" : "capabilities remain"} off`
+      ? t(
+          optionalOffCount === 1
+            ? "optionalCapabilityRemains"
+            : "optionalCapabilitiesRemain",
+          { count: optionalOffCount }
+        )
       : null,
     conditionalOffCount > 0
-      ? `${conditionalOffCount} conditional ${conditionalOffCount === 1 ? "capability is" : "capabilities are"} off`
+      ? t(
+          conditionalOffCount === 1
+            ? "conditionalCapabilityOff"
+            : "conditionalCapabilitiesOff",
+          { count: conditionalOffCount }
+        )
       : null,
   ].filter((value): value is string => value !== null);
+  const scopeSentence =
+    scopedCount > 0
+      ? t(scopedCount === 1 ? "capabilityHasScope" : "capabilitiesHaveScope", {
+          count: scopedCount,
+        })
+      : t("accessWithinScope");
+  const offSentence =
+    offCopy.length > 0 ? ` ${formatList(offCopy, locale)}.` : "";
+  const authorizationSentence =
+    authorizationCount > 0
+      ? t(
+          authorizationCount === 1
+            ? "authorizationCapabilityPauses"
+            : "authorizationCapabilitiesPause",
+          { count: authorizationCount }
+        )
+      : t("noCallTimeAuthorization");
+  const adapterSentence =
+    adapterCount > 0
+      ? t(
+          adapterCount === 1
+            ? "adapterCapabilityDepends"
+            : "adapterCapabilitiesDepend",
+          { count: adapterCount }
+        )
+      : t("noProviderAdapter");
+  const sideEffect =
+    sideEffects.length > 0 ? sideEffects[0] : t("noExternalSideEffects");
+  const extraSideEffects =
+    sideEffects.length > 1
+      ? ` ${t(
+          sideEffects.length === 2
+            ? "additionalSideEffect"
+            : "additionalSideEffects",
+          { count: sideEffects.length - 1 }
+        )}`
+      : "";
+  const disabledSentence = t(
+    disabledCount === 1
+      ? "policyDisabledCapabilityRemains"
+      : "policyDisabledCapabilitiesRemain",
+    { count: disabledCount }
+  );
+  const roleBoundarySentence = roleBoundary
+    ? ` ${t("roleBoundary", { roleBoundary })}`
+    : "";
 
   return {
-    access: `Current selection enables ${selected.length} declared ${selected.length === 1 ? "capability" : "capabilities"} (${requiredCount} required). ${scopedCount > 0 ? `${scopedCount} ${scopedCount === 1 ? "capability has" : "capabilities have"} an explicit data scope.` : "Access stays within each capability's declared task scope."}${offCopy.length > 0 ? ` ${listFormatter.format(offCopy)}.` : ""}`,
-    actions: `The selected contract permits ${listFormatter.format(operations)}. ${authorizationCount > 0 ? `${authorizationCount} ${authorizationCount === 1 ? "capability pauses" : "capabilities pause"} for human authorization.` : "No selected capability requires call-time human authorization."} ${adapterCount > 0 ? `${adapterCount} ${adapterCount === 1 ? "capability depends" : "capabilities depend"} on a configured provider adapter.` : "No selected capability depends on a provider adapter."}`,
-    risk: `Highest enabled risk tier: ${highestRisk}. ${sideEffects.length > 0 ? sideEffects[0] : "Selected capabilities declare no external side effects."}${sideEffects.length > 1 ? ` ${sideEffects.length - 1} additional declared ${sideEffects.length === 2 ? "side effect is" : "side effects are"} detailed below.` : ""} ${disabledCount} policy-disabled ${disabledCount === 1 ? "capability remains" : "capabilities remain"} unavailable.${roleBoundary ? ` Role boundary: ${roleBoundary}` : ""}`,
+    access: t("overviewAccess", {
+      selectedCount: selected.length,
+      capabilityWord:
+        selected.length === 1
+          ? t("capabilityWordSingular")
+          : t("capabilityWordPlural"),
+      requiredCount,
+      scopeSentence,
+      offSentence,
+    }),
+    actions: t("overviewActions", {
+      operations: formatList(operations, locale),
+      authorizationSentence,
+      adapterSentence,
+    }),
+    risk: t("overviewRisk", {
+      highestRisk,
+      sideEffect,
+      extraSideEffects,
+      disabledSentence,
+      roleBoundarySentence,
+    }),
   };
 }
 
 function NotFound() {
+  const t = useMessages(hireMessages);
   return (
     <main className="min-h-screen bg-crew-bg px-4 py-10 text-crew-heading sm:px-6">
       <section className="mx-auto max-w-3xl">
@@ -645,21 +792,27 @@ function NotFound() {
           className="border-white/10 bg-white/[0.04] text-crew-muted"
           variant="outline"
         >
-          Onboarding
+          {t("notFoundBadge")}
         </Badge>
-        <h1 className="mt-5 text-3xl font-light">Employee not found</h1>
+        <h1 className="mt-5 text-3xl font-light">{t("notFoundTitle")}</h1>
         <p className="mt-4 text-sm leading-6 text-crew-body">
-          This AI employee is not available in the marketplace.
+          {t("notFoundBody")}
         </p>
         <Button asChild className="mt-6 rounded-[8px]">
-          <Link to="/marketplace">Back to marketplace</Link>
+          <Link to="/marketplace">{t("backToMarketplace")}</Link>
         </Button>
       </section>
     </main>
   );
 }
 
-function LegacyPermissionContext({ summary }: { summary: PermissionSummary }) {
+function LegacyPermissionContext({
+  summary,
+  t,
+}: {
+  summary: PermissionSummary;
+  t: HireTranslator;
+}) {
   return (
     <article className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -670,15 +823,14 @@ function LegacyPermissionContext({ summary }: { summary: PermissionSummary }) {
           className="border-white/10 bg-white/[0.04] text-crew-muted"
           variant="outline"
         >
-          Legacy context
+          {t("legacyContext")}
         </Badge>
       </div>
       <p className="mt-3 text-sm leading-6 text-crew-body">
         {summary.label}: {summary.access}
       </p>
       <p className="mt-2 text-xs leading-5 text-crew-muted">
-        Declared by legacy package metadata for context only. It cannot grant a
-        runtime capability and cannot be changed here.
+        {t("legacyContextDetail")}
       </p>
     </article>
   );
@@ -695,25 +847,25 @@ const AREA_ICONS: Record<PermissionAreaKey, LucideIcon> = {
 
 const DOCTOR_STATUS_COPY: Record<
   DoctorStatus,
-  { label: string; className: string; Icon: LucideIcon }
+  { labelKey: HireMessageKey; className: string; Icon: LucideIcon }
 > = {
   pending: {
-    label: "Waiting",
+    labelKey: "statusWaiting",
     className: "border-white/10 bg-white/[0.025] text-crew-muted",
     Icon: Clock3,
   },
   progress: {
-    label: "Progress",
+    labelKey: "statusProgress",
     className: "border-crew-copper/40 bg-crew-copper/12 text-crew-copper",
     Icon: Hourglass,
   },
   pass: {
-    label: "Pass",
+    labelKey: "statusPass",
     className: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
     Icon: CheckCircle2,
   },
   fail: {
-    label: "Action needed",
+    labelKey: "statusActionNeeded",
     className: "border-red-400/30 bg-red-400/10 text-red-200",
     Icon: XCircle,
   },
@@ -723,17 +875,22 @@ function ContractSection({
   employee,
   planName,
   planPrice,
+  t,
 }: {
   employee: NonNullable<ReturnType<typeof getEmployee>>;
   planName: string;
   planPrice: string;
+  t: HireTranslator;
 }) {
   const expectations = [
-    `Role: ${employee.role}`,
-    `Runtime package: ${employee.employee_id}@${employee.version}`,
-    `Expected cost: ${planName} ${planPrice}; no real payment in this prototype.`,
-    `Trial before activation: ${employee.lifecycle.trial_period}`,
-    `Performance proof: ${employeeEvidenceText(employee)}`,
+    t("expectationRole", { role: employee.role }),
+    t("expectationRuntimePackage", {
+      employeeId: employee.employee_id,
+      version: employee.version,
+    }),
+    t("expectationCost", { planName, planPrice }),
+    t("expectationTrial", { trialPeriod: employee.lifecycle.trial_period }),
+    t("expectationProof", { proof: employeeEvidenceText(employee, t) }),
   ];
   return (
     <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
@@ -741,24 +898,24 @@ function ContractSection({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle className="text-base font-semibold">
-              Hiring contract
+              {t("contractTitle")}
             </CardTitle>
             <p className="mt-2 text-sm leading-6 text-crew-body">
-              Confirm the job boundary before granting any runtime status.
+              {t("contractBody")}
             </p>
           </div>
           <Badge
             className="border-white/10 bg-white/[0.04] text-crew-muted"
             variant="outline"
           >
-            Contract stage
+            {t("contractStage")}
           </Badge>
         </div>
       </CardHeader>
       <CardContent className="grid gap-5 lg:grid-cols-[1fr_1fr]">
         <div>
           <h2 className="text-sm font-semibold text-crew-heading">
-            Deliverables
+            {t("deliverables")}
           </h2>
           <ul className="mt-3 space-y-2 text-sm leading-6 text-crew-body">
             {employee.examples.outputs.slice(0, 4).map(item => (
@@ -771,7 +928,7 @@ function ContractSection({
         </div>
         <div>
           <h2 className="text-sm font-semibold text-crew-heading">
-            Expectations
+            {t("expectations")}
           </h2>
           <ul className="mt-3 space-y-2 text-sm leading-6 text-crew-body">
             {expectations.map(item => (
@@ -788,18 +945,28 @@ function ContractSection({
 }
 
 function employeeEvidenceText(
-  employee: NonNullable<ReturnType<typeof getEmployee>>
+  employee: NonNullable<ReturnType<typeof getEmployee>>,
+  t: HireTranslator = defaultHireT
 ) {
   if (employee.certified_evaluation?.mock === false) {
-    return `${employee.certification} certified evaluation from ${employee.certified_evaluation.source}`;
+    return t("evidenceCertified", {
+      certification: employee.certification,
+      source: employee.certified_evaluation.source,
+    });
   }
   if (employee.evidence_state.package_status === "validated") {
-    return "Package validation is real; certification score is not promoted as live lab proof.";
+    return t("evidenceValidated");
   }
-  return "Registry evidence is incomplete; treat marketplace claims as draft.";
+  return t("evidenceIncomplete");
 }
 
-function PermissionAreaCard({ area }: { area: PermissionArea }) {
+function PermissionAreaCard({
+  area,
+  t,
+}: {
+  area: PermissionArea;
+  t: HireTranslator;
+}) {
   const Icon = AREA_ICONS[area.key];
   return (
     <article className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
@@ -812,12 +979,12 @@ function PermissionAreaCard({ area }: { area: PermissionArea }) {
       <div className="mt-4 grid gap-4 text-xs leading-5 text-crew-body sm:grid-cols-2">
         <div>
           <p className="font-mono uppercase tracking-[0.16em] text-crew-muted">
-            Required
+            {t("required")}
           </p>
           <ul className="mt-2 space-y-2">
             {(area.required.length > 0
               ? area.required
-              : ["No required access in this area."]
+              : [t("noRequiredAccess")]
             ).map(item => (
               <li className="break-words" key={`required:${item}`}>
                 {item}
@@ -827,12 +994,12 @@ function PermissionAreaCard({ area }: { area: PermissionArea }) {
         </div>
         <div>
           <p className="font-mono uppercase tracking-[0.16em] text-crew-muted">
-            Optional
+            {t("optional")}
           </p>
           <ul className="mt-2 space-y-2">
             {(area.optional.length > 0
               ? area.optional
-              : ["No optional access in this area."]
+              : [t("noOptionalAccess")]
             ).map(item => (
               <li className="break-words" key={`optional:${item}`}>
                 {item}
@@ -844,7 +1011,7 @@ function PermissionAreaCard({ area }: { area: PermissionArea }) {
       {area.unavailable.length > 0 ? (
         <div className="mt-4 rounded-[8px] border border-white/10 bg-black/10 p-3 text-xs leading-5 text-crew-muted">
           <p className="font-mono uppercase tracking-[0.16em]">
-            Policy disabled
+            {t("policyDisabled")}
           </p>
           <ul className="mt-2 space-y-1">
             {area.unavailable.map(item => (
@@ -864,11 +1031,13 @@ function DoctorSection({
   doctorStarted,
   doctorSuccess,
   onRun,
+  t,
 }: {
   checks: DoctorCheck[];
   doctorStarted: boolean;
   doctorSuccess: boolean;
   onRun: () => void;
+  t: HireTranslator;
 }) {
   return (
     <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
@@ -876,12 +1045,10 @@ function DoctorSection({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <CardTitle className="text-base font-semibold">
-              Doctor checks
+              {t("doctorTitle")}
             </CardTitle>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-crew-body">
-              Browser Doctor is a labeled readiness projection from package
-              metadata. The CLI/runtime Doctor remains the source for live
-              credentials, provider health, and workspace execution.
+              {t("doctorBody")}
             </p>
           </div>
           <Button
@@ -890,7 +1057,7 @@ function DoctorSection({
             type="button"
           >
             <Play className="size-4" />
-            {doctorStarted ? "Re-run Doctor" : "Run Doctor"}
+            {doctorStarted ? t("rerunDoctor") : t("runDoctor")}
           </Button>
         </div>
       </CardHeader>
@@ -900,7 +1067,7 @@ function DoctorSection({
             const copy = DOCTOR_STATUS_COPY[status];
             return (
               <Badge className={copy.className} key={status} variant="outline">
-                {copy.label}
+                {t(copy.labelKey)}
               </Badge>
             );
           })}
@@ -923,7 +1090,7 @@ function DoctorSection({
                     {check.name}
                   </h3>
                   <Badge className={copy.className} variant="outline">
-                    {copy.label}
+                    {t(copy.labelKey)}
                   </Badge>
                 </div>
                 <p className="mt-3 text-sm leading-6 text-crew-body">
@@ -956,14 +1123,10 @@ function DoctorSection({
               <XCircle className="size-4 text-red-200" />
             )}
             <AlertTitle>
-              {doctorSuccess
-                ? "Doctor passed for this selected contract."
-                : "Doctor found activation blockers."}
+              {doctorSuccess ? t("doctorPassedTitle") : t("doctorFailedTitle")}
             </AlertTitle>
             <AlertDescription className="text-crew-body">
-              {doctorSuccess
-                ? "You can run the bounded trial next."
-                : "Resolve the actionable failures above before trial acceptance can unlock activation."}
+              {doctorSuccess ? t("doctorPassedBody") : t("doctorFailedBody")}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -979,6 +1142,7 @@ function TrialSection({
   trialAccepted,
   onRunTrial,
   onAcceptTrial,
+  t,
 }: {
   summary: TrialSummary;
   doctorSuccess: boolean;
@@ -986,6 +1150,7 @@ function TrialSection({
   trialAccepted: boolean;
   onRunTrial: () => void;
   onAcceptTrial: () => void;
+  t: HireTranslator;
 }) {
   return (
     <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
@@ -993,12 +1158,10 @@ function TrialSection({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <CardTitle className="text-base font-semibold">
-              Bounded trial summary
+              {t("trialTitle")}
             </CardTitle>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-crew-body">
-              This page does not start a live OpenWork task. It records a
-              representative trial review from declared package facts and keeps
-              activation locked until a human accepts it.
+              {t("trialBody")}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1008,7 +1171,7 @@ function TrialSection({
               onClick={onRunTrial}
               type="button"
             >
-              {trialStarted ? "Trial summarized" : "Run bounded trial"}
+              {trialStarted ? t("trialSummarized") : t("runBoundedTrial")}
             </Button>
             <Button
               className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
@@ -1017,7 +1180,7 @@ function TrialSection({
               type="button"
               variant="outline"
             >
-              {trialAccepted ? "Trial accepted" : "Accept trial"}
+              {trialAccepted ? t("trialAccepted") : t("acceptTrial")}
             </Button>
           </div>
         </div>
@@ -1025,14 +1188,16 @@ function TrialSection({
       <CardContent>
         <div className="grid gap-4 lg:grid-cols-2">
           <article className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
-            <h3 className="text-sm font-semibold text-crew-heading">Task</h3>
+            <h3 className="text-sm font-semibold text-crew-heading">
+              {t("task")}
+            </h3>
             <p className="mt-2 text-sm leading-6 text-crew-body">
               {summary.task}
             </p>
           </article>
           <article className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
             <h3 className="text-sm font-semibold text-crew-heading">
-              Cost and duration
+              {t("costAndDuration")}
             </h3>
             <p className="mt-2 text-sm leading-6 text-crew-body">
               {summary.cost}
@@ -1043,7 +1208,7 @@ function TrialSection({
           </article>
           <article className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
             <h3 className="text-sm font-semibold text-crew-heading">
-              Evidence
+              {t("evidence")}
             </h3>
             <ul className="mt-2 space-y-2 text-sm leading-6 text-crew-body">
               {summary.evidence.map(item => (
@@ -1055,7 +1220,7 @@ function TrialSection({
           </article>
           <article className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
             <h3 className="text-sm font-semibold text-crew-heading">
-              Artifacts and approval
+              {t("artifactsAndApproval")}
             </h3>
             <ul className="mt-2 space-y-2 text-sm leading-6 text-crew-body">
               {summary.artifacts.map(item => (
@@ -1080,13 +1245,21 @@ function TrialSection({
 }
 
 export default function HireConfirm() {
+  const t = useMessages(hireMessages);
+  const { locale } = useI18n();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
-  const employee = id ? getEmployee(id) : undefined;
+  const rawEmployee = id ? getEmployee(id) : undefined;
+  const employee = rawEmployee
+    ? localizeEmployeeContent(rawEmployee, locale)
+    : undefined;
   const team = useTeam();
   const permissionSummaries = useMemo(
-    () => employee?.permissions.map(summarizePermission) ?? [],
-    [employee]
+    () =>
+      employee?.permissions.map(permission =>
+        summarizePermission(permission, t)
+      ) ?? [],
+    [employee, t]
   );
   const defaultToolCapabilities = useMemo(
     () =>
@@ -1111,8 +1284,9 @@ export default function HireConfirm() {
   >("idle");
   const [localHireMessage, setLocalHireMessage] = useState<string | null>(null);
 
-  // 换员工时重置整套雇佣流程状态。用 React 官方的"渲染期对比上一个 key 调整 state"模式替代
-  // setState-in-effect（后者多渲染一帧旧员工的状态且触发级联渲染警告）。
+  // Reset the hire flow when the employee changes. This uses React's render-time
+  // previous-key comparison pattern instead of setState-in-effect, which would
+  // render one stale frame and trigger cascading render warnings.
   const [prevEmployeeId, setPrevEmployeeId] = useState(employee?.employee_id);
   if (employee?.employee_id !== prevEmployeeId) {
     setPrevEmployeeId(employee?.employee_id);
@@ -1152,32 +1326,57 @@ export default function HireConfirm() {
       .map(item => item.trim())
       .filter(Boolean),
   };
-  const selectedCheckoutPlan =
-    CHECKOUT_PLANS.find(plan => plan.id === selectedPlan) ?? CHECKOUT_PLANS[0];
+  const localizedCheckoutPlans = CHECKOUT_PLANS.map(plan => ({
+    ...plan,
+    name: plan.id === "pro" ? t("planProName") : t("planFreeName"),
+    cadence: plan.id === "pro" ? t("planProCadence") : t("planFreeCadence"),
+    description:
+      plan.id === "pro" ? t("planProDescription") : t("planFreeDescription"),
+    bullets:
+      plan.id === "pro"
+        ? [
+            t("planProBulletMock"),
+            t("planProBulletNoCard"),
+            t("planProBulletSameLocal"),
+          ]
+        : [
+            t("planFreeBulletNoPayment"),
+            t("planFreeBulletLocalRecord"),
+            t("planFreeBulletManualReview"),
+          ],
+  }));
+  const localizedCheckoutPlan =
+    localizedCheckoutPlans.find(plan => plan.id === selectedPlan) ??
+    localizedCheckoutPlans[0];
   const toolContractOverview = summarizeToolContract(
     employee.tool_capabilities,
     toolCapabilities,
-    employee.safety_notes[0] ?? employee.limitations[0]
+    employee.safety_notes[0] ?? employee.limitations[0],
+    t,
+    locale
   );
   const permissionAreas = buildPermissionAreas(
     employee.tool_capabilities,
     toolCapabilities,
-    selectedCheckoutPlan.name,
-    selectedCheckoutPlan.price
+    localizedCheckoutPlan.name,
+    localizedCheckoutPlan.price,
+    t
   );
   const doctorChecks = buildDoctorChecks({
     employee,
     selectedCapabilityIds: toolCapabilities,
     doctorStarted,
-    planName: selectedCheckoutPlan.name,
+    planName: localizedCheckoutPlan.name,
+    t,
   });
   const doctorSuccess = doctorPassed(doctorChecks);
   const trialSummary = buildTrialSummary({
     employee,
     selectedCapabilityIds: toolCapabilities,
-    planName: selectedCheckoutPlan.name,
-    planPrice: selectedCheckoutPlan.price,
+    planName: localizedCheckoutPlan.name,
+    planPrice: localizedCheckoutPlan.price,
     accepted: trialAccepted,
+    t,
   });
   const activationReady =
     mockCheckoutConfirmed && doctorSuccess && trialStarted && trialAccepted;
@@ -1218,27 +1417,28 @@ export default function HireConfirm() {
                 : "border-crew-copper/40 bg-crew-copper/12 text-crew-copper"
             }
           >
-            {localHired ? "Hired on this machine" : "Local hire options ready"}
+            {localHired ? t("hiredBadge") : t("readyBadge")}
           </Badge>
           <h1 className="mt-5 text-4xl font-light leading-tight md:text-5xl">
             {localHired
-              ? `${employee.name} is on your local roster.`
-              : "Finish hiring on this machine."}
+              ? t("hiredTitle", { employeeName: employee.name })
+              : t("readyTitle")}
           </h1>
           <p className="mt-4 text-base leading-7 text-crew-body">
             {localHired
-              ? "This browser wrote the durable local roster through the local CrewClaw API. You can still use the CLI commands below on another machine."
-              : `This browser saved your ${employee.name} selection and the ${selectedCheckoutPlan.name} package. On this machine you can hire through the local API, or copy a CLI command for another machine.`}
+              ? t("hiredBody")
+              : t("readyBody", {
+                  employeeName: employee.name,
+                  planName: localizedCheckoutPlan.name,
+                })}
           </p>
           {!localHired && (
             <div className="mt-6 rounded-[8px] border border-white/10 bg-white/[0.03] p-5">
               <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#ec9552]">
-                Option 0 / this machine
+                {t("optionThisMachine")}
               </p>
               <p className="mt-2 text-sm leading-6 text-crew-body">
-                When the local CrewClaw site is running against this workspace,
-                hire writes <code>.crewclaw/team.json</code> the same way fire
-                does — no clipboard step required.
+                {t("thisMachineBody")}
               </p>
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <Button
@@ -1271,8 +1471,8 @@ export default function HireConfirm() {
                   }}
                 >
                   {localHireState === "loading"
-                    ? "Hiring on this machine…"
-                    : "Hire on this machine"}
+                    ? t("hiringOnThisMachine")
+                    : t("hireOnThisMachine")}
                 </Button>
                 {localHireMessage && (
                   <p
@@ -1306,7 +1506,7 @@ export default function HireConfirm() {
               <Link
                 to={localHired ? "/team" : `/employee/${employee.employee_id}`}
               >
-                {localHired ? "Open team" : "Back to resume"}
+                {localHired ? t("openTeam") : t("backToResume")}
               </Link>
             </Button>
             <Button
@@ -1314,7 +1514,7 @@ export default function HireConfirm() {
               className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
               variant="outline"
             >
-              <Link to="/marketplace">Keep browsing</Link>
+              <Link to="/marketplace">{t("keepBrowsing")}</Link>
             </Button>
           </div>
         </section>
@@ -1332,47 +1532,37 @@ export default function HireConfirm() {
         >
           <Link to={`/employee/${employee.employee_id}`}>
             <ArrowLeft className="size-4" />
-            Back to resume
+            {t("backToResume")}
           </Link>
         </Button>
 
         <section className="mt-8 grid gap-8 lg:grid-cols-[1fr_320px]">
           <div>
             <Badge className="border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
-              Hire Confirmation
+              {t("hireConfirmation")}
             </Badge>
             <h1 className="mt-5 text-4xl font-light leading-tight md:text-5xl">
-              Review capabilities before hiring {employee.name}
+              {t("reviewTitle", { employeeName: employee.name })}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              This employee can join your durable local roster after you choose
-              a package and authorize the declared capabilities. When the local
-              CrewClaw API is available the site can write that roster on this
-              machine; otherwise the CLI handoff performs the same validation.
-              No real payment is processed in this prototype.
+              {t("reviewBody")}
             </p>
           </div>
 
           <Card className="h-fit rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <CardHeader>
               <CardTitle className="text-base font-semibold">
-                What the website stores
+                {t("websiteStoresTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm leading-6 text-crew-body">
               <div className="flex gap-3">
                 <Undo2 className="mt-1 size-4 shrink-0 text-crew-copper" />
-                <p>
-                  Only this hiring selection is stored in the browser. It is not
-                  an employee record and does not grant runtime access.
-                </p>
+                <p>{t("websiteStoresSelection")}</p>
               </div>
               <div className="flex gap-3">
                 <KeyRound className="mt-1 size-4 shrink-0 text-crew-copper" />
-                <p>
-                  The CLI revalidates every capability before it atomically
-                  updates your local team file.
-                </p>
+                <p>{t("websiteStoresCli")}</p>
               </div>
             </CardContent>
           </Card>
@@ -1381,19 +1571,17 @@ export default function HireConfirm() {
         <Card className="mt-8 rounded-[8px] border-crew-copper/25 bg-crew-copper/[0.06] text-crew-heading">
           <CardHeader>
             <CardTitle className="text-base font-semibold">
-              Hiring handoff
+              {t("handoffTitle")}
             </CardTitle>
             <p className="text-sm leading-6 text-crew-body">
-              The marketplace carries the first task, budget label, runtime, and
-              requested access into this review. These values are context, not
-              runtime authorization.
+              {t("handoffBody")}
             </p>
           </CardHeader>
           <CardContent>
             <dl className="grid gap-4 text-sm sm:grid-cols-2">
               <div>
                 <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-crew-muted">
-                  Intended task
+                  {t("intendedTask")}
                 </dt>
                 <dd className="mt-1 leading-6 text-crew-body">
                   {handoffIntent.task}
@@ -1401,7 +1589,7 @@ export default function HireConfirm() {
               </div>
               <div>
                 <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-crew-muted">
-                  Budget / runtime
+                  {t("budgetRuntime")}
                 </dt>
                 <dd className="mt-1 leading-6 text-crew-body">
                   {handoffIntent.budget} · {handoffIntent.runtime}
@@ -1409,12 +1597,12 @@ export default function HireConfirm() {
               </div>
               <div className="sm:col-span-2">
                 <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-crew-muted">
-                  Requested access
+                  {t("requestedAccess")}
                 </dt>
                 <dd className="mt-1 leading-6 text-crew-body">
                   {handoffIntent.requested_access.length > 0
                     ? handoffIntent.requested_access.join(", ")
-                    : "No marketplace access hint; required capabilities below remain authoritative."}
+                    : t("noMarketplaceAccess")}
                 </dd>
               </div>
             </dl>
@@ -1426,11 +1614,10 @@ export default function HireConfirm() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-base font-semibold">
-                  Choose a package
+                  {t("choosePackage")}
                 </CardTitle>
                 <p className="mt-2 text-sm leading-6 text-crew-body">
-                  Pricing is part of the hiring preview. This checkout is
-                  simulated and will not charge a real card.
+                  {t("choosePackageBody")}
                 </p>
               </div>
               <PricingBadge pricing={employee.pricing} />
@@ -1455,7 +1642,7 @@ export default function HireConfirm() {
               }}
               value={selectedPlan}
             >
-              {CHECKOUT_PLANS.map(plan => (
+              {localizedCheckoutPlans.map(plan => (
                 <label
                   className={cn(
                     "block cursor-pointer rounded-[8px] border p-4 transition-colors",
@@ -1502,7 +1689,7 @@ export default function HireConfirm() {
         <Card className="mt-5 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
             <CardTitle className="text-base font-semibold">
-              Simulated checkout confirmation
+              {t("checkoutTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1511,16 +1698,15 @@ export default function HireConfirm() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className="border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
-                      Mock checkout
+                      {t("mockCheckout")}
                     </Badge>
                     <span className="text-sm text-crew-body">
-                      {selectedCheckoutPlan.name} - {selectedCheckoutPlan.price}
+                      {localizedCheckoutPlan.name} -{" "}
+                      {localizedCheckoutPlan.price}
                     </span>
                   </div>
                   <p className="mt-3 max-w-2xl text-sm leading-6 text-crew-body">
-                    Confirming this step only records your selected package in
-                    the demo flow. There is no payment processor, no card form,
-                    and no real charge.
+                    {t("checkoutBody")}
                   </p>
                 </div>
                 <Button
@@ -1539,17 +1725,16 @@ export default function HireConfirm() {
                   type="button"
                 >
                   {mockCheckoutConfirmed
-                    ? "Checkout simulated"
-                    : "Confirm simulated checkout"}
+                    ? t("checkoutSimulated")
+                    : t("confirmCheckout")}
                 </Button>
               </div>
               {mockCheckoutConfirmed ? (
                 <Alert className="mt-4 rounded-[8px] border-emerald-400/25 bg-emerald-400/10 text-crew-heading">
                   <CheckCircle2 className="size-4 text-emerald-200" />
-                  <AlertTitle>Simulated checkout confirmed.</AlertTitle>
+                  <AlertTitle>{t("checkoutConfirmedTitle")}</AlertTitle>
                   <AlertDescription className="text-crew-body">
-                    Continue reviewing permissions before preparing the local
-                    CLI handoff.
+                    {t("checkoutConfirmedBody")}
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -1559,8 +1744,9 @@ export default function HireConfirm() {
 
         <ContractSection
           employee={employee}
-          planName={selectedCheckoutPlan.name}
-          planPrice={selectedCheckoutPlan.price}
+          planName={localizedCheckoutPlan.name}
+          planPrice={localizedCheckoutPlan.price}
+          t={t}
         />
 
         <section className="mt-8 grid gap-5 md:grid-cols-3">
@@ -1570,7 +1756,7 @@ export default function HireConfirm() {
                 aria-hidden="true"
                 className="size-5 text-crew-copper"
               />
-              <h2 className="mt-4 text-sm font-semibold">It wants to access</h2>
+              <h2 className="mt-4 text-sm font-semibold">{t("wantsAccess")}</h2>
               <p className="mt-2 text-sm leading-6 text-crew-body">
                 {toolContractOverview.access}
               </p>
@@ -1582,7 +1768,7 @@ export default function HireConfirm() {
                 aria-hidden="true"
                 className="size-5 text-crew-copper"
               />
-              <h2 className="mt-4 text-sm font-semibold">It can do</h2>
+              <h2 className="mt-4 text-sm font-semibold">{t("canDo")}</h2>
               <p className="mt-2 text-sm leading-6 text-crew-body">
                 {toolContractOverview.actions}
               </p>
@@ -1594,7 +1780,7 @@ export default function HireConfirm() {
                 aria-hidden="true"
                 className="size-5 text-crew-copper"
               />
-              <h2 className="mt-4 text-sm font-semibold">Main risk</h2>
+              <h2 className="mt-4 text-sm font-semibold">{t("mainRisk")}</h2>
               <p className="mt-2 text-sm leading-6 text-crew-body">
                 {toolContractOverview.risk}
               </p>
@@ -1605,13 +1791,10 @@ export default function HireConfirm() {
         <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
             <CardTitle className="text-base font-semibold">
-              Tool capabilities
+              {t("toolCapabilitiesTitle")}
             </CardTitle>
             <p className="text-sm leading-6 text-crew-body">
-              Required capabilities are locked on. Conditional capabilities are
-              enabled for relevant tasks and can be turned off. Optional
-              capabilities require an explicit opt-in; policy-disabled ones stay
-              unavailable.
+              {t("toolCapabilitiesBody")}
             </p>
           </CardHeader>
           <CardContent>
@@ -1628,16 +1811,15 @@ export default function HireConfirm() {
         <Card className="mt-5 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
             <CardTitle className="text-base font-semibold">
-              Required and optional access
+              {t("requiredOptionalAccessTitle")}
             </CardTitle>
             <p className="text-sm leading-6 text-crew-body">
-              CrewClaw separates required permissions from optional access
-              across tools, files, browser, network, budget, and human approval.
+              {t("requiredOptionalAccessBody")}
             </p>
           </CardHeader>
           <CardContent className="grid gap-4 lg:grid-cols-2">
             {permissionAreas.map(area => (
-              <PermissionAreaCard area={area} key={area.key} />
+              <PermissionAreaCard area={area} key={area.key} t={t} />
             ))}
           </CardContent>
         </Card>
@@ -1645,12 +1827,10 @@ export default function HireConfirm() {
         <Card className="mt-5 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
             <CardTitle className="text-base font-semibold">
-              Declared legacy context
+              {t("legacyContextTitle")}
             </CardTitle>
             <p className="text-sm leading-6 text-crew-body">
-              These hire.yaml declarations are read-only context, not runtime
-              authorization. Only the capability selections above create formal
-              capability tokens for this employee.
+              {t("legacyContextBody")}
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1658,6 +1838,7 @@ export default function HireConfirm() {
               <LegacyPermissionContext
                 key={summary.permission}
                 summary={summary}
+                t={t}
               />
             ))}
           </CardContent>
@@ -1666,7 +1847,7 @@ export default function HireConfirm() {
         <Card className="mt-5 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardHeader>
             <CardTitle className="text-base font-semibold">
-              Risk boundaries
+              {t("riskBoundaries")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1696,6 +1877,7 @@ export default function HireConfirm() {
               step: "doctor_run",
             });
           }}
+          t={t}
         />
 
         <TrialSection
@@ -1721,6 +1903,7 @@ export default function HireConfirm() {
             });
           }}
           summary={trialSummary}
+          t={t}
           trialAccepted={trialAccepted}
           trialStarted={trialStarted}
         />
@@ -1770,16 +1953,14 @@ export default function HireConfirm() {
               setHandoffPrepared(true);
             }}
           >
-            {activationReady
-              ? "Activate local hire"
-              : "Pass Doctor and accept trial first"}
+            {activationReady ? t("activateLocalHire") : t("passDoctorFirst")}
           </Button>
           <Button
             asChild
             className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
             variant="outline"
           >
-            <Link to="/marketplace">Keep browsing</Link>
+            <Link to="/marketplace">{t("keepBrowsing")}</Link>
           </Button>
         </div>
       </section>

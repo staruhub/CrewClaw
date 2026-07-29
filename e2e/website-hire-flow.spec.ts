@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 // actual CLI hire. Here we drive the SPA the way a visitor would and assert the hire persists.
 
 test.describe.configure({ mode: "serial" });
+test.use({ locale: "en-US" });
 
 test("marketplace lists real registry employees and shows no stale absolute path", async ({
   page,
@@ -38,8 +39,8 @@ test("all 5 available employees have reachable detail pages", async ({
   const expected: Array<[string, string]> = [
     ["code-review-shrimp", "Code Review Shrimp"],
     ["product-prd-crab", "Product PRD Crab"],
-    ["ai-adoption-whale", "AI 落地鲸"],
-    ["zeneth", "社群运营美人鱼 Zeneth"],
+    ["ai-adoption-whale", "AI Adoption Whale"],
+    ["zeneth", "Zeneth, Community Operations Mermaid"],
     ["macao-networking-agent", "Macao Networking Agent"],
   ];
 
@@ -65,7 +66,7 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
   ).toBeVisible();
   await expect(page.getByText("contacts.read", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("Optional · Off by default", { exact: true }).first()
+    page.getByText("Optional - Off by default", { exact: true }).first()
   ).toBeVisible();
 
   // Enter the hire confirmation flow.

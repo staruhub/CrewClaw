@@ -23,6 +23,8 @@ type CommandResult = {
 const repoRoot = process.cwd();
 const landingCommand = "crew hire ai-adoption-whale --live --yes";
 
+test.use({ locale: "en-US" });
+
 function cliExecutable() {
   const filename =
     process.platform === "win32" ? "crewclaw-cli.exe" : "crewclaw-cli";
@@ -135,7 +137,7 @@ test("Landing v4 exposes the real employee loop and a copyable CLI handoff", asy
 
   await page.getByRole("link", { name: "Browse AI employees" }).click();
   await expect(page).toHaveURL(/\/marketplace$/);
-  await expect(page.getByText("AI 落地鲸").first()).toBeVisible();
+  await expect(page.getByText("AI Adoption Whale").first()).toBeVisible();
   expect(consoleErrors).toEqual([]);
 });
 

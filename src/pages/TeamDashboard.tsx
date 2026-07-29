@@ -47,20 +47,35 @@ import { getEmployee } from "@/data/employees";
 import { track } from "@/hooks/use-analytics";
 import { useRoles } from "@/hooks/use-roles";
 import { useTeam } from "@/hooks/use-team";
+import {
+  defineCatalog,
+  type MessageValues,
+  useI18n,
+  useMessages,
+} from "@/i18n";
+import { operationsEn } from "@/i18n/locales/en/operations";
+import { operationsZhCN } from "@/i18n/locales/zh-CN/operations";
 import { fetchLocalEmployeePerformance } from "@/lib/local-api";
 import { loadSettledRecords } from "@/lib/performance-load";
 import { cn } from "@/lib/utils";
 
-const HEALTH_COPY: Record<HealthStatus, string> = {
-  healthy: "This employee is healthy and ready to work.",
-  warning: "This employee needs your attention before taking more tasks.",
-  broken: "This employee cannot work until the issues are resolved.",
+const operationsMessages = defineCatalog(operationsEn, operationsZhCN);
+type OperationsTranslator = (
+  key: keyof typeof operationsEn,
+  values?: MessageValues
+) => string;
+type DateFormatter = ReturnType<typeof useI18n>["formatDate"];
+
+const HEALTH_COPY_KEY: Record<HealthStatus, keyof typeof operationsEn> = {
+  healthy: "healthHealthyCopy",
+  warning: "healthWarningCopy",
+  broken: "healthBrokenCopy",
 };
 
-const HEALTH_LABEL: Record<HealthStatus, string> = {
-  healthy: "Healthy",
-  warning: "Warning",
-  broken: "Broken",
+const HEALTH_LABEL_KEY: Record<HealthStatus, keyof typeof operationsEn> = {
+  healthy: "healthHealthy",
+  warning: "healthWarning",
+  broken: "healthBroken",
 };
 
 const HEALTH_BADGE_CLASS: Record<HealthStatus, string> = {
@@ -69,14 +84,14 @@ const HEALTH_BADGE_CLASS: Record<HealthStatus, string> = {
   broken: "border-red-300/35 bg-red-400/10 text-red-100",
 };
 
-const ROLE_SUGGESTIONS = [
-  "Code review owner",
-  "PRD intake owner",
-  "Research scout",
-  "Launch readiness owner",
-  "On-call doctor",
-  "Customer follow-up owner",
-];
+const ROLE_SUGGESTION_KEYS = [
+  "roleSuggestionCodeReview",
+  "roleSuggestionPrdIntake",
+  "roleSuggestionResearchScout",
+  "roleSuggestionLaunchReadiness",
+  "roleSuggestionOnCallDoctor",
+  "roleSuggestionCustomerFollowUp",
+] as const satisfies readonly (keyof typeof operationsEn)[];
 
 type RoleDraft = {
   employeeId: string;
@@ -84,20 +99,26 @@ type RoleDraft = {
   role: string;
 };
 
-function formatActivity(value: string) {
-  return new Intl.DateTimeFormat("en", {
+function formatActivity(value: string, formatDate: DateFormatter) {
+  return formatDate(new Date(value), {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value));
+  });
 }
 
-function HealthBadge({ status }: { status: HealthStatus }) {
+function HealthBadge({
+  status,
+  t,
+}: {
+  status: HealthStatus;
+  t: OperationsTranslator;
+}) {
   return (
     <Badge
       className={cn("rounded-[8px] border", HEALTH_BADGE_CLASS[status])}
       variant="outline"
     >
-      {HEALTH_LABEL[status]}
+      {t(HEALTH_LABEL_KEY[status])}
     </Badge>
   );
 }
@@ -117,13 +138,16 @@ function ReportList({ items }: { items: string[] }) {
   );
 }
 
-function approvalSummary(performance: LocalEmployeePerformance | undefined) {
+function approvalSummary(
+  performance: LocalEmployeePerformance | undefined,
+  t: OperationsTranslator
+) {
   if (!performance || performance.kpi.state !== "available") {
     return {
-      accepted: "—",
-      completion: "—",
-      evidence: "No KPI record",
-      reviews: "—",
+      accepted: t("emDash"),
+      completion: t("emDash"),
+      evidence: t("noKpiRecord"),
+      reviews: t("emDash"),
     };
   }
   const accepted = performance.kpi.accepted ?? 0;
@@ -134,8 +158,10 @@ function approvalSummary(performance: LocalEmployeePerformance | undefined) {
   ).length;
   const evidence =
     performance.kpi.evidence_coverage === null
-      ? "Evidence unknown"
-      : `${Math.round(performance.kpi.evidence_coverage * 100)}% evidence`;
+      ? t("evidenceUnknown")
+      : t("evidencePercent", {
+          percent: Math.round(performance.kpi.evidence_coverage * 100),
+        });
 
   return {
     accepted: String(accepted),
@@ -143,8 +169,8 @@ function approvalSummary(performance: LocalEmployeePerformance | undefined) {
     evidence,
     reviews:
       reviewable > 0
-        ? `${reviewCount} reviews · ${reviewable} pending`
-        : `${reviewCount} reviews`,
+        ? t("reviewPending", { count: reviewCount, pending: reviewable })
+        : t("reviewCount", { count: reviewCount }),
   };
 }
 
@@ -152,9 +178,16 @@ export default function TeamDashboard() {
   const navigate = useNavigate();
   const team = useTeam();
   const roleAssignments = useRoles();
+  const t = useMessages(operationsMessages);
+  const { formatDate } = useI18n();
+  const roleSuggestions = useMemo(
+    () => ROLE_SUGGESTION_KEYS.map(key => t(key)),
+    [t]
+  );
   const [report, setReport] = useState<DoctorReport | null>(null);
-  const [reportEmployeeName, setReportEmployeeName] =
-    useState<string>("Employee");
+  const [reportEmployeeName, setReportEmployeeName] = useState<string>(
+    t("employee")
+  );
   const [offboardingMode, setOffboardingMode] =
     useState<OffboardingMode>("export_memory");
   const [roleDraft, setRoleDraft] = useState<RoleDraft | null>(null);
@@ -189,13 +222,13 @@ export default function TeamDashboard() {
           workspaceEmployee,
           doctorReport,
           performance,
-          approval: approvalSummary(performance),
+          approval: approvalSummary(performance, t),
           name: employee?.name ?? workspaceEmployee.employee_id,
-          role: employee?.role ?? "Unknown role",
+          role: employee?.role ?? t("unknownRole"),
           assignedRole: roleAssignments.getRole(workspaceEmployee.employee_id),
         };
       }),
-    [performanceRecords, roleAssignments, roster, team]
+    [performanceRecords, roleAssignments, roster, t, team]
   );
 
   useEffect(() => {
@@ -215,7 +248,9 @@ export default function TeamDashboard() {
           records,
           loadError:
             failedIds.length > 0
-              ? `Performance evidence is unavailable for ${failedIds.join(", ")}.`
+              ? t("performanceUnavailableFor", {
+                  ids: failedIds.join(", "),
+                })
               : null,
         });
       }
@@ -223,7 +258,7 @@ export default function TeamDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [employeeKey]);
+  }, [employeeKey, t]);
 
   function openRoleDialog(
     employeeId: string,
@@ -265,21 +300,20 @@ export default function TeamDashboard() {
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <Badge className="border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
-              Team Dashboard
+              {t("teamDashboardBadge")}
             </Badge>
             <h1 className="mt-5 text-4xl font-light leading-tight md:text-6xl">
-              Your AI crew
+              {t("teamDashboardTitle")}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              Manage active employees, check their health, inspect resumes, and
-              fire employees when they leave the crew.
+              {t("teamDashboardDescription")}
             </p>
           </div>
           <Button
             asChild
             className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
           >
-            <Link to="/marketplace">Hire more</Link>
+            <Link to="/marketplace">{t("hireMore")}</Link>
           </Button>
         </div>
 
@@ -290,12 +324,11 @@ export default function TeamDashboard() {
           >
             <AlertTitle>
               {team.syncState === "loading"
-                ? "Synchronizing local roster…"
-                : "Local roster unavailable"}
+                ? t("syncingRoster")
+                : t("rosterUnavailable")}
             </AlertTitle>
             <AlertDescription className="text-crew-body">
-              {team.syncMessage ??
-                "Checking .crewclaw/team.json before showing roster actions."}
+              {team.syncMessage ?? t("rosterSyncFallback")}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -307,12 +340,11 @@ export default function TeamDashboard() {
           >
             <AlertTitle>
               {performanceLoading
-                ? "Loading approval evidence…"
-                : "Approval evidence incomplete"}
+                ? t("loadingApprovalEvidence")
+                : t("approvalEvidenceIncomplete")}
             </AlertTitle>
             <AlertDescription className="text-crew-body">
-              {performanceLoadError ??
-                "Reading accepted TaskRun receipts and verified reviews for the roster."}
+              {performanceLoadError ?? t("approvalEvidenceLoadingDescription")}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -321,17 +353,16 @@ export default function TeamDashboard() {
           <Card className="mt-10 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <CardContent className="py-10">
               <h2 className="text-2xl font-light">
-                No active AI employees yet.
+                {t("noActiveEmployeesTitle")}
               </h2>
               <p className="mt-3 max-w-xl text-sm leading-6 text-crew-body">
-                Hire a verified employee from the marketplace to start building
-                your local demo team.
+                {t("noActiveEmployeesDescription")}
               </p>
               <Button
                 asChild
                 className="mt-6 rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
               >
-                <Link to="/marketplace">Enter marketplace</Link>
+                <Link to="/marketplace">{t("enterMarketplace")}</Link>
               </Button>
             </CardContent>
           </Card>
@@ -342,31 +373,31 @@ export default function TeamDashboard() {
                 <TableHeader>
                   <TableRow className="border-white/10 hover:bg-transparent">
                     <TableHead className="px-5 py-4 text-crew-muted">
-                      Employee
+                      {t("employee")}
                     </TableHead>
                     <TableHead className="px-5 py-4 text-crew-muted">
-                      Role
+                      {t("role")}
                     </TableHead>
                     <TableHead className="px-5 py-4 text-crew-muted">
-                      Responsibility
+                      {t("responsibility")}
                     </TableHead>
                     <TableHead className="px-5 py-4 text-crew-muted">
-                      Status
+                      {t("status")}
                     </TableHead>
                     <TableHead className="px-5 py-4 text-crew-muted">
-                      Delivery / approval
+                      {t("deliveryApproval")}
                     </TableHead>
                     <TableHead className="px-5 py-4 text-crew-muted">
-                      Evidence
+                      {t("evidence")}
                     </TableHead>
                     <TableHead className="px-5 py-4 text-crew-muted">
-                      Version
+                      {t("version")}
                     </TableHead>
                     <TableHead className="px-5 py-4 text-crew-muted">
-                      Recent activity
+                      {t("recentActivity")}
                     </TableHead>
                     <TableHead className="px-5 py-4 text-right text-crew-muted">
-                      Actions
+                      {t("actions")}
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -400,17 +431,22 @@ export default function TeamDashboard() {
                             </Badge>
                           ) : (
                             <span className="text-sm text-crew-muted">
-                              No long-term role
+                              {t("noLongTermRole")}
                             </span>
                           )}
                         </TableCell>
                         <TableCell className="px-5 py-5">
-                          <HealthBadge status={doctorReport.health_status} />
+                          <HealthBadge
+                            status={doctorReport.health_status}
+                            t={t}
+                          />
                         </TableCell>
                         <TableCell className="px-5 py-5 text-sm text-crew-body">
                           <div className="font-mono text-xs text-crew-heading">
-                            {approval.completion} completed /{" "}
-                            {approval.accepted} accepted
+                            {t("completedAccepted", {
+                              completed: approval.completion,
+                              accepted: approval.accepted,
+                            })}
                           </div>
                           <div className="mt-1 text-xs text-crew-muted">
                             {approval.reviews}
@@ -420,8 +456,8 @@ export default function TeamDashboard() {
                           <Badge
                             className={cn(
                               "rounded-[8px] border",
-                              approval.evidence.includes("No") ||
-                                approval.evidence.includes("unknown")
+                              approval.evidence === t("noKpiRecord") ||
+                                approval.evidence === t("evidenceUnknown")
                                 ? "border-amber-300/35 bg-amber-300/10 text-amber-100"
                                 : "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
                             )}
@@ -434,7 +470,10 @@ export default function TeamDashboard() {
                           v{workspaceEmployee.version}
                         </TableCell>
                         <TableCell className="px-5 py-5 text-crew-body">
-                          {formatActivity(workspaceEmployee.hired_at)}
+                          {formatActivity(
+                            workspaceEmployee.hired_at,
+                            formatDate
+                          )}
                         </TableCell>
                         <TableCell className="px-5 py-5">
                           <div className="flex flex-wrap justify-end gap-2">
@@ -449,7 +488,7 @@ export default function TeamDashboard() {
                               }
                               variant="outline"
                             >
-                              {assignedRole ? "Modify role" : "Assign role"}
+                              {assignedRole ? t("modifyRole") : t("assignRole")}
                             </Button>
                             <Button
                               className="rounded-[8px] border-white/15"
@@ -474,7 +513,7 @@ export default function TeamDashboard() {
                               }}
                               variant="outline"
                             >
-                              Doctor
+                              {t("doctor")}
                             </Button>
                             <Button
                               asChild
@@ -484,7 +523,7 @@ export default function TeamDashboard() {
                               <Link
                                 to={`/employee/${workspaceEmployee.employee_id}`}
                               >
-                                Inspect
+                                {t("inspect")}
                               </Link>
                             </Button>
                             <AlertDialog>
@@ -501,17 +540,16 @@ export default function TeamDashboard() {
                                   }}
                                   variant="destructive"
                                 >
-                                  Fire
+                                  {t("fire")}
                                 </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>
-                                    Fire {name}?
+                                    {t("fireEmployeeTitle", { name })}
                                   </AlertDialogTitle>
                                   <AlertDialogDescription className="leading-6 text-crew-body">
-                                    Choose how CrewClaw should preserve or
-                                    remove the employee&apos;s working memory.
+                                    {t("fireEmployeeDescription")}
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <RadioGroup
@@ -528,11 +566,10 @@ export default function TeamDashboard() {
                                     />
                                     <span>
                                       <span className="block text-sm font-medium text-crew-heading">
-                                        Export memory pack
+                                        {t("exportMemoryPack")}
                                       </span>
                                       <span className="mt-1 block text-xs leading-5 text-crew-body">
-                                        Keep a checksum-bound pack for a future
-                                        replacement or audit.
+                                        {t("exportMemoryPackDescription")}
                                       </span>
                                     </span>
                                   </label>
@@ -543,11 +580,10 @@ export default function TeamDashboard() {
                                     />
                                     <span>
                                       <span className="block text-sm font-medium text-crew-heading">
-                                        Hand off to a successor
+                                        {t("handOffSuccessor")}
                                       </span>
                                       <span className="mt-1 block text-xs leading-5 text-crew-body">
-                                        Export memory, create a draft, then open
-                                        the marketplace with the role prefilled.
+                                        {t("handOffSuccessorDescription")}
                                       </span>
                                     </span>
                                   </label>
@@ -558,19 +594,17 @@ export default function TeamDashboard() {
                                     />
                                     <span>
                                       <span className="block text-sm font-medium text-red-100">
-                                        Purge recallable state
+                                        {t("purgeRecallableState")}
                                       </span>
                                       <span className="mt-1 block text-xs leading-5 text-crew-body">
-                                        Delete memory, Dream candidates, and
-                                        skill usage; retain the audit ledger.
-                                        This is not media sanitization.
+                                        {t("purgeRecallableStateDescription")}
                                       </span>
                                     </span>
                                   </label>
                                 </RadioGroup>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel className="rounded-[8px] border-white/15">
-                                    Keep employee
+                                    {t("keepEmployee")}
                                   </AlertDialogCancel>
                                   <AlertDialogAction
                                     className="rounded-[8px] bg-destructive text-white hover:bg-destructive/90"
@@ -599,7 +633,7 @@ export default function TeamDashboard() {
                                         });
                                     }}
                                   >
-                                    Fire employee
+                                    {t("fireEmployee")}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
@@ -624,30 +658,36 @@ export default function TeamDashboard() {
           {report ? (
             <>
               <DialogHeader>
-                <DialogTitle>{reportEmployeeName} doctor report</DialogTitle>
+                <DialogTitle>
+                  {t("doctorReportTitle", { name: reportEmployeeName })}
+                </DialogTitle>
                 <DialogDescription className="text-crew-body">
-                  {HEALTH_COPY[report.health_status]}
+                  {t(HEALTH_COPY_KEY[report.health_status])}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-5">
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-sm text-crew-muted">Health status</span>
-                  <HealthBadge status={report.health_status} />
+                  <span className="text-sm text-crew-muted">
+                    {t("healthStatus")}
+                  </span>
+                  <HealthBadge status={report.health_status} t={t} />
                 </div>
                 <div>
                   <h3 className="mb-3 text-sm font-medium text-crew-heading">
-                    Issues
+                    {t("issues")}
                   </h3>
                   <ReportList items={report.issues} />
                 </div>
                 <div>
                   <h3 className="mb-3 text-sm font-medium text-crew-heading">
-                    Suggestions
+                    {t("suggestions")}
                   </h3>
                   <ReportList items={report.suggestions} />
                 </div>
                 <p className="font-mono text-xs text-crew-muted">
-                  Checked at {formatActivity(report.checked_at)}
+                  {t("checkedAt", {
+                    date: formatActivity(report.checked_at, formatDate),
+                  })}
                 </p>
               </div>
             </>
@@ -663,16 +703,17 @@ export default function TeamDashboard() {
           {roleDraft ? (
             <>
               <DialogHeader>
-                <DialogTitle>Assign a long-term role</DialogTitle>
+                <DialogTitle>{t("assignLongTermRole")}</DialogTitle>
                 <DialogDescription className="text-crew-body">
-                  Give {roleDraft.employeeName} a standing responsibility in
-                  your crew.
+                  {t("roleDraftDescription", {
+                    name: roleDraft.employeeName,
+                  })}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-crew-heading">
-                    Suggested responsibilities
+                    {t("suggestedResponsibilities")}
                   </label>
                   <Select
                     onValueChange={role =>
@@ -681,16 +722,18 @@ export default function TeamDashboard() {
                       )
                     }
                     value={
-                      ROLE_SUGGESTIONS.includes(roleDraft.role)
+                      roleSuggestions.includes(roleDraft.role)
                         ? roleDraft.role
                         : undefined
                     }
                   >
                     <SelectTrigger className="mt-2 w-full rounded-[8px] border-white/15 bg-white/[0.03] text-crew-heading">
-                      <SelectValue placeholder="Choose a common crew responsibility" />
+                      <SelectValue
+                        placeholder={t("responsibilityPlaceholder")}
+                      />
                     </SelectTrigger>
                     <SelectContent className="rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading">
-                      {ROLE_SUGGESTIONS.map(role => (
+                      {roleSuggestions.map(role => (
                         <SelectItem key={role} value={role}>
                           {role}
                         </SelectItem>
@@ -703,7 +746,7 @@ export default function TeamDashboard() {
                     className="text-sm font-medium text-crew-heading"
                     htmlFor="role-draft"
                   >
-                    Responsibility
+                    {t("responsibility")}
                   </label>
                   <Input
                     className="mt-2 rounded-[8px] border-white/15 bg-white/[0.03] text-crew-heading placeholder:text-crew-muted"
@@ -713,11 +756,11 @@ export default function TeamDashboard() {
                         draft ? { ...draft, role: event.target.value } : draft
                       )
                     }
-                    placeholder="Example: Pull request reviewer for release work"
+                    placeholder={t("responsibilityInputPlaceholder")}
                     value={roleDraft.role}
                   />
                   <p className="mt-2 text-xs leading-5 text-crew-muted">
-                    Leave this blank to clear the responsibility.
+                    {t("clearResponsibilityHint")}
                   </p>
                 </div>
               </div>
@@ -727,13 +770,13 @@ export default function TeamDashboard() {
                   onClick={() => setRoleDraft(null)}
                   variant="outline"
                 >
-                  Cancel
+                  {t("cancel")}
                 </Button>
                 <Button
                   className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
                   onClick={saveRoleDraft}
                 >
-                  Save role
+                  {t("saveRole")}
                 </Button>
               </DialogFooter>
             </>

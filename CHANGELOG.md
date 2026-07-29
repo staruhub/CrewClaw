@@ -12,6 +12,7 @@ No unreleased changes.
 - Add repository contribution, conduct, security, support, governance, and release guidance.
 - Harden CI dependency pinning and Windows E2E process cleanup.
 - Align the landing page, employee marketplace, hire flow, and workbench with the approved visual direction across desktop and mobile layouts.
+- Separate English and Simplified Chinese into a persistent, route-wide i18n experience for the public site, hiring flow, operations views, administration, and workbench.
 - Complete the local hire loop with Doctor checks, trial execution, explicit grants, and local roster persistence.
 - Add evidence, artifact, revision, and approval surfaces to the TaskRun workbench with keyboard-accessible decisions.
 - Replace decorative employee metrics with honest runtime-backed signals across employee, team, performance, and review views.

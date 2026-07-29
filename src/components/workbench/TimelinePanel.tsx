@@ -1,14 +1,9 @@
 import type { KeyboardEvent } from "react";
 import type { TaskRun } from "@/data/task-runs";
+import { useI18n, useMessages } from "@/i18n";
+import { workbenchMessages } from "@/i18n/locales/workbench";
 import { cn } from "@/lib/utils";
 import { statusClass, statusSymbol } from "./status";
-
-function fmtTime(iso: string) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
 
 function eventActor(run: TaskRun, event: TaskRun["events"][number]) {
   return event.tool_name ?? run.employee_name ?? run.employee_id;
@@ -31,6 +26,16 @@ function eventProgress(run: TaskRun, index: number, status: string) {
   return `${index + 1}/${run.events.length}`;
 }
 
+function fallbackStatusLabel(
+  status: string,
+  t: ReturnType<typeof useMessages<typeof workbenchMessages>>
+) {
+  if (status === "running") return t("running");
+  if (status === "waiting") return t("waiting");
+  if (status === "recorded") return t("recorded");
+  return status;
+}
+
 export function TimelinePanel({
   run,
   selectedId,
@@ -40,6 +45,9 @@ export function TimelinePanel({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const { formatDate } = useI18n();
+  const t = useMessages(workbenchMessages);
+
   function selectWithKeyboard(
     event: KeyboardEvent<HTMLTableRowElement>,
     eventId: string
@@ -54,30 +62,29 @@ export function TimelinePanel({
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
-            Timeline
+            {t("timeline")}
           </p>
           <h2 className="mt-1 text-base font-semibold text-crew-heading">
-            员工动作
+            {t("timelineHeading")}
           </h2>
         </div>
         <span className="font-mono text-xs text-crew-muted">
-          {run.events.length} events
+          {t("eventCount", { count: run.events.length })}
         </span>
       </div>
       <div className="mt-5 overflow-x-auto lg:mt-2">
-        <table className="w-full min-w-[720px] text-left text-sm lg:text-xs">
-          <caption className="sr-only">
-            Event timeline rows with time, actor, type, title, progress or cost,
-            and status
-          </caption>
+        <table className="w-full min-w-[720px] text-left text-sm lg:min-w-0 lg:table-fixed lg:text-xs">
+          <caption className="sr-only">{t("timelineCaption")}</caption>
           <thead className="border-b border-white/10 font-mono text-xs uppercase tracking-[0.12em] text-crew-muted">
             <tr>
-              <th className="py-2 pr-3 font-medium">Time</th>
-              <th className="py-2 pr-3 font-medium">Actor</th>
-              <th className="py-2 pr-3 font-medium">Type</th>
-              <th className="py-2 pr-3 font-medium">Title</th>
-              <th className="py-2 pr-3 font-medium">Progress / cost</th>
-              <th className="py-2 font-medium">Status</th>
+              <th className="py-2 pr-3 font-medium lg:w-[11%]">{t("time")}</th>
+              <th className="py-2 pr-3 font-medium lg:w-[16%]">{t("actor")}</th>
+              <th className="py-2 pr-3 font-medium lg:w-[15%]">{t("type")}</th>
+              <th className="py-2 pr-3 font-medium lg:w-[30%]">{t("title")}</th>
+              <th className="py-2 pr-3 font-medium lg:w-[16%]">
+                {t("progressCost")}
+              </th>
+              <th className="py-2 font-medium lg:w-[12%]">{t("status")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
@@ -98,7 +105,10 @@ export function TimelinePanel({
                   }
                 >
                   <td className="py-3 pr-3 font-mono text-xs tabular-nums text-crew-muted lg:py-2">
-                    {fmtTime(event.timestamp)}
+                    {formatDate(event.timestamp, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </td>
                   <td className="max-w-[140px] break-words py-3 pr-3 text-crew-body lg:py-2">
                     {eventActor(run, event)}
@@ -119,7 +129,7 @@ export function TimelinePanel({
                         statusClass(status)
                       )}
                     >
-                      {statusSymbol(status)} {status}
+                      {statusSymbol(status)} {fallbackStatusLabel(status, t)}
                     </span>
                   </td>
                 </tr>
