@@ -19,7 +19,8 @@ const sceneDefinitions = [
     duration: 10_500,
     chapter: "00 / AI EMPLOYEE OS",
     headline: "别再调用一个工具。<em>雇一支 AI 团队。</em>",
-    detail: "发现、检查、雇佣、协作、审计。把 AI 从一次性能力，变成可管理的数字员工。",
+    detail:
+      "发现、检查、雇佣、协作、审计。把 AI 从一次性能力，变成可管理的数字员工。",
     chips: ["AI 人才市场", "角色匹配", "即招即用"],
     align: "left",
   },
@@ -28,7 +29,8 @@ const sceneDefinitions = [
     duration: 10_500,
     chapter: "01 / INSPECT",
     headline: "雇佣之前，<em>先看清它。</em>",
-    detail: "能力、工具、价格、运行时与来源证据完整展开。不是承诺，是可验证的员工档案。",
+    detail:
+      "能力、工具、价格、运行时与来源证据完整展开。不是承诺，是可验证的员工档案。",
     chips: ["能力清单", "工具边界", "供应链证据"],
     align: "right",
   },
@@ -37,7 +39,8 @@ const sceneDefinitions = [
     duration: 10_500,
     chapter: "02 / ORCHESTRATE",
     headline: "一个目标，<em>整支团队协作。</em>",
-    detail: "研究、开发、设计与运营自动接力。任务、成本、进度和产物进入同一条工作流。",
+    detail:
+      "研究、开发、设计与运营自动接力。任务、成本、进度和产物进入同一条工作流。",
     chips: ["任务编排", "并行协作", "交付汇总"],
     align: "left",
   },
@@ -46,7 +49,8 @@ const sceneDefinitions = [
     duration: 10_500,
     chapter: "03 / HUMAN CONTROL",
     headline: "权限可授予，<em>也可随时收回。</em>",
-    detail: "敏感动作默认受限；全过程可审计、可暂停、可撤销。最终决定权始终在人。",
+    detail:
+      "敏感动作默认受限；全过程可审计、可暂停、可撤销。最终决定权始终在人。",
     chips: ["权限门禁", "全程审计", "一键暂停"],
     align: "right",
   },
@@ -76,9 +80,8 @@ async function run(command, args) {
 function imageDataUrl(path) {
   const absolutePath = resolve(path);
   const extension = extname(absolutePath).slice(1).toLowerCase();
-  const mimeType = extension === "jpg" || extension === "jpeg"
-    ? "image/jpeg"
-    : "image/png";
+  const mimeType =
+    extension === "jpg" || extension === "jpeg" ? "image/jpeg" : "image/png";
   return `data:${mimeType};base64,${readFileSync(absolutePath).toString("base64")}`;
 }
 
