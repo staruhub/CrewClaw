@@ -63,7 +63,7 @@ export class VTerm {
 
   write(s, meta = {}) {
     const input = String(s);
-    for (let i = 0; i < input.length; ) {
+    for (let i = 0; i < input.length;) {
       const rest = input.slice(i);
       const csi = rest.match(CSI_RE);
       if (csi) {

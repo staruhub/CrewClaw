@@ -7,7 +7,6 @@
     "module": "ESNext",
     "types": ["vite/client", "node"],
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@contracts/*": ["./contracts/*"],

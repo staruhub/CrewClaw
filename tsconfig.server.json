@@ -13,7 +13,6 @@
     "strict": true,
     "esModuleInterop": true,
     "noFallthroughCasesInSwitch": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@contracts/*": ["./contracts/*"],

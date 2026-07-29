@@ -30,15 +30,9 @@ export type CertifiedEmployeeEvaluation = NonNullable<
 >;
 
 export type EmployeeToolNecessity =
-  | "required"
-  | "conditional"
-  | "non_default"
-  | "disabled";
+  "required" | "conditional" | "non_default" | "disabled";
 export type EmployeeToolPermission =
-  | "readonly"
-  | "write"
-  | "requires_authorization"
-  | "disabled";
+  "readonly" | "write" | "requires_authorization" | "disabled";
 export type EmployeeToolAvailability =
   | "runtime_implementation"
   | "engine_service"

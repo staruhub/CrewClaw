@@ -53,7 +53,7 @@ function summarize(diff) {
 function foldContext(diff, context) {
   const keep = Math.max(0, Math.floor(Number(context) || 0));
   const folded = [];
-  for (let i = 0; i < diff.length; ) {
+  for (let i = 0; i < diff.length;) {
     if (diff[i].type !== "ctx") {
       folded.push(diff[i++]);
       continue;

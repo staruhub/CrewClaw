@@ -113,12 +113,10 @@ export function assertReflectionShape(r) {
       bad("verified_failure.verification");
   }
   strictKeys(r.user_feedback, new Set(["useful"]), "user_feedback");
-  if (
-    !(
-      r.user_feedback.useful === null ||
-      typeof r.user_feedback.useful === "boolean"
-    )
-  )
+  if (!(
+    r.user_feedback.useful === null ||
+    typeof r.user_feedback.useful === "boolean"
+  ))
     bad("user_feedback.useful");
   if (r.tool_stats !== undefined) {
     if (!Array.isArray(r.tool_stats)) bad("tool_stats");

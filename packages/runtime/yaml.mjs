@@ -65,6 +65,7 @@ function parseScalar(value) {
   if (text === "null" || text === "~") return null;
   if (text === "true") return true;
   if (text === "false") return false;
+  if (text === "{}") return {};
   if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
   if (
     (text.startsWith('"') && text.endsWith('"')) ||

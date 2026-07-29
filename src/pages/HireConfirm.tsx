@@ -171,12 +171,7 @@ const listFormatter = new Intl.ListFormat("en", {
 });
 
 type PermissionAreaKey =
-  | "tools"
-  | "files"
-  | "browser"
-  | "network"
-  | "budget"
-  | "approval";
+  "tools" | "files" | "browser" | "network" | "budget" | "approval";
 
 type PermissionArea = {
   key: PermissionAreaKey;

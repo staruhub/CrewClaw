@@ -24,9 +24,7 @@ async function localJson<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   const body = (await response.json().catch(() => null)) as
-    | { error?: string }
-    | T
-    | null;
+    { error?: string } | T | null;
   if (!response.ok) {
     throw new Error(
       body &&
