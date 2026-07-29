@@ -206,9 +206,7 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
   await page
     .getByRole("button", { name: "Run bounded trial", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Accept trial", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Accept trial", exact: true }).click();
   await page
     .getByRole("button", { name: "Activate local hire", exact: true })
     .click();
