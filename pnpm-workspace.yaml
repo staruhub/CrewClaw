@@ -3,3 +3,10 @@ packages:
 
 allowBuilds:
   esbuild: true
+overrides:
+  "@hono/node-server@<2.0.5": ">=2.0.5"
+  "@hono/vite-dev-server>minimatch": 10.2.6
+  esbuild@<=0.24.2: ">=0.25.0"
+  "exceljs>archiver": 8.0.0
+  "exceljs>unzipper": 0.12.5
+  "exceljs>uuid": 14.0.1

@@ -57,7 +57,7 @@
     "offboard:employee": "node packages/runtime/offboarding-cli.mjs"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.17",
+    "@hono/node-server": "^2.0.12",
     "@hookform/resolvers": "^5.5.7",
     "@mozilla/readability": "^0.6.0",
     "@radix-ui/react-accordion": "^1.2.20",
@@ -118,7 +118,7 @@
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.83.0",
     "react-resizable-panels": "^4.12.2",
-    "react-router": "^7.18.2",
+    "react-router": "^8.3.0",
     "recharts": "^2.15.4",
     "sonner": "^2.0.7",
     "superjson": "^2.2.6",
@@ -137,7 +137,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.5.4",
-    "drizzle-kit": "^0.31.8",
+    "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.0.1",
