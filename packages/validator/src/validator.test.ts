@@ -1,4 +1,12 @@
-import { link, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  link,
+  mkdtemp,
+  mkdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -95,7 +103,7 @@ async function makeExpertRoot() {
   // valid default hire.yaml + crewclaw.employee.yaml. Tests that exercise hire.yaml overwrite it.
   await writeFile(join(root, "hire.yaml"), makeHireYaml());
   await writeFile(join(root, "crewclaw.employee.yaml"), makeSpecYaml());
-  return root;
+  return await realpath(root);
 }
 
 // A minimal EmployeeSpec (crewclaw.employee.yaml) that satisfies contracts/employee-spec.ts:
@@ -358,7 +366,7 @@ describe("validateExpert", () => {
       "Registry version mismatch: registry=0.2.0 hire.yaml=0.1.0"
     );
     expect(result.errors).toContain(
-      `Registry local_source mismatch: registry=experts/different-expert package=${root}`
+      `Registry local_source mismatch: registry=experts/different-expert package=${root.replaceAll("\\", "/")}`
     );
   });
 

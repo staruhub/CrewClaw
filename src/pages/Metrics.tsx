@@ -6,6 +6,9 @@ import {
   BarChart3,
   BriefcaseBusiness,
   ClipboardCheck,
+  FileWarning,
+  HeartPulse,
+  ShieldCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -72,6 +75,9 @@ function calculateMetrics(events: AnalyticsEvent[]) {
   const hireClicks = count(events, "hire_clicked");
   const hireConfirmed = count(events, "hire_confirmed");
   const hireSucceeded = count(events, "hire_succeeded");
+  const reviewSubmitted = count(events, "employee_review_submitted");
+  const copiedTasks = count(events, "demo_task_copied");
+  const teamViews = count(events, "team_viewed");
   const doctorCompleted = events.filter(
     event => event.event === "doctor_completed"
   );
@@ -121,6 +127,9 @@ function calculateMetrics(events: AnalyticsEvent[]) {
       employeesUsedWithinDay.size,
       uniqueEmployeeIds(hireSuccessEvents).size
     ),
+    approvalEvidence: percent(reviewSubmitted, Math.max(hireSucceeded, 1)),
+    evidenceReadiness: percent(copiedTasks + reviewSubmitted, teamViews),
+    reviewSubmitted,
   };
 }
 
@@ -187,8 +196,10 @@ export default function Metrics() {
               Employee hiring signals
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-crew-body">
-              Demo metrics read local event history and show whether employees
-              are being viewed, hired, checked, and used after onboarding.
+              Demo metrics read local event history and separate acquisition,
+              safety checks, work handoff, and human acceptance. Delivery
+              quality still comes from /performance because KPI records are the
+              authoritative employee evidence source.
             </p>
           </div>
           <p className="max-w-sm text-sm leading-6 text-crew-muted">
@@ -240,6 +251,75 @@ export default function Metrics() {
             label="Post-hire Usage"
             value={metrics.postHireUsage}
           />
+          <MetricCard
+            description="Verified human reviews divided by successful hires; accepted TaskRun receipts are required."
+            icon={HeartPulse}
+            label="Approval Evidence"
+            value={metrics.approvalEvidence}
+          />
+          <MetricCard
+            description="Crew handoff or human review activity divided by team views."
+            icon={ShieldCheck}
+            label="Evidence Readiness"
+            value={metrics.evidenceReadiness}
+          />
+        </section>
+
+        <section className="mt-8 grid gap-4 lg:grid-cols-3">
+          <Card className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 text-crew-muted">
+                <FileWarning className="size-4 text-crew-copper" />
+                <span className="font-mono text-xs uppercase tracking-[0.14em]">
+                  Completion vs acceptance
+                </span>
+              </div>
+              <p className="mt-4 text-3xl font-semibold text-crew-heading">
+                Separated
+              </p>
+              <p className="mt-3 text-sm leading-6 text-crew-body">
+                Runtime completion is measured in the KPI ledger. This page
+                only counts browser events and verified review submissions, so
+                it does not treat a copied task or Doctor check as acceptance.
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 text-crew-muted">
+                <ShieldCheck className="size-4 text-crew-copper" />
+                <span className="font-mono text-xs uppercase tracking-[0.14em]">
+                  Review receipts
+                </span>
+              </div>
+              <p className="mt-4 text-3xl font-semibold text-crew-heading">
+                {metrics.reviewSubmitted}
+              </p>
+              <p className="mt-3 text-sm leading-6 text-crew-body">
+                Verified reviews are accepted-task reviews, not marketing star
+                ratings. Legacy notes and mock signals are intentionally absent
+                from this metric.
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="rounded-[8px] border-amber-300/25 bg-amber-300/10 text-crew-heading">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 text-amber-100">
+                <FileWarning className="size-4" />
+                <span className="font-mono text-xs uppercase tracking-[0.14em]">
+                  Instrumentation gap
+                </span>
+              </div>
+              <p className="mt-4 text-3xl font-semibold text-amber-100">
+                Honest
+              </p>
+              <p className="mt-3 text-sm leading-6 text-amber-100/85">
+                Cost, duration, regression, and evidence coverage are not
+                browser analytics. They stay on Performance until the local API
+                exposes event-level time series here.
+              </p>
+            </CardContent>
+          </Card>
         </section>
 
         <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">

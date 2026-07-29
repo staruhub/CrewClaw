@@ -5,10 +5,14 @@ import {
   CheckCircle2,
   Clipboard,
   Copy,
+  Eye,
+  FileDiff,
+  FileWarning,
   Play,
   Sparkles,
   Users,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +28,14 @@ type CrewContribution = {
   focus: string;
   output: string;
   handoff: string;
+};
+
+type LearningProposal = {
+  worked: string[];
+  failed: string[];
+  knowledge: string[];
+  playbookDiff: { before: string; after: string };
+  memoryUpdate: string;
 };
 
 function commandBrief(brief: string) {
@@ -59,6 +71,36 @@ function buildContribution(
   };
 }
 
+function buildLearningProposal(
+  brief: string,
+  contributions: CrewContribution[]
+): LearningProposal {
+  const ownerNames = contributions
+    .map(contribution => contribution.employee.name)
+    .join(", ");
+  return {
+    worked: [
+      `Clear crew split across ${ownerNames || "selected employees"}.`,
+      "Each workstream has an explicit handoff instead of a silent merge.",
+    ],
+    failed: [
+      "No runtime delivery receipt exists yet, so completion cannot be claimed.",
+      "No accepted TaskRun review exists yet, so market reputation cannot change.",
+    ],
+    knowledge: [
+      `Assignment pattern: ${commandBrief(brief)}`,
+      "Use employee role and declared skills to split product, code, research, and launch-risk work.",
+    ],
+    playbookDiff: {
+      before: "Run one AI employee against the whole assignment.",
+      after:
+        "Split the assignment by employee role, require blockers and handoff notes, then route delivery to human review.",
+    },
+    memoryUpdate:
+      "Staged only: remember this crew split after a human accepts delivered evidence.",
+  };
+}
+
 export default function CrewMode() {
   const { list } = useTeam();
   const employees = useMemo(
@@ -73,6 +115,10 @@ export default function CrewMode() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [planVersion, setPlanVersion] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [learningReviewed, setLearningReviewed] = useState(false);
+  const [learningDecision, setLearningDecision] = useState<
+    "pending" | "approved" | "rejected"
+  >("pending");
 
   useEffect(() => {
     track("team_viewed", {
@@ -97,6 +143,10 @@ export default function CrewMode() {
   );
   const cliCommand = `crew standup "${commandBrief(brief)}"`;
   const canGenerate = selectedEmployees.length > 0 && brief.trim().length > 0;
+  const learningProposal = useMemo(
+    () => buildLearningProposal(brief, contributions),
+    [brief, contributions]
+  );
 
   function toggleEmployee(employeeId: string, checked: boolean) {
     setPlanVersion(0);
@@ -125,6 +175,8 @@ export default function CrewMode() {
     }
 
     setCopied(false);
+    setLearningReviewed(false);
+    setLearningDecision("pending");
     setPlanVersion(current => current + 1);
   }
 
@@ -362,6 +414,155 @@ export default function CrewMode() {
                     </Card>
                   ))}
                 </div>
+                <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
+                  <CardHeader>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-xl font-semibold">
+                          <FileDiff className="size-5 text-crew-copper" />
+                          Dream review proposal
+                        </CardTitle>
+                        <p className="mt-2 text-sm leading-6 text-crew-body">
+                          Learning stays staged until a human reviews the diff.
+                          This page does not write active memory or update
+                          marketplace reputation.
+                        </p>
+                      </div>
+                      <Badge
+                        className={cn(
+                          "rounded-[8px] border",
+                          learningDecision === "approved"
+                            ? "border-emerald-400/35 bg-emerald-400/10 text-emerald-200"
+                            : learningDecision === "rejected"
+                              ? "border-red-300/35 bg-red-400/10 text-red-100"
+                              : "border-amber-300/35 bg-amber-300/10 text-amber-100"
+                        )}
+                        variant="outline"
+                      >
+                        {learningDecision === "pending"
+                          ? "Awaiting human review"
+                          : learningDecision === "approved"
+                            ? "Approved as staged note"
+                            : "Rejected"}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div>
+                        <h3 className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
+                          Worked
+                        </h3>
+                        <ul className="mt-3 space-y-2 text-sm leading-6 text-crew-body">
+                          {learningProposal.worked.map(item => (
+                            <li
+                              className="rounded-[8px] border border-white/10 bg-white/[0.025] px-3 py-2"
+                              key={item}
+                            >
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <h3 className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
+                          Failed / unknown
+                        </h3>
+                        <ul className="mt-3 space-y-2 text-sm leading-6 text-crew-body">
+                          {learningProposal.failed.map(item => (
+                            <li
+                              className="rounded-[8px] border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2"
+                              key={item}
+                            >
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                    <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
+                        <h3 className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
+                          Knowledge candidate
+                        </h3>
+                        <ul className="mt-3 space-y-2 text-sm leading-6 text-crew-body">
+                          {learningProposal.knowledge.map(item => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="rounded-[8px] border border-white/10 bg-[#17120F] p-4">
+                        <h3 className="font-mono text-xs uppercase tracking-[0.16em] text-crew-muted">
+                          Playbook diff
+                        </h3>
+                        <p className="mt-3 text-sm leading-6 text-red-100">
+                          - {learningProposal.playbookDiff.before}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-emerald-100">
+                          + {learningProposal.playbookDiff.after}
+                        </p>
+                      </div>
+                    </div>
+                    <Alert className="mt-5 rounded-[8px] border-amber-300/25 bg-amber-300/10 text-crew-heading">
+                      <FileWarning className="size-4 text-amber-100" />
+                      <AlertTitle>Controlled memory update</AlertTitle>
+                      <AlertDescription className="text-amber-100/85">
+                        {learningProposal.memoryUpdate} Permission standards,
+                        deliverable standards, and external behavior still
+                        require a real approval receipt outside this preview.
+                      </AlertDescription>
+                    </Alert>
+                    <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                      <Button
+                        className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
+                        onClick={() => {
+                          setLearningReviewed(true);
+                          track("team_viewed", {
+                            source: "crew_mode",
+                            action: "dream_proposal_reviewed",
+                            selected_employee_ids: selectedEmployees.map(
+                              employee => employee.employee_id
+                            ),
+                          });
+                        }}
+                        type="button"
+                        variant="outline"
+                      >
+                        <Eye className="size-4" />
+                        Mark reviewed
+                      </Button>
+                      <Button
+                        className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
+                        disabled={!learningReviewed}
+                        onClick={() => {
+                          setLearningDecision("approved");
+                          track("team_viewed", {
+                            source: "crew_mode",
+                            action: "dream_proposal_approved_staged",
+                          });
+                        }}
+                        type="button"
+                      >
+                        Approve staged note
+                      </Button>
+                      <Button
+                        className="rounded-[8px]"
+                        disabled={!learningReviewed}
+                        onClick={() => {
+                          setLearningDecision("rejected");
+                          track("team_viewed", {
+                            source: "crew_mode",
+                            action: "dream_proposal_rejected",
+                          });
+                        }}
+                        type="button"
+                        variant="destructive"
+                      >
+                        Reject update
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
               </section>
             )}
           </>

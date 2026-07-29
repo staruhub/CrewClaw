@@ -9,6 +9,13 @@ import { writeClipboard } from "@/lib/clipboard";
 type HireCliHandoffProps = {
   slug: string;
   capabilities?: string[];
+  intent?: {
+    source: string;
+    task: string;
+    budget: string;
+    runtime: string;
+    requested_access: string[];
+  };
 };
 
 function grantArguments(capabilities: string[]): string {
@@ -41,6 +48,7 @@ function CopyCommand({ value }: { value: string }) {
 export function HireCliHandoff({
   slug,
   capabilities = [],
+  intent,
 }: HireCliHandoffProps) {
   const [packageState, setPackageState] = useState<{
     slug: string;
@@ -95,6 +103,34 @@ export function HireCliHandoff({
         <code className="font-mono text-white/75">.crewclaw/team.json</code>{" "}
         through the local API (same trust boundary as fire).
       </p>
+      {intent ? (
+        <dl className="mt-5 grid gap-3 border border-white/10 bg-black/20 p-4 text-xs sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <dt className="font-mono uppercase tracking-[0.16em] text-white/35">
+              Intended task
+            </dt>
+            <dd className="mt-1 leading-5 text-white/70">{intent.task}</dd>
+          </div>
+          <div>
+            <dt className="font-mono uppercase tracking-[0.16em] text-white/35">
+              Budget / runtime
+            </dt>
+            <dd className="mt-1 leading-5 text-white/70">
+              {intent.budget} · {intent.runtime}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-mono uppercase tracking-[0.16em] text-white/35">
+              Requested access
+            </dt>
+            <dd className="mt-1 leading-5 text-white/70">
+              {intent.requested_access.length > 0
+                ? intent.requested_access.join(", ")
+                : "Required capability contract only"}
+            </dd>
+          </div>
+        </dl>
+      ) : null}
 
       <div className="mt-5">
         <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">

@@ -5,6 +5,7 @@ primary_region = "nrt"
   dockerfile = "Dockerfile"
 
 [env]
+  HOST = "0.0.0.0"
   NODE_ENV = "production"
   PORT = "3000"
 

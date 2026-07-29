@@ -9,11 +9,15 @@ import {
   Copy,
   Download,
   FileText,
+  Gauge,
   Heart,
+  KeyRound,
   MessageSquare,
+  PackageCheck,
   ShieldCheck,
   Star,
   Tag,
+  TerminalSquare,
 } from "lucide-react";
 import { PermissionLevelList } from "@/components/employee/PermissionLevel";
 import { ToolCapabilityList } from "@/components/employee/ToolCapabilityList";
@@ -37,6 +41,19 @@ import { track } from "@/hooks/use-analytics";
 import { useEmployeeReviews } from "@/hooks/use-reviews";
 import { useSavedEmployees } from "@/hooks/use-saved";
 import { writeClipboard } from "@/lib/clipboard";
+import {
+  acceptanceLabel,
+  averageCostLabel,
+  formatDuration,
+  formatMoney,
+  formatPercentValue,
+  hireHandoffUrl,
+  kpiStateLabel,
+  reputationLabel,
+  runtimeSummary,
+  taskCountLabel,
+} from "@/components/employee/employeeSignals";
+import { useEmployeePerformance } from "@/components/employee/useEmployeePerformance";
 
 type ResumeSectionProps = {
   title: string;
@@ -222,6 +239,9 @@ export default function EmployeeDetail() {
   const [selectedTaskRunId, setSelectedTaskRunId] = useState("");
   const [reviewMessage, setReviewMessage] = useState<string | null>(null);
   const [copiedTask, setCopiedTask] = useState<string | null>(null);
+  const performanceState = useEmployeePerformance(
+    employee?.employee_id ?? "missing"
+  );
 
   useEffect(() => {
     if (!employee) return;
@@ -237,6 +257,9 @@ export default function EmployeeDetail() {
   const currentEmployee = employee;
   const requirements = onboardingRequirements(employee);
   const isSaved = saved.isSaved(employee.employee_id);
+  const runtime = runtimeSummary(employee);
+  const performance = performanceState.performance;
+  const kpi = performance?.kpi;
   const effectiveTaskRunId = reviews.reviewableTasks.some(
     task => task.task_run_id === selectedTaskRunId
   )
@@ -343,7 +366,7 @@ export default function EmployeeDetail() {
                       source: "employee_detail_hero",
                     })
                   }
-                  to={`/hire/${employee.employee_id}`}
+                  to={hireHandoffUrl(employee, "employee_detail_hero")}
                 >
                   Hire
                 </Link>
@@ -463,6 +486,43 @@ export default function EmployeeDetail() {
           />
         </section>
 
+        <section className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat
+            icon={Gauge}
+            label="Formal tasks"
+            value={
+              performanceState.loading ? "Loading" : taskCountLabel(performance)
+            }
+          />
+          <Stat
+            icon={ClipboardCheck}
+            label="Acceptance"
+            value={
+              performanceState.loading
+                ? "Loading"
+                : acceptanceLabel(performance)
+            }
+          />
+          <Stat
+            icon={Tag}
+            label="Average cost"
+            value={
+              performanceState.loading
+                ? "Loading"
+                : averageCostLabel(performance)
+            }
+          />
+          <Stat
+            icon={Star}
+            label="Reputation"
+            value={
+              performanceState.loading
+                ? "Loading"
+                : reputationLabel(performance)
+            }
+          />
+        </section>
+
         <div className="mt-4 rounded-[8px] border border-white/10 bg-white/[0.025] px-5 py-4">
           {employee.certified_evaluation ? (
             <dl className="grid gap-4 text-sm sm:grid-cols-3">
@@ -506,6 +566,63 @@ export default function EmployeeDetail() {
           )}
         </div>
 
+        <ResumeSection
+          className="mt-8"
+          eyebrow="Manifest"
+          title="Hiring contract and runtime snapshot"
+        >
+          <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
+            <dl className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
+              <DetailRow label="Manifest id" value={employee.employee_id} />
+              <DetailRow label="Version" value={`v${employee.version}`} />
+              <DetailRow
+                label="Evidence"
+                value={employeeEvidenceLevel(employee)}
+              />
+              <DetailRow
+                label="Source"
+                value={
+                  employee.repo ??
+                  employee.local_source ??
+                  "Package source not published"
+                }
+              />
+              <DetailRow
+                label="Trial"
+                value={employee.lifecycle.trial_period}
+              />
+            </dl>
+            <dl className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
+              <DetailRow
+                label="Runtime compatibility"
+                value={`${runtime.label}; ${runtime.detail}`}
+              />
+              <DetailRow
+                label="Declared tools"
+                value={
+                  employee.tool_capabilities.length === 0
+                    ? "No formal tool capabilities declared"
+                    : `${employee.tool_capabilities.length} capabilities; highest risk ${runtime.highestRisk}`
+                }
+              />
+              <DetailRow
+                label="Availability"
+                value={
+                  employee.lifecycle.hireable
+                    ? employee.local_source
+                      ? "Hireable for local trial"
+                      : "Hireable after package source is available"
+                    : "Not hireable"
+                }
+              />
+              <DetailRow
+                label="Handoff carries"
+                value="employee, first task, budget label, runtime provider, required access"
+              />
+            </dl>
+          </div>
+        </ResumeSection>
+
         <section className="mt-8 grid gap-5 lg:grid-cols-2">
           <ResumeSection eyebrow="Fit" title="Best for">
             <TextList
@@ -528,6 +645,18 @@ export default function EmployeeDetail() {
                   {skill}
                 </Badge>
               ))}
+            </div>
+          </ResumeSection>
+
+          <ResumeSection eyebrow="Deliverables" title="Supported deliverables">
+            <div className="space-y-4">
+              <p className="text-sm leading-6 text-crew-body">
+                Formal deliverable names are not projected into the browser
+                dataset yet. The list below is taken from package example
+                outputs, so it is labeled as expected deliverables rather than
+                measured delivery history.
+              </p>
+              <TextList items={employee.examples.outputs} />
             </div>
           </ResumeSection>
 
@@ -560,6 +689,37 @@ export default function EmployeeDetail() {
             title="Tool capabilities"
           >
             <div className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
+                  <PackageCheck className="size-4 text-crew-copper" />
+                  <p className="mt-3 text-sm font-medium text-crew-heading">
+                    {runtime.label}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-crew-muted">
+                    {runtime.detail}
+                  </p>
+                </div>
+                <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
+                  <TerminalSquare className="size-4 text-crew-copper" />
+                  <p className="mt-3 text-sm font-medium text-crew-heading">
+                    Runtime provider handoff
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-crew-muted">
+                    Hire links include the first declared provider when one is
+                    available; the hire page still validates capabilities.
+                  </p>
+                </div>
+                <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
+                  <KeyRound className="size-4 text-crew-copper" />
+                  <p className="mt-3 text-sm font-medium text-crew-heading">
+                    Permissions are scoped
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-crew-muted">
+                    Legacy permission strings are context only; capability
+                    tokens are selected during hire.
+                  </p>
+                </div>
+              </div>
               <div>
                 <h3 className="text-sm font-medium text-crew-heading">
                   Role capability contract
@@ -654,6 +814,93 @@ export default function EmployeeDetail() {
             </div>
           </ResumeSection>
         </section>
+
+        <ResumeSection className="mt-5" eyebrow="KPI" title="Local KPI record">
+          <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
+            <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
+              <h3 className="text-sm font-medium text-crew-heading">
+                {performanceState.loading
+                  ? "Loading local performance..."
+                  : kpiStateLabel(performance)}
+              </h3>
+              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                <DetailRow
+                  label="Tasks"
+                  value={
+                    performanceState.loading
+                      ? "Loading"
+                      : taskCountLabel(performance)
+                  }
+                />
+                <DetailRow
+                  label="Accepted"
+                  value={
+                    performanceState.loading
+                      ? "Loading"
+                      : acceptanceLabel(performance)
+                  }
+                />
+                <DetailRow
+                  label="Average cost"
+                  value={
+                    performanceState.loading
+                      ? "Loading"
+                      : averageCostLabel(performance)
+                  }
+                />
+                <DetailRow
+                  label="Average runtime"
+                  value={
+                    performanceState.loading
+                      ? "Loading"
+                      : formatDuration(kpi?.average_duration_ms)
+                  }
+                />
+                <DetailRow
+                  label="Evidence coverage"
+                  value={
+                    performanceState.loading
+                      ? "Loading"
+                      : formatPercentValue(kpi?.evidence_coverage)
+                  }
+                />
+                <DetailRow
+                  label="Total cost"
+                  value={
+                    performanceState.loading
+                      ? "Loading"
+                      : formatMoney(kpi?.total_cost)
+                  }
+                />
+              </dl>
+            </div>
+            <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
+              <h3 className="text-sm font-medium text-crew-heading">
+                Reputation and proof pack
+              </h3>
+              <p className="mt-3 text-sm leading-6 text-crew-body">
+                {performanceState.loading
+                  ? "Loading local proof pack..."
+                  : reputationLabel(performance)}
+              </p>
+              {performanceState.error ? (
+                <p className="mt-3 text-xs leading-5 text-crew-muted">
+                  Local performance endpoint did not provide this employee's
+                  ledger in the current browser session:{" "}
+                  {performanceState.error}
+                </p>
+              ) : null}
+              {performance?.warnings.length ? (
+                <TextList items={performance.warnings} />
+              ) : (
+                <p className="mt-3 text-xs leading-5 text-crew-muted">
+                  No warning is shown unless it comes from the local proof-pack
+                  projection.
+                </p>
+              )}
+            </div>
+          </div>
+        </ResumeSection>
 
         <ResumeSection
           className="mt-5"
@@ -876,7 +1123,7 @@ export default function EmployeeDetail() {
                   source: "employee_detail_footer",
                 })
               }
-              to={`/hire/${employee.employee_id}`}
+              to={hireHandoffUrl(employee, "employee_detail_footer")}
             >
               Hire
             </Link>

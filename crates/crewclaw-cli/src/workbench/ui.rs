@@ -161,6 +161,9 @@ pub(crate) fn render_with_input_spans(
         Screen::Workbench if root[1].width >= 100 => {
             render_workbench_2col(frame, state, ui_state, root[1]);
         }
+        Screen::Workbench if root[1].width >= 70 => {
+            render_workbench_mid(frame, state, ui_state, root[1]);
+        }
         Screen::Workbench => render_messages(frame, state, ui_state, root[1]),
         Screen::Market => screens::market::render(frame, state, ui_state, root[1]),
         Screen::Hire => screens::hire::render(frame, state, ui_state, root[1]),
@@ -1059,6 +1062,53 @@ fn render_workbench_2col(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiS
         .split(area);
     render_workbench_session(frame, state, ui_state, cols[0]);
     super::widgets::artifact_preview::render_inline(frame, state, ui_state, cols[1]);
+}
+
+/// Spec mid layout (70-99 columns): keep task/artifact truth in a side column and reserve the
+/// main column for the live session plus tools/inspect detail. This prevents mid terminals from
+/// collapsing into the narrow single stream while keeping the input area always visible.
+fn render_workbench_mid(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState, area: Rect) {
+    let side_width = (area.width / 3).clamp(24, 30);
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(side_width), Constraint::Min(42)])
+        .split(area);
+    let side = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .split(cols[0]);
+    super::widgets::workbench_panels::render_task_queue(frame, state, ui_state, side[0]);
+    render_artifacts(frame, state, ui_state, side[1]);
+
+    let detail_selected = ui_state
+        .session_cursor
+        .and_then(|idx| state.timeline.get(idx));
+    let detail_h: u16 = if detail_selected.is_some() { 7 } else { 0 };
+    let show_verdict = state.approval.is_none() && state.last_verdict.is_some();
+    let approval_h: u16 = if state.approval.is_some() || show_verdict {
+        3
+    } else {
+        0
+    };
+    let main = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(5),
+            Constraint::Length(detail_h),
+            Constraint::Length(approval_h),
+            Constraint::Length(6),
+        ])
+        .split(cols[1]);
+    render_message_stream(frame, state, ui_state, main[0], "SESSION", None, true);
+    if let Some(entry) = detail_selected {
+        render_event_detail(frame, entry, main[1]);
+    }
+    if let Some(approval) = state.approval.as_ref() {
+        render_approval_bar(frame, approval, main[2]);
+    } else if let Some((accepted, text)) = state.last_verdict.as_ref() {
+        render_verdict_bar(frame, *accepted, text, main[2]);
+    }
+    render_tools(frame, state, ui_state, main[3]);
 }
 
 fn render_workbench_focus(frame: &mut Frame<'_>, state: &AppState, ui_state: &UiState, area: Rect) {
@@ -4886,17 +4936,17 @@ mod tests {
         );
     }
 
-    /// 宽 <100 保持单栏；100-139 为内容优先双栏，≥140 才显示压缩员工栏。
+    /// 宽 <70 保持单栏；70-99 为中屏侧栏，100-139 为内容优先双栏，≥140 才显示压缩员工栏。
     #[test]
     fn workbench_narrow_keeps_single_column() {
         let state = scripted_workbench_state();
         let ui = UiState::default();
-        let mut t = Terminal::new(TestBackend::new(99, 30)).expect("term");
+        let mut t = Terminal::new(TestBackend::new(69, 30)).expect("term");
         t.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let out = screen(&t);
         assert!(
             !out.contains("TASK QUEUE"),
-            "no multi-column chrome below 100"
+            "no multi-column chrome below 70"
         );
         assert!(
             out.contains('╔'),
@@ -5228,6 +5278,56 @@ mod tests {
     }
 
     #[test]
+    fn mid_width_renders_side_column_and_session_instead_of_narrow_stream() {
+        let mut state = AppState::default();
+        state.task = Some(super::super::state::Task {
+            id: Some("mid-task".to_string()),
+            title: "中屏任务".to_string(),
+            status: "running".to_string(),
+        });
+        state.artifacts.push(super::super::state::Artifact {
+            id: Some("mid-artifact".to_string()),
+            task_id: Some("mid-task".to_string()),
+            name: Some("mid-report.md".to_string()),
+            kind: Some("markdown".to_string()),
+            artifact_type: None,
+            path: None,
+            export_path: None,
+            status: "ready".to_string(),
+            summary: None,
+            checks: Vec::new(),
+            bytes: None,
+            created_ts: 0,
+        });
+        state.reduce(&TaskEvent::from_parts(
+            "tool.requested",
+            1,
+            serde_json::json!({"id":"tool1","tool":"read_file","label":"读取"}),
+        ));
+
+        let mut terminal = Terminal::new(TestBackend::new(84, 28)).expect("test terminal");
+        terminal
+            .draw(|frame| render(frame, &state, &UiState::default(), ""))
+            .expect("draw frame");
+        let output = screen(&terminal);
+        assert!(output.contains("TASK QUEUE"), "{output}");
+        assert!(output.contains("Artifacts / Checks"), "{output}");
+        assert!(output.contains("SESSION"), "{output}");
+        assert!(output.contains("Tools"), "{output}");
+        assert!(output.contains("mid-report.md"), "{output}");
+
+        let mut narrow = Terminal::new(TestBackend::new(69, 28)).expect("test terminal");
+        narrow
+            .draw(|frame| render(frame, &state, &UiState::default(), ""))
+            .expect("draw frame");
+        let narrow_output = screen(&narrow);
+        assert!(
+            !narrow_output.contains("TASK QUEUE"),
+            "narrow keeps the single content panel: {narrow_output}"
+        );
+    }
+
+    #[test]
     fn status_symbol_carries_semantics_without_color() {
         assert_eq!(status_symbol("done"), SYM_OK);
         assert_eq!(status_symbol("failed"), SYM_FAIL);
@@ -5235,7 +5335,10 @@ mod tests {
         assert_eq!(status_symbol("blocked"), SYM_WARN);
         assert_eq!(status_symbol("needs_artifact"), SYM_WARN);
         assert_eq!(status_symbol("idle"), SYM_WAIT);
-        assert_eq!(SYM_WAIT, "~", "pending/waiting uses the six-state tilde");
+        assert_eq!(
+            SYM_WAIT, "?",
+            "pending/waiting uses the spec waiting marker"
+        );
         assert_eq!(status_color("needs_artifact"), WARN());
         assert!(
             timeline_label_style("task.rejected")
@@ -5723,7 +5826,7 @@ mod tests {
             bytes: None,
             created_ts: 0,
         });
-        let mut terminal = Terminal::new(TestBackend::new(90, 24)).expect("test terminal");
+        let mut terminal = Terminal::new(TestBackend::new(69, 24)).expect("test terminal");
 
         // Closed drawer: the artifact panel content is not on screen.
         terminal

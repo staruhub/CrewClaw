@@ -8,7 +8,7 @@ The current product boundary and roadmap are defined in [`docs/prd_v0.20.md`](do
 
 ## Release Status
 
-The checked-in implementation is a **v0.20 release candidate**, not a tagged stable release. Product milestone versions (`v0.20`) describe the end-to-end CrewClaw contract; the Rust CLI currently has its own pre-1.0 binary version (`crewclaw-cli 0.1.0`). A release is complete only when the gates in [`docs/prd_v0.20.md`](docs/prd_v0.20.md) and [`docs/RELEASING.md`](docs/RELEASING.md) have current evidence.
+The checked-in implementation is published through the **CrewClaw Beta 0.7** prerelease channel. Beta channel versions describe the packaged product update; product milestone versions (`v0.20`) describe the end-to-end CrewClaw contract, while the Rust CLI keeps its own pre-1.0 binary version (`crewclaw-cli 0.1.0`). See the [Beta 0.7 release notes](docs/releases/beta-0.7.md) for installation, upgrade, rollback, verification, and known-limit details.
 
 ## Prerequisites
 

@@ -217,6 +217,132 @@
   outline-offset: 3px;
 }
 
+.landing-v4 header a,
+.landing-v4 footer a {
+  transition: color 160ms ease;
+}
+
+.landing-v4 header a:hover,
+.landing-v4 footer a:hover {
+  color: #ec9552;
+}
+
+.landing-terminal::before {
+  position: absolute;
+  inset: -1px;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    rgba(236, 149, 82, 0.18),
+    transparent 42%,
+    rgba(131, 165, 152, 0.08)
+  );
+  opacity: 0.72;
+}
+
+.landing-terminal-body {
+  position: relative;
+  min-height: 22rem;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    radial-gradient(
+      circle at 78% 24%,
+      rgba(236, 149, 82, 0.08),
+      transparent 18rem
+    ),
+    #0b0909;
+  background-size:
+    100% 1.75rem,
+    auto,
+    auto;
+}
+
+.landing-terminal-line {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: terminal-line 360ms ease forwards;
+  white-space: pre-wrap;
+}
+
+.terminal-cmd {
+  color: #f2eee7;
+  font-weight: 700;
+}
+
+.terminal-muted {
+  color: #8d877e;
+}
+
+.terminal-ok {
+  color: #79c98d;
+  font-weight: 700;
+}
+
+.terminal-warn {
+  color: #ec9552;
+}
+
+.landing-cursor {
+  display: inline-block;
+  margin-top: 0.25rem;
+  color: #ec9552;
+  animation: blink 1s step-end infinite;
+}
+
+.landing-market-table {
+  min-width: 46rem;
+}
+
+@keyframes terminal-line {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.landing-terminal-line-0 {
+  animation-delay: 80ms;
+}
+.landing-terminal-line-1 {
+  animation-delay: 260ms;
+}
+.landing-terminal-line-2 {
+  animation-delay: 440ms;
+}
+.landing-terminal-line-3 {
+  animation-delay: 620ms;
+}
+.landing-terminal-line-4 {
+  animation-delay: 800ms;
+}
+.landing-terminal-line-5 {
+  animation-delay: 980ms;
+}
+.landing-terminal-line-6 {
+  animation-delay: 1160ms;
+}
+.landing-terminal-line-7 {
+  animation-delay: 1340ms;
+}
+.landing-terminal-line-8 {
+  animation-delay: 1520ms;
+}
+.landing-terminal-line-9 {
+  animation-delay: 1700ms;
+}
+
 @keyframes landing-reveal {
   from {
     opacity: 0;

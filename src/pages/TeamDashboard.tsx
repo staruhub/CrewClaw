@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import type { LocalEmployeePerformance } from "@contracts/local-performance";
 import type { OffboardingMode } from "@contracts/team";
 import type { DoctorReport, HealthStatus } from "@contracts/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -46,6 +47,8 @@ import { getEmployee } from "@/data/employees";
 import { track } from "@/hooks/use-analytics";
 import { useRoles } from "@/hooks/use-roles";
 import { useTeam } from "@/hooks/use-team";
+import { fetchLocalEmployeePerformance } from "@/lib/local-api";
+import { loadSettledRecords } from "@/lib/performance-load";
 import { cn } from "@/lib/utils";
 
 const HEALTH_COPY: Record<HealthStatus, string> = {
@@ -114,6 +117,37 @@ function ReportList({ items }: { items: string[] }) {
   );
 }
 
+function approvalSummary(performance: LocalEmployeePerformance | undefined) {
+  if (!performance || performance.kpi.state !== "available") {
+    return {
+      accepted: "—",
+      completion: "—",
+      evidence: "No KPI record",
+      reviews: "—",
+    };
+  }
+  const accepted = performance.kpi.accepted ?? 0;
+  const completed = performance.kpi.completed ?? 0;
+  const reviewCount = performance.verified_reviews.length;
+  const reviewable = performance.accepted_tasks.filter(
+    task => !task.reviewed
+  ).length;
+  const evidence =
+    performance.kpi.evidence_coverage === null
+      ? "Evidence unknown"
+      : `${Math.round(performance.kpi.evidence_coverage * 100)}% evidence`;
+
+  return {
+    accepted: String(accepted),
+    completion: String(completed),
+    evidence,
+    reviews:
+      reviewable > 0
+        ? `${reviewCount} reviews · ${reviewable} pending`
+        : `${reviewCount} reviews`,
+  };
+}
+
 export default function TeamDashboard() {
   const navigate = useNavigate();
   const team = useTeam();
@@ -125,23 +159,43 @@ export default function TeamDashboard() {
     useState<OffboardingMode>("export_memory");
   const [roleDraft, setRoleDraft] = useState<RoleDraft | null>(null);
   const roster = team.list().filter(employee => employee.status !== "fired");
+  const employeeKey = roster
+    .map(employee => employee.employee_id)
+    .sort()
+    .join("|");
+  const [performanceState, setPerformanceState] = useState<{
+    key: string;
+    records: Record<string, LocalEmployeePerformance>;
+    loadError: string | null;
+  }>({ key: "", records: {}, loadError: null });
+  const performanceLoading = performanceState.key !== employeeKey;
+  const performanceRecords = useMemo(
+    () => (performanceLoading ? {} : performanceState.records),
+    [performanceLoading, performanceState.records]
+  );
+  const performanceLoadError = performanceLoading
+    ? null
+    : performanceState.loadError;
 
   const rows = useMemo(
     () =>
       roster.map(workspaceEmployee => {
         const employee = getEmployee(workspaceEmployee.employee_id);
         const doctorReport = team.getReport(workspaceEmployee.employee_id);
+        const performance = performanceRecords[workspaceEmployee.employee_id];
 
         return {
           employee,
           workspaceEmployee,
           doctorReport,
+          performance,
+          approval: approvalSummary(performance),
           name: employee?.name ?? workspaceEmployee.employee_id,
           role: employee?.role ?? "Unknown role",
           assignedRole: roleAssignments.getRole(workspaceEmployee.employee_id),
         };
       }),
-    [roleAssignments, roster, team]
+    [performanceRecords, roleAssignments, roster, team]
   );
 
   useEffect(() => {
@@ -149,6 +203,27 @@ export default function TeamDashboard() {
       active_employee_count: roster.length,
     });
   }, [roster.length]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const employeeIds = employeeKey ? employeeKey.split("|") : [];
+    void loadSettledRecords(employeeIds, fetchLocalEmployeePerformance).then(
+      ({ records, failedIds }) => {
+        if (cancelled) return;
+        setPerformanceState({
+          key: employeeKey,
+          records,
+          loadError:
+            failedIds.length > 0
+              ? `Performance evidence is unavailable for ${failedIds.join(", ")}.`
+              : null,
+        });
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeKey]);
 
   function openRoleDialog(
     employeeId: string,
@@ -225,6 +300,23 @@ export default function TeamDashboard() {
           </Alert>
         ) : null}
 
+        {performanceLoading || performanceLoadError ? (
+          <Alert
+            aria-live="polite"
+            className="mt-6 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading"
+          >
+            <AlertTitle>
+              {performanceLoading
+                ? "Loading approval evidence…"
+                : "Approval evidence incomplete"}
+            </AlertTitle>
+            <AlertDescription className="text-crew-body">
+              {performanceLoadError ??
+                "Reading accepted TaskRun receipts and verified reviews for the roster."}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         {rows.length === 0 ? (
           <Card className="mt-10 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
             <CardContent className="py-10">
@@ -262,6 +354,12 @@ export default function TeamDashboard() {
                       Status
                     </TableHead>
                     <TableHead className="px-5 py-4 text-crew-muted">
+                      Delivery / approval
+                    </TableHead>
+                    <TableHead className="px-5 py-4 text-crew-muted">
+                      Evidence
+                    </TableHead>
+                    <TableHead className="px-5 py-4 text-crew-muted">
                       Version
                     </TableHead>
                     <TableHead className="px-5 py-4 text-crew-muted">
@@ -277,6 +375,7 @@ export default function TeamDashboard() {
                     ({
                       assignedRole,
                       doctorReport,
+                      approval,
                       name,
                       role,
                       workspaceEmployee,
@@ -307,6 +406,29 @@ export default function TeamDashboard() {
                         </TableCell>
                         <TableCell className="px-5 py-5">
                           <HealthBadge status={doctorReport.health_status} />
+                        </TableCell>
+                        <TableCell className="px-5 py-5 text-sm text-crew-body">
+                          <div className="font-mono text-xs text-crew-heading">
+                            {approval.completion} completed /{" "}
+                            {approval.accepted} accepted
+                          </div>
+                          <div className="mt-1 text-xs text-crew-muted">
+                            {approval.reviews}
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-5 py-5">
+                          <Badge
+                            className={cn(
+                              "rounded-[8px] border",
+                              approval.evidence.includes("No") ||
+                                approval.evidence.includes("unknown")
+                                ? "border-amber-300/35 bg-amber-300/10 text-amber-100"
+                                : "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+                            )}
+                            variant="outline"
+                          >
+                            {approval.evidence}
+                          </Badge>
                         </TableCell>
                         <TableCell className="px-5 py-5 font-mono text-xs text-crew-muted">
                           v{workspaceEmployee.version}

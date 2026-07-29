@@ -10,7 +10,7 @@ pub const SYM_RUNNING: &str = "→";
 pub const SYM_OK: &str = "✓";
 pub const SYM_FAIL: &str = "✗";
 pub const SYM_WARN: &str = "!";
-pub const SYM_WAIT: &str = "~";
+pub const SYM_WAIT: &str = "?";
 /// v0.11 M4：思考块符号（未知符号在 symbol_color 里回退 DIM，正合思考的低调气质）。
 pub const SYM_THINK: &str = "✦";
 

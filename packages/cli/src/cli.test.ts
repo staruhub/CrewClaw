@@ -6,6 +6,7 @@ import {
   chmod,
   readFile,
   cp,
+  realpath,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter } from "node:path";
@@ -234,7 +235,7 @@ async function makeCliFixtureRoot() {
       recursive: true,
     }),
   ]);
-  return root;
+  return await realpath(root);
 }
 
 afterEach(async () => {

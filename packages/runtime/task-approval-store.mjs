@@ -1,10 +1,18 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, unlinkSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { existsSync, lstatSync, readdirSync, unlinkSync } from "node:fs";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 
 import { writeJsonDurably } from "./acceptance-transaction.mjs";
 import { verifyGuardedArtifactFingerprint } from "./artifact-contract.mjs";
 import { loadArtifact } from "./artifact-store.mjs";
+import { resolvePathInsideRoot } from "./tool-gateway.mjs";
 import {
   MAX_STATE_FILE_BYTES,
   readStateFileGuarded,
@@ -38,6 +46,40 @@ function runsDir(root) {
 
 function artifactsDir(root) {
   return join(resolve(root), ".crewclaw", "artifacts");
+}
+
+function resolveSafeWorkspacePath(path, root) {
+  const absolute = resolve(path);
+  const parent = resolvePathInsideRoot(dirname(absolute), root, {
+    mustExist: true,
+    rejectSymlinks: true,
+  });
+  if (!parent.ok) {
+    const error = new Error(parent.error);
+    if (/symbolic links|symlink|junction/i.test(parent.error)) {
+      error.code = "artifact_link_component";
+    }
+    throw error;
+  }
+  return resolve(parent.path, basename(absolute));
+}
+
+function hasRawLinkComponent(path, root) {
+  const rootPath = resolve(root);
+  const targetPath = resolve(path);
+  const rel = relative(rootPath, targetPath);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return false;
+  let cursor = rootPath;
+  for (const part of rel.split(/[\\/]+/).filter(Boolean)) {
+    cursor = join(cursor, part);
+    try {
+      if (lstatSync(cursor).isSymbolicLink()) return true;
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    }
+  }
+  return false;
 }
 
 function canonicalize(value) {
@@ -750,11 +792,31 @@ export function verifyPendingTaskArtifact(root, pending) {
   });
   if (!shape.ok) return shape;
 
-  const artifactPath = resolve(pending.artifact.path);
-  const expectedArtifactPath = join(
-    artifactsDir(root),
-    `${pending.artifact.id}.md`
-  );
+  let artifactPath;
+  let expectedArtifactPath;
+  try {
+    artifactPath = resolveSafeWorkspacePath(pending.artifact.path, root);
+    expectedArtifactPath = resolveSafeWorkspacePath(
+      join(artifactsDir(root), `${pending.artifact.id}.md`),
+      root
+    );
+  } catch (error) {
+    if (
+      error?.code === "artifact_link_component" ||
+      hasRawLinkComponent(pending.artifact.path, root)
+    ) {
+      return failure(
+        "artifact_link_component",
+        "artifacts 路径包含 symlink 或 junction，拒绝访问",
+        { path: pending.artifact.path }
+      );
+    }
+    return failure(
+      "artifact_path_changed",
+      "待验收回执中的交付路径无法安全解析",
+      { path: pending.artifact.path, error: error?.message || String(error) }
+    );
+  }
   if (artifactPath !== expectedArtifactPath) {
     return failure(
       "artifact_path_changed",
@@ -762,7 +824,17 @@ export function verifyPendingTaskArtifact(root, pending) {
       { path: artifactPath, expectedPath: expectedArtifactPath }
     );
   }
-  if (resolve(pending.fingerprint.path) !== artifactPath) {
+  let fingerprintPath;
+  try {
+    fingerprintPath = resolveSafeWorkspacePath(pending.fingerprint.path, root);
+  } catch (error) {
+    return failure(
+      "artifact_path_changed",
+      "待验收回执中的指纹路径无法安全解析",
+      { path: pending.fingerprint.path, error: error?.message || String(error) }
+    );
+  }
+  if (fingerprintPath !== artifactPath) {
     return failure(
       "artifact_path_changed",
       "待验收回执中的交付路径与指纹路径不一致",
@@ -826,7 +898,17 @@ export function verifyPendingTaskApprovalBinding(root, pending, run) {
       runsDir(root),
       `${pending.taskRunId}.report.md`
     );
-    if (resolve(pending.reportPath) !== expectedReportPath) {
+    let reportPath;
+    try {
+      reportPath = resolveStatePath(pending.reportPath, root);
+    } catch (error) {
+      return failure(
+        "pending_approval_report_mismatch",
+        "待验收回执的报告路径无法安全解析",
+        { taskRunId: pending.taskRunId, error: error?.message || String(error) }
+      );
+    }
+    if (reportPath !== expectedReportPath) {
       return failure(
         "pending_approval_report_mismatch",
         "待验收回执的报告路径与 taskRunId 不一致",

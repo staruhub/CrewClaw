@@ -126,6 +126,8 @@ function SummaryList({ label, items }: { label: string; items: string[] }) {
 }
 
 function SubmissionDetail({ submission }: { submission: CreatorSubmission }) {
+  const flags = evidenceFlags(submission);
+
   return (
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -175,6 +177,33 @@ function SubmissionDetail({ submission }: { submission: CreatorSubmission }) {
         </Alert>
       ) : null}
 
+      <div className="rounded-[8px] border border-white/10 bg-white/[0.03] p-4">
+        <h3 className="text-sm font-medium text-crew-heading">
+          Review evidence flags
+        </h3>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {flags.map(flag => (
+            <Badge
+              className={cn(
+                "rounded-[8px] border",
+                flag.tone === "warning"
+                  ? "border-amber-300/35 bg-amber-300/10 text-amber-100"
+                  : "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+              )}
+              key={flag.label}
+              variant="outline"
+            >
+              {flag.label}
+            </Badge>
+          ))}
+        </div>
+        <p className="mt-3 text-xs leading-5 text-crew-muted">
+          Approval is enabled only after this detail view has been opened, so
+          publishing cannot happen before a human sees the manifest,
+          permissions, tools, and evidence flags.
+        </p>
+      </div>
+
       <div className="grid gap-5 md:grid-cols-2">
         <SummaryList label="Skills" items={submission.manifest.skills} />
         <SummaryList label="Tools" items={submission.manifest.tools} />
@@ -202,6 +231,26 @@ function SubmissionDetail({ submission }: { submission: CreatorSubmission }) {
       </div>
     </div>
   );
+}
+
+function evidenceFlags(submission: CreatorSubmission) {
+  const flags: { label: string; tone: "ok" | "warning" }[] = [];
+  if (submission.high_risk_permissions.length > 0) {
+    flags.push({ label: "High-risk permission", tone: "warning" });
+  }
+  if (submission.manifest.input_examples.length === 0) {
+    flags.push({ label: "No input examples", tone: "warning" });
+  }
+  if (submission.manifest.limitations.length === 0) {
+    flags.push({ label: "No limitations listed", tone: "warning" });
+  }
+  if (submission.manifest.tools.length === 0) {
+    flags.push({ label: "No tool evidence", tone: "warning" });
+  }
+  if (flags.length === 0) {
+    flags.push({ label: "Manifest evidence reviewed", tone: "ok" });
+  }
+  return flags;
 }
 
 function Metric({
@@ -276,6 +325,9 @@ export default function ReviewQueue() {
   const submissionsApi = useSubmissions();
   const submissions = submissionsApi.list();
   const [message, setMessage] = useState<string | null>(null);
+  const [reviewedSubmissionIds, setReviewedSubmissionIds] = useState<string[]>(
+    []
+  );
   const pending = submissions.filter(
     submission => submission.status === "submitted"
   );
@@ -293,6 +345,10 @@ export default function ReviewQueue() {
   );
 
   function approve(id: string) {
+    if (!reviewedSubmissionIds.includes(id)) {
+      setMessage("Open the review detail before approving this employee.");
+      return;
+    }
     const result = submissionsApi.approve(id);
     if (result.ok && result.submission) {
       track("employee_published", {
@@ -302,6 +358,12 @@ export default function ReviewQueue() {
       });
     }
     setMessage(result.message);
+  }
+
+  function markReviewed(id: string) {
+    setReviewedSubmissionIds(current =>
+      current.includes(id) ? current : [...current, id]
+    );
   }
 
   function reject(id: string, reason: string) {
@@ -474,7 +536,12 @@ export default function ReviewQueue() {
                                 Review
                               </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-h-[86vh] overflow-auto rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading sm:max-w-4xl">
+                            <DialogContent
+                              className="max-h-[86vh] overflow-auto rounded-[8px] border-white/10 bg-[#17120F] text-crew-heading sm:max-w-4xl"
+                              onOpenAutoFocus={() =>
+                                markReviewed(submission.submission_id)
+                              }
+                            >
                               <DialogHeader>
                                 <DialogTitle>
                                   {submission.manifest.name}
@@ -492,10 +559,22 @@ export default function ReviewQueue() {
                             <>
                               <Button
                                 className="rounded-[8px] bg-emerald-600 text-white hover:bg-emerald-500"
+                                disabled={
+                                  !reviewedSubmissionIds.includes(
+                                    submission.submission_id
+                                  )
+                                }
                                 onClick={() =>
                                   approve(submission.submission_id)
                                 }
                                 size="sm"
+                                title={
+                                  reviewedSubmissionIds.includes(
+                                    submission.submission_id
+                                  )
+                                    ? "Approve reviewed employee"
+                                    : "Open Review before approving"
+                                }
                               >
                                 <CheckCircle2 className="size-4" />
                                 Approve

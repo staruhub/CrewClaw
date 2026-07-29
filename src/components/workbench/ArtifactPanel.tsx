@@ -12,7 +12,7 @@ type Props = {
 
 export function ArtifactPanel({ artifacts, selectedId, onSelect }: Props) {
   return (
-    <section className="border border-white/10 bg-white/[0.025] p-5">
+    <section className="border border-white/10 bg-white/[0.025] p-5 lg:p-3">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-crew-muted">
@@ -23,14 +23,14 @@ export function ArtifactPanel({ artifacts, selectedId, onSelect }: Props) {
           </h2>
         </div>
       </div>
-      <div className="mt-4 space-y-2">
+      <div className="mt-4 space-y-2 lg:mt-2 lg:space-y-1.5">
         {artifacts.map(artifact => (
           <button
             key={artifact.id}
             type="button"
             onClick={() => onSelect(artifact.id)}
             className={cn(
-              "w-full border px-3 py-3 text-left transition",
+              "w-full border px-3 py-3 text-left transition lg:py-2",
               selectedId === artifact.id
                 ? "border-crew-copper/60 bg-crew-copper/10"
                 : "border-white/10 bg-black/10 hover:border-white/20"

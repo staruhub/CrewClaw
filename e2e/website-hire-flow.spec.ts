@@ -73,16 +73,13 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
     .getByRole("link", { name: /^hire$/i })
     .first()
     .click();
-  await expect(page).toHaveURL(new RegExp(`/hire/${employeeId}$`));
+  await expect(page).toHaveURL(new RegExp(`/hire/${employeeId}(?:\\?|$)`));
   await expect(
     page.getByRole("heading", {
       name: new RegExp(`Review capabilities before hiring ${displayName}`, "i"),
     })
   ).toBeVisible();
-  await expect(page.getByText(/finish hiring on your machine/i)).toBeVisible();
-  await expect(page.getByText(/crew hire --from/)).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page.getByText("Hiring handoff", { exact: true })).toBeVisible();
 
   const requiredSearch = page.getByRole("checkbox", {
     name: "web.search required capability",
@@ -114,18 +111,29 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
   await expect(
     page.getByRole("heading", { name: "Main risk" }).locator("..")
   ).toContainText("Highest enabled risk tier: P3");
+  await optionalContacts.focus();
+  await page.keyboard.press("Space");
+  await expect(optionalContacts).not.toBeChecked();
   const disabledCrm = page.getByRole("checkbox", {
     name: "crm.write policy-disabled capability",
   });
   await expect(disabledCrm).not.toBeChecked();
   await expect(disabledCrm).toBeDisabled();
 
-  // The website records intent, but only the CLI may create the durable roster entry.
+  // The website records intent only after checkout, Doctor, and human-reviewed trial.
   await page
     .getByRole("button", { name: "Confirm simulated checkout", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Prepare local hire", exact: true })
+    .getByRole("button", { name: "Run Doctor", exact: true })
+    .click();
+  await expect(page.getByText(/Doctor passed/i)).toBeVisible();
+  await page
+    .getByRole("button", { name: "Run bounded trial", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Accept trial", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Activate local hire", exact: true })
     .click();
 
   await expect(
@@ -145,14 +153,30 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
   const intent = JSON.parse(stored ?? "{}") as {
     employee_id: string;
     capabilities: string[];
+    handoff: {
+      task: string;
+      budget: string;
+      runtime: string;
+      requested_access: string[];
+    };
   };
   expect(intent.employee_id).toBe(employeeId);
-  expect(intent.capabilities).toContain("contacts.read");
   expect(intent.capabilities).toContain("web.search");
+  expect(intent.capabilities).not.toContain("contacts.read");
   expect(intent.capabilities).not.toContain("places.search");
   expect(intent.capabilities).not.toContain("calendar.availability.read");
   expect(intent.capabilities).not.toContain("crm.write");
+  expect(intent.handoff.task).toBeTruthy();
+  expect(intent.handoff.budget).toBeTruthy();
+  expect(intent.handoff.runtime).toBeTruthy();
+  expect(intent.handoff.requested_access).toContain("web.search");
+  const cachedTeam = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("crewclaw.team.v1") ?? "[]")
+  );
   expect(
-    await page.evaluate(() => localStorage.getItem("crewclaw.team.v1"))
-  ).toBeNull();
+    cachedTeam.some(
+      (member: { employee_id?: string; status?: string }) =>
+        member.employee_id === employeeId && member.status === "active"
+    )
+  ).toBe(false);
 });

@@ -3,6 +3,8 @@ import { Link } from "react-router";
 import {
   ArrowUpRight,
   BadgeCheck,
+  Check,
+  Clock3,
   Heart,
   ShieldCheck,
   Tag,
@@ -26,11 +28,23 @@ import {
 import { track } from "@/hooks/use-analytics";
 import { useSavedEmployees } from "@/hooks/use-saved";
 import { cn } from "@/lib/utils";
+import {
+  acceptanceLabel,
+  availabilityLabel,
+  averageCostLabel,
+  kpiStateLabel,
+  runtimeSummary,
+  taskCountLabel,
+} from "./employeeSignals";
+import { useEmployeePerformance } from "./useEmployeePerformance";
 
 type EmployeeCardProps = {
   employee: Employee;
   action?: ReactNode;
   className?: string;
+  compareDisabled?: boolean;
+  compareSelected?: boolean;
+  onCompareToggle?: (employee: Employee) => void;
 };
 
 function formatPricing(pricing: string) {
@@ -44,9 +58,18 @@ export function EmployeeCard({
   employee,
   action,
   className,
+  compareDisabled = false,
+  compareSelected = false,
+  onCompareToggle,
 }: EmployeeCardProps) {
   const saved = useSavedEmployees();
   const isSaved = saved.isSaved(employee.employee_id);
+  const performanceState = useEmployeePerformance(employee.employee_id);
+  const performance = performanceState.performance;
+  const runtime = runtimeSummary(employee);
+  const kpiCopy = performanceState.loading
+    ? "Loading local KPI..."
+    : kpiStateLabel(performance);
 
   return (
     <Card
@@ -119,6 +142,14 @@ export function EmployeeCard({
           >
             Growth start · Apprentice
           </Badge>
+          <Badge
+            className="border-white/10 bg-white/[0.04] text-crew-muted"
+            title={availabilityLabel(employee)}
+            variant="outline"
+          >
+            <Clock3 className="size-3" />
+            {availabilityLabel(employee)}
+          </Badge>
           {employee.tags.slice(0, 4).map(tag => (
             <Badge
               className="border-white/10 bg-white/[0.04] text-crew-muted"
@@ -149,8 +180,69 @@ export function EmployeeCard({
             {formatPricing(employee.pricing)}
           </span>
         </div>
+        <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
+            <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
+              Formal tasks
+            </dt>
+            <dd className="mt-1 text-sm font-semibold text-crew-heading">
+              {performanceState.loading
+                ? "Loading"
+                : taskCountLabel(performance)}
+            </dd>
+          </div>
+          <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
+            <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
+              Acceptance
+            </dt>
+            <dd className="mt-1 text-sm font-semibold text-crew-heading">
+              {performanceState.loading
+                ? "Loading"
+                : acceptanceLabel(performance)}
+            </dd>
+          </div>
+          <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
+            <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
+              Avg cost
+            </dt>
+            <dd className="mt-1 text-sm font-semibold text-crew-heading">
+              {performanceState.loading
+                ? "Loading"
+                : averageCostLabel(performance)}
+            </dd>
+          </div>
+          <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
+            <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
+              Runtime
+            </dt>
+            <dd className="mt-1 text-sm font-semibold text-crew-heading">
+              {runtime.label}
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-3 text-xs leading-5 text-crew-muted">
+          {kpiCopy}. {runtime.detail}. Highest enabled risk is{" "}
+          {runtime.highestRisk}.
+        </p>
       </CardContent>
-      <CardFooter className="gap-3">
+      <CardFooter className="flex flex-wrap gap-3">
+        {onCompareToggle ? (
+          <Button
+            aria-pressed={compareSelected}
+            className={cn(
+              "rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading",
+              compareSelected &&
+                "border-crew-copper/45 bg-crew-copper/10 text-crew-copper"
+            )}
+            disabled={compareDisabled && !compareSelected}
+            onClick={() => onCompareToggle(employee)}
+            type="button"
+            variant="outline"
+          >
+            {compareSelected ? <Check className="size-4" /> : null}
+            {compareSelected ? "Compared" : "Compare"}
+          </Button>
+        ) : null}
         {action ?? (
           <Button
             asChild

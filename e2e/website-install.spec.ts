@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -148,7 +149,9 @@ test("the Landing hire command maps to a real CLI hire and atomic team record", 
   });
 
   const profileName = `crewclaw-e2e-${Date.now()}`;
-  const root = mkdtempSync(join(tmpdir(), "crewclaw-web-install-"));
+  const root = realpathSync.native(
+    mkdtempSync(join(tmpdir(), "crewclaw-web-install-"))
+  );
   const bin = join(root, "bin");
   const callsFile = join(root, "hermes-calls.txt");
   mkdirSync(bin, { recursive: true });

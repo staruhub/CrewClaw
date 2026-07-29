@@ -421,6 +421,11 @@ function isOutsideRoot(rootPath, targetPath) {
   return rel !== "" && (rel.startsWith("..") || isAbsolute(rel));
 }
 
+function canonicalOutsideRoot(rootPath, targetPath) {
+  if (!isOutsideRoot(rootPath, targetPath)) return false;
+  return isOutsideRoot(canonicalPath(rootPath), canonicalPath(targetPath));
+}
+
 function hasSymlinkComponent(rootPath, targetPath) {
   const rel = relative(rootPath, targetPath);
   if (!rel) return false;
@@ -469,7 +474,7 @@ export function resolvePathInsideRoot(
   const lexicalPath = resolve(rootPath, p);
   if (isAbsolute(p) && resolve(p) !== lexicalPath)
     return { ok: false, error: "path is outside workspace" };
-  if (isOutsideRoot(rootPath, lexicalPath))
+  if (canonicalOutsideRoot(rootPath, lexicalPath))
     return { ok: false, error: "path is outside workspace" };
   if (rejectSymlinks && hasSymlinkComponent(rootPath, lexicalPath)) {
     return {

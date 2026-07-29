@@ -25,21 +25,21 @@ const SIGNAL_CHARS = [
 const NODE_CHARS = ["@", "#", "%", "*", "+", "="];
 
 const sourceNodes: Node[] = [
-  { x: 0.12, y: 0.22, label: "TASK" },
-  { x: 0.14, y: 0.7, label: "INPUT" },
-  { x: 0.32, y: 0.16, label: "SPEC" },
-  { x: 0.78, y: 0.18, label: "CODE" },
-  { x: 0.88, y: 0.64, label: "TESTS" },
+  { x: 0.12, y: 0.22, label: "MARKET" },
+  { x: 0.14, y: 0.7, label: "HIRE" },
+  { x: 0.32, y: 0.16, label: "MANIFEST" },
+  { x: 0.78, y: 0.18, label: "EVIDENCE" },
+  { x: 0.88, y: 0.64, label: "KPI" },
 ];
 
-const planner: Node = { x: 0.36, y: 0.36, label: "PLANNER" };
+const planner: Node = { x: 0.36, y: 0.36, label: "DOCTOR" };
 const agents: Node[] = [
-  { x: 0.55, y: 0.22, label: "AGENT" },
-  { x: 0.63, y: 0.42, label: "AGENT" },
-  { x: 0.51, y: 0.58, label: "AGENT" },
+  { x: 0.55, y: 0.22, label: "TRIAL" },
+  { x: 0.63, y: 0.42, label: "TASK" },
+  { x: 0.51, y: 0.58, label: "TOOLS" },
 ];
-const verifier: Node = { x: 0.74, y: 0.42, label: "VERIFY" };
-const result: Node = { x: 0.86, y: 0.38, label: "RESULT" };
+const verifier: Node = { x: 0.74, y: 0.42, label: "APPROVE" };
+const result: Node = { x: 0.86, y: 0.38, label: "DELIVER" };
 
 function clamp(value: number, min = 0, max = 1) {
   return Math.min(max, Math.max(min, value));

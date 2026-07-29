@@ -6,8 +6,13 @@ import {
   ArrowLeft,
   BadgeCheck,
   BarChart3,
+  Clock3,
+  DollarSign,
+  FileWarning,
   HeartPulse,
   History,
+  ShieldAlert,
+  Star,
   Users,
 } from "lucide-react";
 import {
@@ -38,10 +43,31 @@ import { fetchLocalEmployeePerformance } from "@/lib/local-api";
 import { loadSettledRecords } from "@/lib/performance-load";
 
 const numberFormat = new Intl.NumberFormat("en", { maximumFractionDigits: 4 });
+const compactNumber = new Intl.NumberFormat("en", {
+  maximumFractionDigits: 1,
+  notation: "compact",
+});
 
 function percent(value: number, total: number) {
   if (total === 0) return "—";
   return `${Math.round((value / total) * 100)}%`;
+}
+
+function percentValue(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatDuration(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  if (value < 1000) return `${value}ms`;
+  if (value < 60_000) return `${Math.round(value / 1000)}s`;
+  return `${Math.round(value / 60_000)}m`;
+}
+
+function money(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  return `$${numberFormat.format(value)}`;
 }
 
 function StatCard({
@@ -79,6 +105,54 @@ function evaluationLabel(performance: LocalEmployeePerformance | undefined) {
   if (evaluation.state === "invalid") return "Invalid local record";
   if (evaluation.mock) return `MOCK ${evaluation.score} · not certified`;
   return `Stored ${evaluation.score} · pending verification`;
+}
+
+function performanceFlags(performance: LocalEmployeePerformance | undefined) {
+  if (!performance) return ["No local record loaded"];
+  const flags: string[] = [];
+  const kpi = performance.kpi;
+  if (kpi.state !== "available") flags.push("KPI unavailable");
+  if ((kpi.rejected ?? 0) + (kpi.revision_requested ?? 0) > 0) {
+    flags.push("Human rejection or revision");
+  }
+  if ((kpi.failed ?? 0) > 0) flags.push("Failed completion");
+  if ((kpi.average_cost ?? 0) >= 1) flags.push("High-cost outcomes");
+  if ((kpi.evidence_coverage ?? 1) < 0.8) flags.push("Evidence gap");
+  if ((kpi.permission_violations ?? 0) + (kpi.safety_violations ?? 0) > 0) {
+    flags.push("Boundary violation");
+  }
+  for (const warning of performance.warnings.slice(0, 2)) flags.push(warning);
+  return flags;
+}
+
+function reputationLabel(performance: LocalEmployeePerformance | undefined) {
+  if (!performance) return "No evidence";
+  const proof = performance.proof_pack;
+  if (proof.state === "invalid") return "Invalid proof pack";
+  if (proof.field_status === "proven") return "Proven in field";
+  if (proof.field_status === "pilot") return "Pilot evidence";
+  if (performance.verified_reviews.length > 0) {
+    const average =
+      performance.verified_reviews.reduce(
+        (sum, review) => sum + review.rating,
+        0
+      ) / performance.verified_reviews.length;
+    return `${average.toFixed(1)}/5 verified review`;
+  }
+  return "Insufficient field evidence";
+}
+
+function verdictLabel(performance: LocalEmployeePerformance | undefined) {
+  if (!performance) return "NO DATA";
+  const kpi = performance.kpi;
+  const evaluation = performance.evaluation;
+  if (kpi.state !== "available") return "KPI ABSENT";
+  if ((kpi.safety_violations ?? 0) > 0 || evaluation.verdict === "FAIL") {
+    return "HOLD";
+  }
+  if ((kpi.tasks ?? 0) === 0) return "NO FORMAL TASKS";
+  if ((kpi.accepted ?? 0) === 0) return "NEEDS ACCEPTANCE";
+  return "PASS WITH HUMAN EVIDENCE";
 }
 
 export default function Performance() {
@@ -172,7 +246,28 @@ export default function Performance() {
     accepted: row.performance?.kpi.accepted ?? 0,
     autoAccepted: row.performance?.kpi.auto_accepted ?? 0,
     correctlyBlocked: row.performance?.kpi.correctly_blocked ?? 0,
+    rejected:
+      (row.performance?.kpi.rejected ?? 0) +
+      (row.performance?.kpi.revision_requested ?? 0),
   }));
+  const completionCount = kpis.reduce(
+    (sum, kpi) => sum + (kpi?.completed ?? 0),
+    0
+  );
+  const reviewCount = rows.reduce(
+    (sum, row) => sum + (row.performance?.verified_reviews.length ?? 0),
+    0
+  );
+  const medianCostProxy =
+    kpis.length > 0
+      ? kpis.reduce((sum, kpi) => sum + (kpi?.average_cost ?? 0), 0) /
+        kpis.length
+      : null;
+  const averageEvidence =
+    kpis.length > 0
+      ? kpis.reduce((sum, kpi) => sum + (kpi?.evidence_coverage ?? 0), 0) /
+        kpis.length
+      : null;
 
   useEffect(() => {
     track("team_viewed", {
@@ -244,6 +339,12 @@ export default function Performance() {
             description="Deliverables explicitly accepted by the local user only."
           />
           <StatCard
+            icon={Clock3}
+            label="Completed vs accepted"
+            value={`${completionCount} / ${acceptedTasks}`}
+            description="Runtime completion is not human acceptance; approval is a separate gate."
+          />
+          <StatCard
             icon={HeartPulse}
             label="Policy accepted"
             value={String(autoAcceptedTasks)}
@@ -260,6 +361,24 @@ export default function Performance() {
             label="Stored real evals"
             value={String(realStoredEvals)}
             description="Non-MOCK records shown as pending verification, never reputation."
+          />
+          <StatCard
+            icon={DollarSign}
+            label="Average cost"
+            value={money(medianCostProxy)}
+            description="Mean of employee-level average task cost exposed by the local KPI projection."
+          />
+          <StatCard
+            icon={FileWarning}
+            label="Evidence coverage"
+            value={percentValue(averageEvidence)}
+            description="Evidence completeness from KPI records; missing evidence is a delivery flag."
+          />
+          <StatCard
+            icon={Star}
+            label="Verified reviews"
+            value={String(reviewCount)}
+            description="Human acceptance notes linked back to accepted TaskRun receipts."
           />
           <StatCard
             icon={History}
@@ -320,11 +439,83 @@ export default function Performance() {
                     fill="#6E8B74"
                     name="Correct stops"
                   />
+                  <Bar
+                    dataKey="rejected"
+                    fill="#A84D45"
+                    name="Rejected or revision"
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            <Alert className="mt-5 border-white/10 bg-white/[0.025]">
+              <BarChart3 aria-hidden="true" className="size-4" />
+              <AlertTitle>Monthly trend availability</AlertTitle>
+              <AlertDescription className="text-crew-body">
+                The current local API exposes employee-level aggregates, not a
+                month-by-month series. This chart uses the available projection
+                and keeps trend history marked as unavailable instead of
+                inventing points.
+              </AlertDescription>
+            </Alert>
           </CardContent>
         </Card>
+
+        <section className="mt-8 grid gap-4 lg:grid-cols-3">
+          {rows.map(row => {
+            const flags = performanceFlags(row.performance);
+            return (
+              <Card
+                className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading"
+                key={row.employee.employee_id}
+              >
+                <CardHeader>
+                  <CardTitle className="text-lg font-semibold">
+                    {row.employee.name}
+                  </CardTitle>
+                  <p className="text-sm text-crew-muted">
+                    Verdict: {verdictLabel(row.performance)}
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-crew-muted">Exam score</span>
+                      <span className="font-mono text-crew-heading">
+                        {row.performance?.evaluation.score ?? "—"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-crew-muted">Reputation</span>
+                      <span className="text-right text-crew-heading">
+                        {reputationLabel(row.performance)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-crew-muted">Avg duration</span>
+                      <span className="font-mono text-crew-heading">
+                        {formatDuration(
+                          row.performance?.kpi.average_duration_ms
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {flags.map(flag => (
+                      <Badge
+                        className="gap-1 rounded-[8px] border-amber-300/30 bg-amber-300/10 text-amber-100"
+                        key={flag}
+                        variant="outline"
+                      >
+                        <ShieldAlert aria-hidden="true" className="size-3" />
+                        {flag}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </section>
 
         <Card className="mt-8 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
           <CardContent className="p-0">
@@ -342,7 +533,9 @@ export default function Performance() {
                     Legacy / unclassified
                   </TableHead>
                   <TableHead className="text-right">Cost</TableHead>
+                  <TableHead className="text-right">Evidence</TableHead>
                   <TableHead>Evaluation</TableHead>
+                  <TableHead>Verdict</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -369,12 +562,15 @@ export default function Performance() {
                       {row.performance?.kpi.legacy_unclassified_tasks ?? "—"}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs">
-                      {row.performance?.kpi.total_cost === null ||
-                      row.performance?.kpi.total_cost === undefined
-                        ? "—"
-                        : `$${numberFormat.format(row.performance.kpi.total_cost)}`}
+                      {money(row.performance?.kpi.total_cost)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs">
+                      {row.performance?.proof_pack.sample_size
+                        ? `${compactNumber.format(row.performance.proof_pack.sample_size)} samples`
+                        : percentValue(row.performance?.kpi.evidence_coverage)}
                     </TableCell>
                     <TableCell>{evaluationLabel(row.performance)}</TableCell>
+                    <TableCell>{verdictLabel(row.performance)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
