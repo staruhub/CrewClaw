@@ -21,6 +21,8 @@ const MAX_STATE_FILES: usize = 4096;
 const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_STALE_AFTER: Duration = Duration::from_secs(30);
 const LOCK_POLL: Duration = Duration::from_millis(10);
+const LOCK_RELEASE_TIMEOUT: Duration = Duration::from_secs(1);
+const LOCK_RELEASE_POLL: Duration = Duration::from_millis(1);
 
 #[cfg(test)]
 static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -75,7 +77,22 @@ pub(crate) struct OwnerLock {
 
 impl Drop for OwnerLock {
     fn drop(&mut self) {
-        let _ = remove_lock_if_owned(&self.path, &self.identity, &self.token);
+        let started = Instant::now();
+        loop {
+            match remove_lock_if_owned(&self.path, &self.identity, &self.token) {
+                Ok(()) => break,
+                Err(error)
+                    if is_lock_release_contention(&error)
+                        && started.elapsed() < LOCK_RELEASE_TIMEOUT =>
+                {
+                    thread::sleep(
+                        LOCK_RELEASE_POLL
+                            .min(LOCK_RELEASE_TIMEOUT.saturating_sub(started.elapsed())),
+                    );
+                }
+                Err(_) => break,
+            }
+        }
     }
 }
 
@@ -605,6 +622,20 @@ fn is_lock_contention(error: &io::Error) -> bool {
         // Depending on the filesystem/API path, CREATE_NEW reports either ERROR_FILE_EXISTS (80)
         // or ERROR_ALREADY_EXISTS (183); the latter is not consistently classified by std.
         matches!(error.raw_os_error(), Some(5 | 80 | 183))
+    }
+    #[cfg(not(windows))]
+    false
+}
+
+fn is_lock_release_contention(error: &io::Error) -> bool {
+    if is_lock_contention(error) {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        // ERROR_SHARING_VIOLATION: a contender or scanner can briefly retain a read handle after
+        // the owner has finished. Retrying release avoids leaving a live-process lock orphaned.
+        error.raw_os_error() == Some(32)
     }
     #[cfg(not(windows))]
     false
