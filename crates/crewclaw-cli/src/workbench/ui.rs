@@ -11,6 +11,7 @@ use ratatui::{
     },
 };
 use serde_json::Value;
+#[cfg(not(test))]
 use std::{sync::OnceLock, time::Instant};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -62,9 +63,15 @@ pub(crate) fn spinner_frame(elapsed_ms: u128) -> &'static str {
     SPINNER_FRAMES[idx]
 }
 
+#[cfg(not(test))]
 fn animation_elapsed_ms() -> u128 {
     static START: OnceLock<Instant> = OnceLock::new();
     START.get_or_init(Instant::now).elapsed().as_millis()
+}
+
+#[cfg(test)]
+fn animation_elapsed_ms() -> u128 {
+    0
 }
 
 /// CSS pulse/blink 在终端里的离散 step-frame 等价：前半周期亮、后半周期暗/隐藏。

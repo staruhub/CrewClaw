@@ -6435,7 +6435,7 @@ async function main() {
     console.error(`Error: ${error?.message || error}`);
     process.exit(1);
   }
-  const apiKey = process.env.ZENMUX_API_KEY;
+  const apiKey = flags.mock ? "explicit-cli-mock" : process.env.ZENMUX_API_KEY;
   const baseUrl = (
     process.env.ZENMUX_BASE_URL || "https://zenmux.ai/api/v1"
   ).replace(/\/$/, "");

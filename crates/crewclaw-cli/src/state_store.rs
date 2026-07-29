@@ -762,7 +762,10 @@ fn process_is_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
     }
-    let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return false;
+    };
+    let result = unsafe { libc::kill(pid, 0) };
     if result == 0 {
         return true;
     }
