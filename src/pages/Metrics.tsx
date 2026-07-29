@@ -278,9 +278,9 @@ export default function Metrics() {
                 Separated
               </p>
               <p className="mt-3 text-sm leading-6 text-crew-body">
-                Runtime completion is measured in the KPI ledger. This page
-                only counts browser events and verified review submissions, so
-                it does not treat a copied task or Doctor check as acceptance.
+                Runtime completion is measured in the KPI ledger. This page only
+                counts browser events and verified review submissions, so it
+                does not treat a copied task or Doctor check as acceptance.
               </p>
             </CardContent>
           </Card>

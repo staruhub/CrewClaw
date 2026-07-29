@@ -1389,9 +1389,9 @@ export default function HireConfirm() {
               Hiring handoff
             </CardTitle>
             <p className="text-sm leading-6 text-crew-body">
-              The marketplace carries the first task, budget label, runtime,
-              and requested access into this review. These values are context,
-              not runtime authorization.
+              The marketplace carries the first task, budget label, runtime, and
+              requested access into this review. These values are context, not
+              runtime authorization.
             </p>
           </CardHeader>
           <CardContent>

@@ -124,9 +124,7 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
   await page
     .getByRole("button", { name: "Confirm simulated checkout", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Run Doctor", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Run Doctor", exact: true }).click();
   await expect(page.getByText(/Doctor passed/i)).toBeVisible();
   await page
     .getByRole("button", { name: "Run bounded trial", exact: true })
