@@ -1,19 +1,66 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 
 import { chromium } from "playwright";
 
-const baseUrl = process.env.CREWCLAW_DEMO_URL || "http://localhost:3000";
 const outputPath = resolve(
   process.env.CREWCLAW_DEMO_OUT || "public/crewclaw-demo.zh-CN.mp4"
 );
-const workDir = await mkdtemp(join(tmpdir(), "crewclaw-demo-"));
-const rawPath = join(workDir, "crewclaw-demo.webm");
-
+const workDir = await mkdtemp(join(tmpdir(), "crewclaw-concept-demo-"));
+const rawPath = join(workDir, "crewclaw-concept-demo.webm");
 const sleep = ms => new Promise(resolveDelay => setTimeout(resolveDelay, ms));
+
+const sceneDefinitions = [
+  {
+    image: "docs/assets/demo-concept/01-marketplace.png",
+    duration: 10_500,
+    chapter: "00 / AI EMPLOYEE OS",
+    headline: "别再调用一个工具。<em>雇一支 AI 团队。</em>",
+    detail: "发现、检查、雇佣、协作、审计。把 AI 从一次性能力，变成可管理的数字员工。",
+    chips: ["AI 人才市场", "角色匹配", "即招即用"],
+    align: "left",
+  },
+  {
+    image: "docs/assets/demo-concept/02-inspect.png",
+    duration: 10_500,
+    chapter: "01 / INSPECT",
+    headline: "雇佣之前，<em>先看清它。</em>",
+    detail: "能力、工具、价格、运行时与来源证据完整展开。不是承诺，是可验证的员工档案。",
+    chips: ["能力清单", "工具边界", "供应链证据"],
+    align: "right",
+  },
+  {
+    image: "docs/assets/demo-concept/03-orchestrate.png",
+    duration: 10_500,
+    chapter: "02 / ORCHESTRATE",
+    headline: "一个目标，<em>整支团队协作。</em>",
+    detail: "研究、开发、设计与运营自动接力。任务、成本、进度和产物进入同一条工作流。",
+    chips: ["任务编排", "并行协作", "交付汇总"],
+    align: "left",
+  },
+  {
+    image: "docs/assets/demo-concept/04-control.png",
+    duration: 10_500,
+    chapter: "03 / HUMAN CONTROL",
+    headline: "权限可授予，<em>也可随时收回。</em>",
+    detail: "敏感动作默认受限；全过程可审计、可暂停、可撤销。最终决定权始终在人。",
+    chips: ["权限门禁", "全程审计", "一键暂停"],
+    align: "right",
+  },
+  {
+    image: "docs/assets/demo-concept/05-crew.png",
+    duration: 12_500,
+    chapter: "CREWCLAW / BETA 0.7",
+    headline: "One person. One crew.<br /><em>One legion.</em>",
+    detail: "全球首个 AI Agent 人才市场。发现、雇佣并管理你的下一位数字员工。",
+    chips: ["crewhire.fly.dev"],
+    align: "center",
+    closing: true,
+  },
+];
 
 async function run(command, args) {
   await new Promise((resolveRun, rejectRun) => {
@@ -26,256 +73,338 @@ async function run(command, args) {
   });
 }
 
-function titleMarkup({ index, eyebrow, headline, detail, closing = false }) {
+function imageDataUrl(path) {
+  const absolutePath = resolve(path);
+  const extension = extname(absolutePath).slice(1).toLowerCase();
+  const mimeType = extension === "jpg" || extension === "jpeg"
+    ? "image/jpeg"
+    : "image/png";
+  return `data:${mimeType};base64,${readFileSync(absolutePath).toString("base64")}`;
+}
+
+function sceneMarkup(scene, index, delay) {
+  const chips = scene.chips
+    .map(chip => `<span class="chip">${chip}</span>`)
+    .join("");
+  const image = imageDataUrl(scene.image);
+  return `
+    <section
+      class="scene scene-${scene.align}${scene.closing ? " closing" : ""}"
+      style="--delay:${delay}ms;--duration:${scene.duration}ms;--index:${index}"
+    >
+      <img class="scene-image" src="${image}" alt="" />
+      <div class="atmosphere"></div>
+      <div class="scan"></div>
+      <div class="copy">
+        <div class="chapter"><span>${scene.chapter}</span></div>
+        <h1>${scene.headline}</h1>
+        <p>${scene.detail}</p>
+        <div class="chips">${chips}</div>
+      </div>
+      <div class="scene-number">${String(index + 1).padStart(2, "0")}</div>
+    </section>`;
+}
+
+function demoMarkup() {
+  let delay = 0;
+  const scenes = sceneDefinitions
+    .map((scene, index) => {
+      const markup = sceneMarkup(scene, index, delay);
+      delay += scene.duration;
+      return markup;
+    })
+    .join("");
+
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <style>
-    * { box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-    body {
-      color: #f7f2eb;
-      background:
-        radial-gradient(circle at 72% 42%, rgba(201, 120, 64, .18), transparent 28%),
-        linear-gradient(rgba(255,255,255,.026) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,.026) 1px, transparent 1px),
-        #0b0908;
-      background-size: auto, 42px 42px, 42px 42px, auto;
+    :root {
+      color-scheme: dark;
       font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+      background: #020706;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #020706;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      z-index: 1000;
+      inset: 0;
+      pointer-events: none;
+      opacity: .16;
+      background-image:
+        repeating-radial-gradient(circle at 15% 70%, transparent 0 2px, rgba(255,255,255,.055) 3px 4px),
+        linear-gradient(rgba(255,255,255,.02), rgba(0,0,0,.035));
+      mix-blend-mode: soft-light;
     }
     body::after {
       content: "";
       position: fixed;
+      z-index: 1001;
       inset: 0;
-      background: linear-gradient(90deg, rgba(11,9,8,.35), transparent 40%, rgba(11,9,8,.18));
       pointer-events: none;
+      box-shadow: inset 0 0 230px 70px rgba(0,0,0,.78);
     }
-    .rail {
-      position: absolute;
-      left: 92px;
-      top: 78px;
-      bottom: 78px;
-      width: 2px;
-      background: linear-gradient(#c97840, rgba(201,120,64,.08));
-      transform-origin: top;
-      animation: rail .8s ease-out both;
+    .brand {
+      position: fixed;
+      z-index: 1100;
+      top: 56px;
+      left: 72px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      color: #effff4;
+      font: 800 21px/1 ui-monospace, "Cascadia Mono", monospace;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      text-shadow: 0 0 24px rgba(82,255,154,.38);
     }
-    .wrap {
+    .brand::before {
+      content: "";
+      width: 12px;
+      height: 12px;
+      border: 2px solid #75f6a9;
+      transform: rotate(45deg);
+      box-shadow: 0 0 19px rgba(82,255,154,.9), inset 0 0 8px rgba(82,255,154,.5);
+    }
+    .progress {
+      position: fixed;
+      z-index: 1100;
+      left: 72px;
+      right: 72px;
+      bottom: 46px;
+      height: 2px;
+      background: rgba(255,255,255,.11);
+      overflow: hidden;
+    }
+    .progress::after {
+      content: "";
+      display: block;
+      width: 100%;
+      height: 100%;
+      transform-origin: left;
+      background: linear-gradient(90deg, #55f79c, #d7a56a);
+      box-shadow: 0 0 18px rgba(85,247,156,.72);
+      animation: progress ${delay}ms linear both;
+    }
+    .scene {
       position: absolute;
-      left: 142px;
-      right: 120px;
+      inset: 0;
+      overflow: hidden;
+      opacity: 0;
+      animation: scene-fade var(--duration) linear var(--delay) both;
+      background: #020706;
+    }
+    .scene.closing {
+      animation-name: scene-final;
+    }
+    .scene-image {
+      position: absolute;
+      inset: -5%;
+      width: 110%;
+      height: 110%;
+      object-fit: cover;
+      filter: saturate(.9) contrast(1.06) brightness(.82);
+      transform: scale(1.04) translate3d(-1.5%, 0, 0);
+      animation: drift var(--duration) cubic-bezier(.2,.55,.2,1) var(--delay) both;
+    }
+    .scene:nth-of-type(even) .scene-image {
+      transform: scale(1.05) translate3d(1.5%, 0, 0);
+      animation-name: drift-reverse;
+    }
+    .atmosphere {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 50% 42%, transparent 12%, rgba(1,7,5,.08) 45%, rgba(0,4,3,.64) 100%),
+        linear-gradient(90deg, rgba(0,6,4,.87) 0%, rgba(0,6,4,.22) 45%, rgba(0,5,4,.7) 100%),
+        linear-gradient(0deg, rgba(0,4,3,.8) 0%, transparent 42%);
+    }
+    .scene-right .atmosphere {
+      background:
+        radial-gradient(circle at 58% 42%, transparent 12%, rgba(1,7,5,.08) 48%, rgba(0,4,3,.64) 100%),
+        linear-gradient(270deg, rgba(0,6,4,.88) 0%, rgba(0,6,4,.18) 46%, rgba(0,5,4,.66) 100%),
+        linear-gradient(0deg, rgba(0,4,3,.82) 0%, transparent 42%);
+    }
+    .closing .atmosphere {
+      background:
+        radial-gradient(circle at 50% 45%, transparent 16%, rgba(1,7,5,.16) 58%, rgba(0,4,3,.72) 100%),
+        linear-gradient(0deg, rgba(0,4,3,.88) 0%, transparent 56%);
+    }
+    .scan {
+      position: absolute;
+      left: -10%;
+      right: -10%;
+      top: -22%;
+      height: 12%;
+      opacity: .5;
+      background: linear-gradient(transparent, rgba(102,255,168,.18), transparent);
+      filter: blur(12px);
+      animation: scan 6s ease-in-out calc(var(--delay) + 1s) both;
+    }
+    .copy {
+      position: absolute;
+      z-index: 3;
+      left: 112px;
+      width: min(790px, 46vw);
       top: 50%;
-      transform: translateY(-50%);
+      transform: translateY(-46%);
+      opacity: 0;
+      animation: copy-in 1.25s cubic-bezier(.18,.72,.18,1) calc(var(--delay) + 780ms) both;
     }
-    .eyebrow {
+    .scene-right .copy {
+      left: auto;
+      right: 112px;
+      text-align: right;
+    }
+    .scene-center .copy {
+      top: 44%;
+      left: 50%;
+      width: 1120px;
+      text-align: center;
+      transform: translate(-50%, -50%);
+    }
+    .chapter {
       display: flex;
       align-items: center;
       gap: 18px;
-      color: #c97840;
-      font: 700 23px/1.2 ui-monospace, "Cascadia Mono", monospace;
-      letter-spacing: .17em;
+      margin-bottom: 32px;
+      color: #7bf7ad;
+      font: 800 20px/1.2 ui-monospace, "Cascadia Mono", monospace;
+      letter-spacing: .16em;
       text-transform: uppercase;
-      animation: rise .7s .1s ease-out both;
     }
-    .index {
-      min-width: 64px;
-      color: #201712;
-      background: #c97840;
-      border-radius: 4px;
-      padding: 8px 12px;
-      text-align: center;
-      letter-spacing: .04em;
-    }
-    h1 {
-      max-width: 1480px;
-      margin: 34px 0 24px;
-      font-size: ${closing ? 92 : 80}px;
-      line-height: 1.12;
-      font-weight: 760;
-      letter-spacing: -.045em;
-      text-wrap: balance;
-      animation: rise .8s .22s ease-out both;
-    }
-    h1 em { color: #c97840; font-style: normal; }
-    p {
-      max-width: 1120px;
-      margin: 0;
-      color: #b8aaa0;
-      font: 400 28px/1.65 "Microsoft YaHei UI", sans-serif;
-      letter-spacing: .02em;
-      animation: rise .8s .34s ease-out both;
-    }
-    .status {
-      position: absolute;
-      right: 92px;
-      bottom: 74px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      color: #7f8f7f;
-      font: 600 17px ui-monospace, "Cascadia Mono", monospace;
-      letter-spacing: .09em;
-      animation: rise .6s .5s ease-out both;
-    }
-    .status::before {
+    .chapter::before {
       content: "";
-      width: 9px;
-      height: 9px;
-      border-radius: 99px;
-      background: #70b88a;
-      box-shadow: 0 0 22px rgba(112,184,138,.8);
+      width: 52px;
+      height: 2px;
+      background: #7bf7ad;
+      box-shadow: 0 0 16px rgba(82,255,154,.8);
     }
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(24px); filter: blur(7px); }
-      to { opacity: 1; transform: translateY(0); filter: blur(0); }
+    .scene-right .chapter { justify-content: flex-end; }
+    .scene-right .chapter::before { order: 2; }
+    .scene-center .chapter { justify-content: center; }
+    h1 {
+      margin: 0;
+      color: #f4f7f3;
+      font-size: 74px;
+      line-height: 1.12;
+      font-weight: 830;
+      letter-spacing: -.055em;
+      text-wrap: balance;
+      text-shadow: 0 10px 45px rgba(0,0,0,.92);
     }
-    @keyframes rail {
-      from { transform: scaleY(0); }
-      to { transform: scaleY(1); }
+    h1 em {
+      color: #69f6a2;
+      font-style: normal;
+      text-shadow: 0 0 34px rgba(82,255,154,.28), 0 10px 45px rgba(0,0,0,.92);
+    }
+    p {
+      margin: 28px 0 0;
+      color: rgba(232,240,234,.82);
+      font-size: 26px;
+      line-height: 1.7;
+      letter-spacing: .012em;
+      text-wrap: balance;
+      text-shadow: 0 5px 30px rgba(0,0,0,.95);
+    }
+    .chips {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 34px;
+    }
+    .scene-right .chips { justify-content: flex-end; }
+    .scene-center .chips { justify-content: center; }
+    .chip {
+      padding: 10px 16px;
+      color: #eafff0;
+      border: 1px solid rgba(119,247,171,.38);
+      background: rgba(4,17,11,.58);
+      box-shadow: inset 0 0 22px rgba(82,255,154,.055), 0 8px 30px rgba(0,0,0,.36);
+      backdrop-filter: blur(14px);
+      font: 650 17px/1.1 ui-monospace, "Cascadia Mono", "Microsoft YaHei UI", monospace;
+      letter-spacing: .06em;
+    }
+    .scene-number {
+      position: absolute;
+      right: 72px;
+      bottom: 72px;
+      color: rgba(240,255,246,.48);
+      font: 650 17px/1 ui-monospace, "Cascadia Mono", monospace;
+      letter-spacing: .12em;
+    }
+    .closing h1 {
+      font: 850 88px/1.08 ui-monospace, "Cascadia Mono", monospace;
+      letter-spacing: -.07em;
+      text-transform: uppercase;
+    }
+    .closing p {
+      max-width: 900px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .closing .chip {
+      color: #16110b;
+      border-color: transparent;
+      background: #d7a56a;
+      box-shadow: 0 0 34px rgba(215,165,106,.32);
+    }
+    @keyframes scene-fade {
+      0% { opacity: 0; }
+      7% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    @keyframes scene-final {
+      0% { opacity: 0; }
+      7% { opacity: 1; }
+      100% { opacity: 1; }
+    }
+    @keyframes drift {
+      from { transform: scale(1.04) translate3d(-1.5%, 0, 0); }
+      to { transform: scale(1.13) translate3d(1.4%, -1%, 0); }
+    }
+    @keyframes drift-reverse {
+      from { transform: scale(1.05) translate3d(1.5%, 0, 0); }
+      to { transform: scale(1.14) translate3d(-1.4%, -1%, 0); }
+    }
+    @keyframes copy-in {
+      from { opacity: 0; filter: blur(10px); transform: translateY(calc(-46% + 28px)); }
+      to { opacity: 1; filter: blur(0); transform: translateY(-46%); }
+    }
+    .scene-center .copy {
+      animation-name: copy-in-center;
+    }
+    @keyframes copy-in-center {
+      from { opacity: 0; filter: blur(10px); transform: translate(-50%, calc(-50% + 28px)); }
+      to { opacity: 1; filter: blur(0); transform: translate(-50%, -50%); }
+    }
+    @keyframes scan {
+      from { transform: translateY(0); opacity: 0; }
+      15% { opacity: .45; }
+      to { transform: translateY(920px); opacity: 0; }
+    }
+    @keyframes progress {
+      from { transform: scaleX(0); }
+      to { transform: scaleX(1); }
     }
   </style>
 </head>
 <body>
-  <div class="rail"></div>
-  <main class="wrap">
-    <div class="eyebrow"><span class="index">${index}</span>${eyebrow}</div>
-    <h1>${headline}</h1>
-    <p>${detail}</p>
-  </main>
-  <div class="status">CREWCLAW / BETA 0.7</div>
+  <div class="brand">CREWCLAW</div>
+  ${scenes}
+  <div class="progress"></div>
 </body>
 </html>`;
-}
-
-async function showTitle(page, options, durationMs) {
-  await page.setContent(titleMarkup(options), { waitUntil: "load" });
-  await sleep(durationMs);
-}
-
-async function addOverlay(page, { chapter, headline, detail }) {
-  await page.evaluate(
-    ({ chapterText, headlineText, detailText }) => {
-      document.getElementById("crewclaw-demo-overlay")?.remove();
-      document.getElementById("crewclaw-demo-style")?.remove();
-
-      const style = document.createElement("style");
-      style.id = "crewclaw-demo-style";
-      style.textContent = `
-        html { scroll-behavior: smooth !important; }
-        ::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
-        #crewclaw-demo-overlay {
-          position: fixed;
-          z-index: 2147483647;
-          left: 54px;
-          right: 54px;
-          bottom: 42px;
-          display: grid;
-          grid-template-columns: auto minmax(0, 1fr);
-          gap: 22px;
-          align-items: center;
-          padding: 18px 24px;
-          color: #f8f3ed;
-          border: 1px solid rgba(255,255,255,.12);
-          border-left: 4px solid #c97840;
-          border-radius: 7px;
-          background: linear-gradient(90deg, rgba(13,10,8,.96), rgba(13,10,8,.84));
-          box-shadow: 0 20px 70px rgba(0,0,0,.46);
-          backdrop-filter: blur(18px);
-          font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
-          pointer-events: none;
-          animation: crew-demo-in .55s ease-out both;
-        }
-        #crewclaw-demo-overlay .chapter {
-          align-self: stretch;
-          display: grid;
-          place-items: center;
-          min-width: 124px;
-          padding: 0 18px;
-          color: #21160f;
-          border-radius: 4px;
-          background: #c97840;
-          font: 800 18px ui-monospace, "Cascadia Mono", monospace;
-          letter-spacing: .11em;
-        }
-        #crewclaw-demo-overlay .headline {
-          font-size: 30px;
-          line-height: 1.2;
-          font-weight: 750;
-          letter-spacing: -.025em;
-        }
-        #crewclaw-demo-overlay .detail {
-          margin-top: 7px;
-          color: #c5b7ad;
-          font-size: 18px;
-          line-height: 1.5;
-          letter-spacing: .01em;
-        }
-        #crewclaw-demo-cursor {
-          position: fixed;
-          z-index: 2147483646;
-          left: 50%;
-          top: 50%;
-          width: 28px;
-          height: 28px;
-          border: 3px solid #f3a066;
-          border-radius: 50%;
-          box-shadow: 0 0 0 7px rgba(201,120,64,.18), 0 0 26px rgba(201,120,64,.7);
-          transform: translate(-50%, -50%);
-          transition: left 1.05s cubic-bezier(.2,.75,.2,1), top 1.05s cubic-bezier(.2,.75,.2,1);
-          pointer-events: none;
-        }
-        @keyframes crew-demo-in {
-          from { opacity: 0; transform: translateY(28px); filter: blur(6px); }
-          to { opacity: 1; transform: translateY(0); filter: blur(0); }
-        }
-      `;
-      document.head.appendChild(style);
-
-      const overlay = document.createElement("div");
-      overlay.id = "crewclaw-demo-overlay";
-      overlay.innerHTML = `
-        <div class="chapter">${chapterText}</div>
-        <div>
-          <div class="headline">${headlineText}</div>
-          <div class="detail">${detailText}</div>
-        </div>
-      `;
-      document.body.appendChild(overlay);
-
-      const cursor = document.createElement("div");
-      cursor.id = "crewclaw-demo-cursor";
-      document.body.appendChild(cursor);
-    },
-    { chapterText: chapter, headlineText: headline, detailText: detail }
-  );
-}
-
-async function moveCursor(page, x, y) {
-  await page.evaluate(
-    ({ left, top }) => {
-      const cursor = document.getElementById("crewclaw-demo-cursor");
-      if (!cursor) return;
-      cursor.style.left = `${left}px`;
-      cursor.style.top = `${top}px`;
-    },
-    { left: x, top: y }
-  );
-  await sleep(1_150);
-}
-
-async function gotoScene(page, path, overlay) {
-  await page.goto(new URL(path, baseUrl).href, {
-    waitUntil: "networkidle",
-    timeout: 30_000,
-  });
-  await page.evaluate(() =>
-    localStorage.setItem("crewclaw.locale.v1", "zh-CN")
-  );
-  if ((await page.locator("html").getAttribute("lang")) !== "zh-CN") {
-    await page.reload({ waitUntil: "networkidle" });
-  }
-  await addOverlay(page, overlay);
 }
 
 await mkdir(dirname(outputPath), { recursive: true });
@@ -288,6 +417,7 @@ const systemChrome = [
   "/usr/bin/google-chrome",
   "/usr/bin/chromium",
 ].find(candidate => candidate && existsSync(candidate));
+
 const browser = await chromium.launch({
   headless: true,
   ...(systemChrome ? { executablePath: systemChrome } : {}),
@@ -304,130 +434,15 @@ const context = await browser.newContext({
 });
 const page = await context.newPage();
 const video = page.video();
+const totalDuration = sceneDefinitions.reduce(
+  (total, scene) => total + scene.duration,
+  0
+);
 
 try {
-  await showTitle(
-    page,
-    {
-      index: "00",
-      eyebrow: "AI EMPLOYEE OS",
-      headline: "把 AI 当成<em>员工</em>，而不是一次性工具。",
-      detail: "发现、雇佣、授权、监督、验收。每一步都有边界，也都有证据。",
-    },
-    4_400
-  );
-
-  await gotoScene(page, "/", {
-    chapter: "WHY",
-    headline: "一套面向 AI 员工的完整管理闭环",
-    detail: "从人才市场到人工验收，不再把权限、成本和交付质量留在黑盒里。",
-  });
-  await moveCursor(page, 1_470, 185);
-  await sleep(1_300);
-  await page.evaluate(() => window.scrollTo({ top: 610, behavior: "smooth" }));
-  await sleep(2_600);
-
-  await showTitle(
-    page,
-    {
-      index: "01",
-      eyebrow: "DISCOVER",
-      headline: "先看<em>能力与证据</em>，再决定雇谁。",
-      detail: "角色、价格、运行时、权限和验证状态统一公开。",
-    },
-    2_300
-  );
-
-  await gotoScene(page, "/marketplace", {
-    chapter: "01 / 发现",
-    headline: "像筛选候选人一样浏览 AI 员工",
-    detail: "按角色、证据级别和可用状态比较，避免只看一句漂亮的能力介绍。",
-  });
-  await moveCursor(page, 1_090, 287);
-  await page.evaluate(() => window.scrollTo({ top: 720, behavior: "smooth" }));
-  await sleep(2_600);
-  await moveCursor(page, 380, 460);
-  await sleep(1_700);
-
-  await gotoScene(page, "/employee/ai-adoption-whale", {
-    chapter: "02 / 档案",
-    headline: "雇佣前，先把边界看清楚",
-    detail: "能力声明、工具范围、交付物、证据等级与定价都写进员工档案。",
-  });
-  await moveCursor(page, 280, 690);
-  await page.evaluate(() => window.scrollTo({ top: 680, behavior: "smooth" }));
-  await sleep(2_500);
-  await page.evaluate(() =>
-    window.scrollTo({ top: 1_420, behavior: "smooth" })
-  );
-  await sleep(2_500);
-
-  await showTitle(
-    page,
-    {
-      index: "02",
-      eyebrow: "HIRE SAFELY",
-      headline: "授权不是一个按钮，<em>而是一道门禁。</em>",
-      detail: "合同、权限、预算、Doctor 与试运行逐项确认。",
-    },
-    2_300
-  );
-
-  await gotoScene(page, "/hire/ai-adoption-whale", {
-    chapter: "03 / 雇佣",
-    headline: "逐项审查能力、预算与运行环境",
-    detail: "必需能力锁定，敏感能力默认关闭；高风险动作必须由人确认。",
-  });
-  await moveCursor(page, 1_430, 430);
-  await page.evaluate(() => window.scrollTo({ top: 760, behavior: "smooth" }));
-  await sleep(2_600);
-  await page.evaluate(() =>
-    window.scrollTo({ top: 1_620, behavior: "smooth" })
-  );
-  await sleep(2_600);
-  await moveCursor(page, 1_520, 650);
-  await sleep(1_500);
-
-  await showTitle(
-    page,
-    {
-      index: "03",
-      eyebrow: "SUPERVISE",
-      headline: "AI 在做什么，<em>全过程可见。</em>",
-      detail: "动作、工具、成本、证据与产物进入同一个工作台。",
-    },
-    2_300
-  );
-
-  await gotoScene(page, "/task-run/task_1719306072000", {
-    chapter: "04 / 监督",
-    headline: "时间线、证据、产物与人工验收在同一屏",
-    detail: "越权操作被拦截；没有证据的交付，不能悄悄变成“已完成”。",
-  });
-  await moveCursor(page, 540, 515);
-  const firstRow = page.getByRole("row").nth(1);
-  if (await firstRow.isVisible().catch(() => false)) {
-    await firstRow.click().catch(() => {});
-  }
-  await sleep(2_200);
-  await page.evaluate(() => window.scrollTo({ top: 740, behavior: "smooth" }));
-  await sleep(2_700);
-  await page.evaluate(() =>
-    window.scrollTo({ top: 1_450, behavior: "smooth" })
-  );
-  await sleep(2_700);
-
-  await showTitle(
-    page,
-    {
-      index: "✓",
-      eyebrow: "HUMAN IN CONTROL",
-      headline: "最终决定权，<em>始终在人。</em>",
-      detail: "CrewClaw — 让 AI 从“能运行”，走向“可管理、可验收、可持续”。",
-      closing: true,
-    },
-    5_000
-  );
+  await page.setContent(demoMarkup(), { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
+  await sleep(totalDuration + 750);
 } finally {
   await page.close();
   await video.saveAs(rawPath);
@@ -459,4 +474,4 @@ await run("ffmpeg", [
   outputPath,
 ]);
 
-console.log(`Rendered CrewClaw demo to ${outputPath}`);
+console.log(`Rendered CrewClaw concept demo to ${outputPath}`);
