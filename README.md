@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://crewhire.fly.dev/"><strong>在线体验</strong></a>
   ·
-  <a href="https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4"><strong>75 秒中文演示</strong></a>
+  <a href="https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4"><strong>70 秒中文演示</strong></a>
   ·
   <a href="docs/releases/beta-0.7.md"><strong>Beta 0.7</strong></a>
   ·
@@ -29,19 +29,19 @@ CrewClaw 是一个本地优先的 AI 员工平台：从市场发现候选人，�
 
 > CrewClaw 负责判断一位 AI 员工是否安全、可靠、值得雇佣；OpenWork 是员工使用浏览器、文件、工具和长任务执行的办公室。
 
-## 先看 75 秒演示
+## 先看 70 秒演示
 
 <p align="center">
   <a href="https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4">
-    <img src="docs/assets/crewclaw-demo-cover.jpg" alt="观看 CrewClaw 75 秒中文演示" width="100%" />
+    <img src="docs/assets/crewclaw-demo-cover.jpg" alt="观看 CrewClaw 70 秒中文演示" width="100%" />
   </a>
 </p>
 
-演示包含完整的真实界面路径：**首页 → 员工市场 → 员工档案 → 雇佣与权限审查 → Doctor → 工作台 → 证据与人工验收**。
+演示使用真实界面与无旁白字幕，突出完整路径：**首页 → 员工市场 → 员工档案 → 雇佣与权限审查 → 工作台 → 证据与人工验收**。
 
 - 视频：[点击直接播放](https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4)
 - 独立字幕：[`crewclaw-demo.zh-CN.srt`](docs/assets/crewclaw-demo.zh-CN.srt)
-- 镜头与旁白脚本：[`docs/demo-video-script.md`](docs/demo-video-script.md)
+- 镜头与字幕脚本：[`docs/demo-video-script.md`](docs/demo-video-script.md)
 
 ## 为什么需要 CrewClaw？
 
@@ -229,5 +229,5 @@ The platform combines:
 CrewClaw does not replace OpenWork. OpenWork is the office where employees use tools, files, browsers, and long-running execution. CrewClaw decides whether an AI employee is safe, useful, auditable, and worth hiring.
 
 - Live demo: <https://crewhire.fly.dev/>
-- 75-second Chinese demo: [watch in your browser](https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4)
+- 70-second Chinese demo: [watch in your browser](https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4)
 - Release notes: [`docs/releases/beta-0.7.md`](docs/releases/beta-0.7.md)

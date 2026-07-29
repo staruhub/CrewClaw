@@ -39,6 +39,7 @@
     "test:e2e:dev": "node scripts/run-playwright-e2e.mjs dev",
     "test:e2e:production": "node scripts/run-playwright-e2e.mjs production",
     "test:e2e": "pnpm run test:e2e:tui && pnpm run test:e2e:dev && pnpm run test:e2e:production",
+    "video:demo": "node scripts/render-demo-video.mjs",
     "test:all": "pnpm run ci:check && pnpm run test:e2e",
     "ci:check": "node scripts/ci-check.mjs",
     "crewclaw": "cargo run --quiet --manifest-path crates/crewclaw-cli/Cargo.toml --",
