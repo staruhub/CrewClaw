@@ -964,7 +964,17 @@ mod tests {
             joins.push(thread::spawn(move || {
                 barrier.wait();
                 for _ in 0..rounds {
-                    let _lock = acquire_owner_lock(&root, "counter").expect("lock");
+                    // This test deliberately creates an unfair eight-thread lock convoy. Hosted
+                    // Windows runners can spend most of the production timeout flushing the other
+                    // 159 atomic writes, so use a test-local budget and assert serialization rather
+                    // than scheduler fairness.
+                    let _lock = acquire_owner_lock_with(
+                        &root,
+                        Path::new("counter"),
+                        Duration::from_secs(30),
+                        DEFAULT_STALE_AFTER,
+                    )
+                    .expect("lock");
                     let current = read_string(&root, "counter")
                         .expect("read")
                         .expect("counter")
