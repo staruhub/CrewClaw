@@ -14,10 +14,19 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
-import { getEmployee } from "../src/data/employees";
 
 const repoRoot = process.cwd();
-const adoptionEmployee = getEmployee("ai-adoption-whale");
+const generatedEmployees = JSON.parse(
+  readFileSync(
+    join(repoRoot, "src", "data", "employees.generated.json"),
+    "utf8"
+  )
+) as {
+  employees: Array<{ employee_id: string; first_task: string }>;
+};
+const adoptionEmployee = generatedEmployees.employees.find(
+  employee => employee.employee_id === "ai-adoption-whale"
+);
 if (!adoptionEmployee) {
   throw new Error("Production E2E requires the ai-adoption-whale employee");
 }
