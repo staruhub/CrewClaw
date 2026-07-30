@@ -12,6 +12,7 @@ build/
 coverage/
 contracts/schema/*.json
 src/data/employees.generated.json
+packages/runtime/employee-package-validator.mjs
 
 # Package files
 package-lock.json

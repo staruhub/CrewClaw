@@ -15,6 +15,7 @@ const gates = [
   "check",
   "lint",
   "schema:check",
+  "validator:bundle:check",
   "test:unit",
   "test:runtime",
   "test:rust",

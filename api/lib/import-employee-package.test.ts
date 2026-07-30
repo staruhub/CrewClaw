@@ -9,12 +9,7 @@ const repoRoot = path.resolve(__dirname, "../..");
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")
 );
-const importer = path.join(
-  repoRoot,
-  "packages",
-  "runtime",
-  "import-employee-package.mjs"
-);
+const runtimeRoot = path.join(repoRoot, "packages", "runtime");
 const slug = "code-review-shrimp";
 
 function createRoot(prefix: string) {
@@ -24,6 +19,17 @@ function createRoot(prefix: string) {
     path.join(repoRoot, "registry", "experts.json"),
     path.join(root, "registry", "experts.json")
   );
+  const isolatedRuntime = path.join(root, "packages", "runtime");
+  fs.mkdirSync(isolatedRuntime, { recursive: true });
+  for (const file of [
+    "import-employee-package.mjs",
+    "employee-package-validator.mjs",
+  ]) {
+    fs.copyFileSync(
+      path.join(runtimeRoot, file),
+      path.join(isolatedRuntime, file)
+    );
+  }
   return root;
 }
 
@@ -34,9 +40,13 @@ function writeArchive(root: string, gzip: Buffer) {
 }
 
 function runImporter(root: string, archive: string, sha256?: string) {
+  const importer = path.join(
+    root,
+    "packages",
+    "runtime",
+    "import-employee-package.mjs"
+  );
   return spawnSync(process.execPath, [importer, root, archive, sha256 ?? "-"], {
-    // Production invokes the importer from an isolated CrewClaw root, not the package manager
-    // workspace. Runtime-only dependencies must therefore resolve relative to the importer.
     cwd: root,
     encoding: "utf8",
     windowsHide: true,
@@ -57,9 +67,9 @@ function buildIncompletePackage() {
 }
 
 describe("employee package importer", () => {
-  it("ships the TypeScript validator loader in production dependencies", () => {
-    expect(packageJson.dependencies?.tsx).toBeTruthy();
-    expect(packageJson.devDependencies?.tsx).toBeUndefined();
+  it("ships a standalone validator without a production TypeScript loader", () => {
+    expect(packageJson.dependencies?.tsx).toBeUndefined();
+    expect(packageJson.devDependencies?.tsx).toBeTruthy();
   });
 
   it("requires a trusted SHA-256 before it touches the experts directory", () => {
