@@ -623,6 +623,76 @@ pub enum TaskEvent {
         #[serde(default)]
         data: Value,
     },
+    #[serde(rename = "dream.next_task_ready")]
+    DreamNextTaskReady {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.revision_task_created")]
+    DreamRevisionTaskCreated {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.next_task_approved")]
+    DreamNextTaskApproved {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.next_task_queued")]
+    DreamNextTaskQueued {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.next_task_started")]
+    DreamNextTaskStarted {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.next_task_delivery_ready")]
+    DreamNextTaskDeliveryReady {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.next_task_settled")]
+    DreamNextTaskSettled {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.next_task_evaluated")]
+    DreamNextTaskEvaluated {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.next_task_learned")]
+    DreamNextTaskLearned {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    #[serde(rename = "dream.next_cycle_recommended")]
+    DreamNextCycleRecommended {
+        #[serde(default)]
+        ts: u64,
+        #[serde(default)]
+        data: Value,
+    },
     #[serde(rename = "debug.line")]
     DebugLine {
         #[serde(default)]
@@ -802,6 +872,16 @@ impl TaskEvent {
             "dream.rejected" => Self::DreamRejected { ts, data },
             "dream.activated" => Self::DreamActivated { ts, data },
             "dream.rolled_back" => Self::DreamRolledBack { ts, data },
+            "dream.next_task_ready" => Self::DreamNextTaskReady { ts, data },
+            "dream.revision_task_created" => Self::DreamRevisionTaskCreated { ts, data },
+            "dream.next_task_approved" => Self::DreamNextTaskApproved { ts, data },
+            "dream.next_task_queued" => Self::DreamNextTaskQueued { ts, data },
+            "dream.next_task_started" => Self::DreamNextTaskStarted { ts, data },
+            "dream.next_task_delivery_ready" => Self::DreamNextTaskDeliveryReady { ts, data },
+            "dream.next_task_settled" => Self::DreamNextTaskSettled { ts, data },
+            "dream.next_task_evaluated" => Self::DreamNextTaskEvaluated { ts, data },
+            "dream.next_task_learned" => Self::DreamNextTaskLearned { ts, data },
+            "dream.next_cycle_recommended" => Self::DreamNextCycleRecommended { ts, data },
             "debug.line" => Self::DebugLine { ts, data },
             _ => Self::Unknown,
         }
@@ -1009,7 +1089,17 @@ impl TaskEvent {
             | Self::DreamApproved { .. }
             | Self::DreamRejected { .. }
             | Self::DreamActivated { .. }
-            | Self::DreamRolledBack { .. } => {
+            | Self::DreamRolledBack { .. }
+            | Self::DreamNextTaskReady { .. }
+            | Self::DreamRevisionTaskCreated { .. }
+            | Self::DreamNextTaskApproved { .. }
+            | Self::DreamNextTaskQueued { .. }
+            | Self::DreamNextTaskStarted { .. }
+            | Self::DreamNextTaskDeliveryReady { .. }
+            | Self::DreamNextTaskSettled { .. }
+            | Self::DreamNextTaskEvaluated { .. }
+            | Self::DreamNextTaskLearned { .. }
+            | Self::DreamNextCycleRecommended { .. } => {
                 require_non_empty(
                     data.get("dream_id").and_then(Value::as_str),
                     "data.dream_id",
@@ -1092,6 +1182,16 @@ impl TaskEvent {
             Self::DreamRejected { .. } => "dream.rejected",
             Self::DreamActivated { .. } => "dream.activated",
             Self::DreamRolledBack { .. } => "dream.rolled_back",
+            Self::DreamNextTaskReady { .. } => "dream.next_task_ready",
+            Self::DreamRevisionTaskCreated { .. } => "dream.revision_task_created",
+            Self::DreamNextTaskApproved { .. } => "dream.next_task_approved",
+            Self::DreamNextTaskQueued { .. } => "dream.next_task_queued",
+            Self::DreamNextTaskStarted { .. } => "dream.next_task_started",
+            Self::DreamNextTaskDeliveryReady { .. } => "dream.next_task_delivery_ready",
+            Self::DreamNextTaskSettled { .. } => "dream.next_task_settled",
+            Self::DreamNextTaskEvaluated { .. } => "dream.next_task_evaluated",
+            Self::DreamNextTaskLearned { .. } => "dream.next_task_learned",
+            Self::DreamNextCycleRecommended { .. } => "dream.next_cycle_recommended",
             Self::DebugLine { .. } => "debug.line",
             Self::Unknown => "unknown",
         }
@@ -1166,6 +1266,16 @@ impl TaskEvent {
             | Self::DreamRejected { data, .. }
             | Self::DreamActivated { data, .. }
             | Self::DreamRolledBack { data, .. }
+            | Self::DreamNextTaskReady { data, .. }
+            | Self::DreamRevisionTaskCreated { data, .. }
+            | Self::DreamNextTaskApproved { data, .. }
+            | Self::DreamNextTaskQueued { data, .. }
+            | Self::DreamNextTaskStarted { data, .. }
+            | Self::DreamNextTaskDeliveryReady { data, .. }
+            | Self::DreamNextTaskSettled { data, .. }
+            | Self::DreamNextTaskEvaluated { data, .. }
+            | Self::DreamNextTaskLearned { data, .. }
+            | Self::DreamNextCycleRecommended { data, .. }
             | Self::DebugLine { data, .. } => data,
             Self::Unknown => UNKNOWN_DATA.get_or_init(|| Value::Null),
         }
@@ -1242,6 +1352,16 @@ impl TaskEvent {
             | Self::DreamRejected { ts, .. }
             | Self::DreamActivated { ts, .. }
             | Self::DreamRolledBack { ts, .. }
+            | Self::DreamNextTaskReady { ts, .. }
+            | Self::DreamRevisionTaskCreated { ts, .. }
+            | Self::DreamNextTaskApproved { ts, .. }
+            | Self::DreamNextTaskQueued { ts, .. }
+            | Self::DreamNextTaskStarted { ts, .. }
+            | Self::DreamNextTaskDeliveryReady { ts, .. }
+            | Self::DreamNextTaskSettled { ts, .. }
+            | Self::DreamNextTaskEvaluated { ts, .. }
+            | Self::DreamNextTaskLearned { ts, .. }
+            | Self::DreamNextCycleRecommended { ts, .. }
             | Self::DebugLine { ts, .. } => *ts,
             Self::Unknown => 0,
         }

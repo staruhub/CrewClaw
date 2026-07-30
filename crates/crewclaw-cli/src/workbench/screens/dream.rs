@@ -77,7 +77,22 @@ pub fn render(frame: &mut Frame<'_>, ui_state: &UiState, area: Rect) {
     let compact_height = main_area.height < 18;
     let diff_rows = candidate
         .as_ref()
-        .map(|value| value.diff.len() + value.blockers.len())
+        .map(|value| {
+            let mut count = value.diff.len() + value.blockers.len() + 1;
+            if !value.next_step.is_empty() {
+                count += 1;
+            }
+            if !value.cycle_id.is_empty() {
+                count += 2;
+                if !value.growth_goal.is_empty() {
+                    count += 1;
+                }
+                if !value.task_run_id.is_empty() {
+                    count += 1;
+                }
+            }
+            count
+        })
         .unwrap_or_else(|| dream.playbook_add.len() + dream.playbook_remove.len());
     let diff_height = (diff_rows + 4).clamp(if compact_height { 3 } else { 5 }, 20) as u16;
     let rows = Layout::default()
@@ -354,6 +369,31 @@ fn render_playbook_diff(
             lines.push(Line::from(Span::styled(
                 format!(" 下一步：{}", candidate.next_step),
                 Style::default().fg(config::orange()),
+            )));
+        }
+        if !candidate.cycle_id.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled(" GROWTH ", Style::default().fg(config::aqua())),
+                Span::styled(
+                    format!("{} · {}", candidate.growth_kind, candidate.state),
+                    Style::default().fg(config::fg()),
+                ),
+            ]));
+            if !candidate.growth_goal.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!(" 目标：{}", candidate.growth_goal),
+                    Style::default().fg(config::fg()),
+                )));
+            }
+            if !candidate.task_run_id.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!(" TaskRun：{}", candidate.task_run_id),
+                    Style::default().fg(config::dim()),
+                )));
+            }
+            lines.push(Line::from(Span::styled(
+                " [p] 审批并送入同一 runtime/TaskRun 管线",
+                Style::default().fg(config::aqua()),
             )));
         }
         lines.push(Line::from(Span::styled(
