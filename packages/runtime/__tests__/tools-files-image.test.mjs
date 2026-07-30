@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   rmSync,
   symlinkSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -67,6 +68,17 @@ await test("readImageDataUrl rejects unsupported types", async () => {
 
   assert.equal(result.ok, false);
   assert.match(result.error, /不支持|类型/);
+});
+
+await test("readImageDataUrl rejects oversized images before encoding", async () => {
+  const fixture = mkdtempSync(join(tmpdir(), "crewclaw-image-oversized-"));
+  const imagePath = join(fixture, "oversized.png");
+  writeFileSync(imagePath, "");
+  truncateSync(imagePath, 4.5 * 1024 * 1024 + 1);
+  const result = await readImageDataUrl(imagePath, { root: fixture });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /图片过大/);
+  rmSync(fixture, { recursive: true, force: true });
 });
 
 await test("image path replaced by an outside junction after detection is rejected", async () => {

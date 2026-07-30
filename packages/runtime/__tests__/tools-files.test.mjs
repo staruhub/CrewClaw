@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   rmSync,
   symlinkSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -89,6 +90,15 @@ try {
   await test("directory path is rejected", async () => {
     const result = await readAnyFile(".", { root });
     assert.equal(result.ok, false);
+  });
+
+  await test("oversized files are rejected before extraction", async () => {
+    const filePath = path.join(root, "oversized.md");
+    writeFileSync(filePath, "");
+    truncateSync(filePath, 16 * 1024 * 1024 + 1);
+    const result = await readAnyFile("oversized.md", { root });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /exceeds read limit/);
   });
 } finally {
   rmSync(sandbox, { recursive: true, force: true });
