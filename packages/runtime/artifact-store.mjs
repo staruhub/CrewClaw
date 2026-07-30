@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   artifactStorageRoot,
@@ -39,23 +40,39 @@ export function newArtifact({ taskId, type, title, content }) {
 }
 
 export function saveArtifact(root, artifact) {
+  let mdPath = null;
+  let mdWritten = false;
+  let jsonWritten = false;
   try {
     const dir = artifactsDir(root);
     const jsonPath = artifactJsonPath(root, artifact.id);
-    const mdPath = artifactMdPath(root, artifact.id);
+    mdPath = artifactMdPath(root, artifact.id);
+    // Serialize before publishing either half. This prevents invalid metadata from leaving an
+    // otherwise convincing Markdown artifact behind.
+    const json = `${JSON.stringify(artifact, null, 2)}\n`;
     ensureArtifactDirectory(root, dir);
     writeArtifactFileAtomic(root, mdPath, artifact.content || "");
-    writeArtifactFileAtomic(
-      root,
-      jsonPath,
-      `${JSON.stringify(artifact, null, 2)}\n`
-    );
+    mdWritten = true;
+    writeArtifactFileAtomic(root, jsonPath, json);
+    jsonWritten = true;
     return { ok: true, jsonPath, mdPath };
   } catch (error) {
+    let cleanupError = null;
+    if (mdWritten && !jsonWritten && mdPath) {
+      try {
+        const guarded = inspectArtifactPath(root, mdPath, { mustExist: true });
+        if (guarded.ok) rmSync(mdPath, { force: true });
+        else cleanupError = new Error(guarded.reason);
+      } catch (cleanupFailure) {
+        cleanupError = cleanupFailure;
+      }
+    }
     return {
       ok: false,
       code: error?.code,
-      error: error?.message ?? String(error),
+      error: cleanupError
+        ? `${error?.message ?? String(error)}; partial artifact cleanup failed: ${cleanupError?.message ?? cleanupError}`
+        : (error?.message ?? String(error)),
     };
   }
 }

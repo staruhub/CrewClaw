@@ -51,6 +51,24 @@ try {
     "artifact store leaves no partial temp files"
   );
 
+  const partial = newArtifact({
+    taskId: "task_partial",
+    title: "Partial",
+    content: "must be rolled back",
+  });
+  mkdirSync(join(root, ".crewclaw", "artifacts", `${partial.id}.json`), {
+    recursive: true,
+  });
+  const partialResult = saveArtifact(root, partial);
+  assert.equal(partialResult.ok, false);
+  assert.equal(
+    readdirSync(join(root, ".crewclaw", "artifacts")).includes(
+      `${partial.id}.md`
+    ),
+    false,
+    "metadata failure rolls back the published Markdown half"
+  );
+
   mkdirSync(join(linkedRoot, ".crewclaw"), { recursive: true });
   writeFileSync(join(outside, "sentinel.txt"), "outside stays unchanged");
   symlinkSync(
