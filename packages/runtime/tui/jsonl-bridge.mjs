@@ -59,6 +59,19 @@ import {
 import { makeJudge, readEvalResult, runEval } from "../eval-runner.mjs";
 import { buildReflection, writeReflection } from "../reflect.mjs";
 import {
+  approveGrowthCycle,
+  awaitGrowthDelivery,
+  inspectLatestGrowthCycle,
+  learnGrowthCycle,
+  markGrowthNextRecommended,
+  queueGrowthCycle,
+  recommendGrowthCycle,
+  recoverGrowthCycle,
+  settleGrowthCycle,
+  startGrowthCycle,
+} from "../growth-cycle.mjs";
+import { loadTaskRun as loadPersistedTaskRun } from "../task-state.mjs";
+import {
   DREAM_EVENT_FAMILY,
   activateDreamCandidate,
   approveDreamCandidate,
@@ -126,6 +139,10 @@ export async function startJsonlBridge({
   let activeAbortController = null;
   let busy = false;
   let dreamBusy = false;
+  let recoveredDreamActivation = null;
+  let currentGrowthCycleId = null;
+  let queuedGrowthCycle = null;
+  const growthCyclesByTaskRun = new Map();
   let contextEpoch = Number.isSafeInteger(meta.contextEpoch)
     ? meta.contextEpoch
     : 0;
@@ -686,6 +703,185 @@ export async function startJsonlBridge({
     emit(EVENTS.DREAM_MORNING_REPORT, projected.report);
     return true;
   };
+  const projectGrowthCycle = (record, type, extra = {}) => {
+    if (!record || !meta.agentId) return false;
+    currentGrowthCycleId = record.cycle_id;
+    if (record.task_run_id) {
+      growthCyclesByTaskRun.set(record.task_run_id, record.cycle_id);
+    }
+    return emit(type, {
+      dream_id: record.dream_id,
+      employee_id: record.employee_id,
+      cycle_id: record.cycle_id,
+      kind: record.kind,
+      state: record.state,
+      goal: record.goal,
+      plan_hash: record.plan_hash,
+      task_run_id: record.task_run_id,
+      outcome: record.outcome,
+      ...extra,
+    });
+  };
+  const recommendGrowth = (dreamId, kind) => {
+    const taskTemplate = String(
+      meta.firstTask ||
+        (kind === "dream_revision"
+          ? "复核被拒绝的 Dream 候选，逐项修正来源、证据与安全边界后重新提交。"
+          : "执行下一项与员工职责一致的可验证任务，并产出证据、交付物与验收记录。")
+    ).trim();
+    const goal =
+      kind === "dream_revision"
+        ? `修订 Dream ${dreamId}：${taskTemplate}`
+        : `${taskTemplate}\n\n成长目标：根据最近 KPI、evaluation 与 evidence 补强弱项；必须走工具授权、证据和交付验收门禁。`;
+    const created = recommendGrowthCycle(bridgeRoot, {
+      employeeId: meta.agentId,
+      dreamId,
+      kind,
+      goal,
+      taskRunIds: dreamAssessment?.input?.task_run_ids || [],
+      evidenceIds: dreamAssessment?.input?.evidence_ids || [],
+      kpi: readKpi(bridgeRoot, meta.agentId),
+      evaluation: evalResult,
+    });
+    projectGrowthCycle(
+      created.record,
+      kind === "dream_revision"
+        ? EVENTS.DREAM_REVISION_TASK_CREATED
+        : EVENTS.DREAM_NEXT_TASK_READY,
+      {
+        next_step:
+          "按 p 审批后，目标会进入同一 TaskRun/runtime 管线；未审批不会执行。",
+      }
+    );
+    return created.record;
+  };
+  const settleGrowthOutcome = (held, outcome, detail) => {
+    if (!held?.growthCycleId || !meta.agentId) return null;
+    try {
+      const settled = settleGrowthCycle(
+        bridgeRoot,
+        meta.agentId,
+        held.growthCycleId,
+        outcome,
+        {
+          taskRunId: held.taskRunId,
+          detail,
+        }
+      );
+      projectGrowthCycle(settled.record, EVENTS.DREAM_NEXT_TASK_SETTLED);
+      if (["accepted", "rejected", "revision_needed"].includes(outcome)) {
+        const learned = learnGrowthCycle(
+          bridgeRoot,
+          meta.agentId,
+          held.growthCycleId
+        );
+        projectGrowthCycle(learned.evaluated, EVENTS.DREAM_NEXT_TASK_EVALUATED);
+        projectGrowthCycle(learned.record, EVENTS.DREAM_NEXT_TASK_LEARNED, {
+          next_step:
+            "KPI、evidence 与 reflection 已回写；重新评估下一轮 Dream。",
+        });
+        if (["rejected", "revision_needed"].includes(outcome)) {
+          const revision = recommendGrowthCycle(bridgeRoot, {
+            employeeId: meta.agentId,
+            dreamId: `${settled.record.dream_id}-${held.taskRunId}`,
+            kind: "dream_revision",
+            goal: `修订被拒绝的成长任务 ${held.taskRunId}：${detail || "根据人工反馈修正交付物，并重新提交 evidence 与审批。"}`,
+            taskRunIds: [
+              ...settled.record.context.task_run_ids,
+              held.taskRunId,
+            ],
+            evidenceIds: settled.record.context.evidence_ids,
+            kpi: readKpi(bridgeRoot, meta.agentId),
+            evaluation: evalResult,
+          });
+          projectGrowthCycle(
+            revision.record,
+            EVENTS.DREAM_REVISION_TASK_CREATED,
+            {
+              parent_cycle_id: held.growthCycleId,
+              next_step:
+                "人工审批 revision 后，修订目标会进入同一 TaskRun/runtime 管线。",
+            }
+          );
+        } else {
+          const nextRecommended = refreshDreamAssessment({
+            manualTrigger: true,
+            force: true,
+          });
+          if (nextRecommended) {
+            const nextDreamId = dreamIdFor(dreamAssessment);
+            const next = markGrowthNextRecommended(
+              bridgeRoot,
+              meta.agentId,
+              held.growthCycleId,
+              { nextDreamId }
+            );
+            projectGrowthCycle(
+              next.record,
+              EVENTS.DREAM_NEXT_CYCLE_RECOMMENDED,
+              { next_dream_id: nextDreamId }
+            );
+          }
+        }
+      }
+      return settled.record;
+    } catch (error) {
+      emit(EVENTS.DREAM_BLOCKED, {
+        dream_id:
+          inspectLatestGrowthCycle(bridgeRoot, meta.agentId).record?.dream_id ||
+          dreamIdFor(dreamAssessment),
+        employee_id: meta.agentId,
+        reason: error?.message || String(error),
+        blockers: ["growth_settlement_failed"],
+      });
+      return null;
+    }
+  };
+  if (meta.agentId) {
+    const latestGrowth = inspectLatestGrowthCycle(bridgeRoot, meta.agentId);
+    if (latestGrowth.ok) {
+      const recovered = recoverGrowthCycle(
+        bridgeRoot,
+        meta.agentId,
+        latestGrowth.record.cycle_id,
+        {
+          loadTaskRun: taskRunId => loadPersistedTaskRun(bridgeRoot, taskRunId),
+        }
+      );
+      const record = recovered.ok ? recovered.record : latestGrowth.record;
+      currentGrowthCycleId = record.cycle_id;
+      if (record.task_run_id) {
+        growthCyclesByTaskRun.set(record.task_run_id, record.cycle_id);
+      }
+    }
+    const pendingDream = inspectDreamJob(bridgeRoot, meta.agentId);
+    if (
+      pendingDream.ok &&
+      ["APPROVED", "ACTIVATING"].includes(pendingDream.job.state)
+    ) {
+      const activated = activateDreamCandidate(
+        bridgeRoot,
+        meta.agentId,
+        pendingDream.job.dream_id
+      );
+      if (activated.ok) {
+        const contextRefresh = await refreshContextAfterMemoryChange({
+          reason: "dream.activation_recovered",
+          expectedMemoryStateHash:
+            activated.activation?.activated_memory_hash ||
+            pendingDream.job.candidate_memory_hash,
+        });
+        recoveredDreamActivation = {
+          dream_id: pendingDream.job.dream_id,
+          employee_id: meta.agentId,
+          activation: activated.activation,
+          context_refresh: contextRefresh,
+          recovered: true,
+        };
+        refreshDreamAssessment();
+      }
+    }
+  }
   const growthCard = buildGrowthCard({
     employeeId: meta.agentId,
     evalResult,
@@ -726,6 +922,9 @@ export async function startJsonlBridge({
       grant_source: meta.toolGrantSource || null,
       grant_warning: meta.toolGrantWarning || null,
     },
+    growth_cycle: currentGrowthCycleId
+      ? inspectLatestGrowthCycle(bridgeRoot, meta.agentId).record || null
+      : null,
     context_index: {
       epoch: contextEpoch,
       memory_state_hash: activeMemoryStateHash,
@@ -814,6 +1013,7 @@ export async function startJsonlBridge({
     // Validation/ProofPack failures are not user outcomes and must not affect KPI. The model cost
     // still belongs in the monthly spend ledger so the budget cannot be bypassed via failed writes.
     accrueSpend(cost, held.taskRunId);
+    settleGrowthOutcome(held, "failed", reason);
     removePendingDelivery(held);
     return false;
   };
@@ -953,6 +1153,11 @@ export async function startJsonlBridge({
       outputValid: true,
       feedback: "useful",
     });
+    settleGrowthOutcome(
+      held,
+      "accepted",
+      "Human accepted the growth task delivery"
+    );
     refreshDreamAssessment();
     if (!removePendingDelivery(held)) {
       emit(EVENTS.DEBUG_LINE, {
@@ -1021,6 +1226,11 @@ export async function startJsonlBridge({
       outputValid: false,
       feedback: "not_useful",
     });
+    settleGrowthOutcome(
+      held,
+      decision === "revise" ? "revision_needed" : "rejected",
+      reason
+    );
     refreshDreamAssessment();
     if (!removePendingDelivery(held)) {
       emit(EVENTS.DEBUG_LINE, {
@@ -1252,6 +1462,9 @@ export async function startJsonlBridge({
             decision: queuedToolEvent.decision?.decision,
             decision_source: queuedToolEvent.decision?.decision_source,
             permission_level: queuedToolEvent.decision?.level,
+            started_at: queuedToolEvent.started_at,
+            ended_at: queuedToolEvent.ended_at,
+            elapsed_ms: queuedToolEvent.elapsed_ms,
           };
           if (phase === "requested") {
             if (terminalToolLifecycles.has(id)) return;
@@ -1695,6 +1908,14 @@ export async function startJsonlBridge({
         status: "input_interrupted",
         reason: "输入通道关闭，运行中的任务已阻塞",
       });
+      settleGrowthOutcome(
+        {
+          taskRunId: activeTaskRunId,
+          growthCycleId: growthCyclesByTaskRun.get(activeTaskRunId) || null,
+        },
+        "cancelled",
+        "Input channel closed while the growth task was running"
+      );
       busy = false;
     }
   };
@@ -1752,6 +1973,26 @@ export async function startJsonlBridge({
         clientEventFamilies.add(family);
       refreshDreamAssessment();
       emitDreamMorningReport();
+      if (recoveredDreamActivation) {
+        emit(EVENTS.DREAM_ACTIVATED, recoveredDreamActivation);
+      }
+      if (currentGrowthCycleId && meta.agentId) {
+        const latest = inspectLatestGrowthCycle(bridgeRoot, meta.agentId);
+        if (latest.ok) {
+          const type =
+            latest.record.kind === "dream_revision"
+              ? EVENTS.DREAM_REVISION_TASK_CREATED
+              : EVENTS.DREAM_NEXT_TASK_READY;
+          projectGrowthCycle(latest.record, type, {
+            recovered: true,
+            next_step:
+              latest.record.state === "RECOMMENDED" ||
+              latest.record.state === "REVISION_REQUIRED"
+                ? "按 p 审批后进入同一 TaskRun/runtime 管线。"
+                : "已从持久化 growth cycle 恢复。",
+          });
+        }
+      }
       return;
     }
 
@@ -1794,15 +2035,37 @@ export async function startJsonlBridge({
         status: "user_cancelled",
         reason,
       });
+      settleGrowthOutcome(
+        {
+          taskRunId,
+          growthCycleId: growthCyclesByTaskRun.get(taskRunId) || null,
+        },
+        "cancelled",
+        reason
+      );
       return;
     }
 
     if (action?.type?.startsWith("dream.")) {
       const result = safelyApplyUserAction(action);
+      let growthTaskText = null;
       if (!clientEventFamilies.has(DREAM_EVENT_FAMILY)) return;
       if (!dreamAssessment || !meta.agentId) {
         emit(EVENTS.DEBUG_LINE, {
           line: "dream action ignored: no employee bound",
+        });
+        return;
+      }
+      if (
+        result.dreamAction === "next_task_approve" &&
+        (busy || pendingApproval || pendingConfirm || pendingQuestion)
+      ) {
+        emit(EVENTS.DREAM_BLOCKED, {
+          dream_id: result.dreamId || dreamIdFor(dreamAssessment),
+          employee_id: meta.agentId,
+          reason: "workbench_gate_busy",
+          blockers: ["active_task_or_approval"],
+          next_step: "先完成当前任务、工具授权或交付验收，再启动成长任务。",
         });
         return;
       }
@@ -1950,6 +2213,7 @@ export async function startJsonlBridge({
             activation: activated.activation,
             context_refresh: contextRefresh,
           });
+          recommendGrowth(dreamId, "next_task");
         } else if (result.dreamAction === "reject") {
           const inspected = inspectDreamJob(
             bridgeRoot,
@@ -1969,6 +2233,42 @@ export async function startJsonlBridge({
               ? { approval: rejected.approval }
               : { reason: rejected.reason, blockers: ["rejection_failed"] }),
           });
+          if (rejected.ok) recommendGrowth(dreamId, "dream_revision");
+        } else if (result.dreamAction === "next_task_approve") {
+          const latest = inspectLatestGrowthCycle(bridgeRoot, meta.agentId);
+          if (
+            !latest.ok ||
+            ![
+              "RECOMMENDED",
+              "REVISION_REQUIRED",
+              "APPROVED",
+              "QUEUED",
+            ].includes(latest.record.state)
+          ) {
+            emit(EVENTS.DREAM_BLOCKED, {
+              dream_id: latest.record?.dream_id || dreamIdFor(dreamAssessment),
+              employee_id: meta.agentId,
+              reason: latest.ok
+                ? `growth cycle is ${latest.record.state}`
+                : latest.reason,
+              blockers: ["growth_task_not_approvable"],
+            });
+            return;
+          }
+          const approved = approveGrowthCycle(
+            bridgeRoot,
+            meta.agentId,
+            latest.record.cycle_id
+          );
+          projectGrowthCycle(approved.record, EVENTS.DREAM_NEXT_TASK_APPROVED);
+          const queued = queueGrowthCycle(
+            bridgeRoot,
+            meta.agentId,
+            latest.record.cycle_id
+          );
+          projectGrowthCycle(queued.record, EVENTS.DREAM_NEXT_TASK_QUEUED);
+          queuedGrowthCycle = queued.record;
+          growthTaskText = queued.record.goal;
         } else if (result.dreamAction === "rollback") {
           const inspected = inspectDreamJob(
             bridgeRoot,
@@ -2010,7 +2310,15 @@ export async function startJsonlBridge({
         emitDreamMorningReport();
         dreamBusy = false;
       }
-      return;
+      if (growthTaskText) {
+        action = {
+          type: "user.message",
+          data: { text: growthTaskText, refs: [] },
+        };
+        text = growthTaskText;
+      } else {
+        return;
+      }
     }
 
     // ask_user reuses the same PendingAction digit transport. Choosing “other” keeps the model
@@ -2357,6 +2665,17 @@ export async function startJsonlBridge({
           skillUsage: skillUsageSnapshot(),
           taskRunId,
         });
+        settleGrowthOutcome(
+          {
+            taskRunId,
+            growthCycleId:
+              growthCycleIdForTask ||
+              growthCyclesByTaskRun.get(taskRunId) ||
+              null,
+          },
+          "failed",
+          "Growth task was correctly blocked and produced no delivery"
+        );
         return;
       }
       if (!isPendingActionInput && budgetBlocksNewTask) {
@@ -2398,6 +2717,22 @@ export async function startJsonlBridge({
           taskRunId,
         });
         return;
+      }
+      let growthCycleIdForTask = null;
+      if (queuedGrowthCycle) {
+        const startedGrowth = startGrowthCycle(
+          bridgeRoot,
+          meta.agentId,
+          queuedGrowthCycle.cycle_id,
+          taskRunId
+        );
+        growthCycleIdForTask = startedGrowth.record.cycle_id;
+        growthCyclesByTaskRun.set(taskRunId, growthCycleIdForTask);
+        projectGrowthCycle(
+          startedGrowth.record,
+          EVENTS.DREAM_NEXT_TASK_STARTED
+        );
+        queuedGrowthCycle = null;
       }
       // v0.11：不跑 runModelTurn 的分支（天气卡/轻路径快捷工具）也必须把问答写进共享历史，
       // 否则下一轮模型看不到上一轮（"那明天呢"接不上中山天气——真实用户卡点）。
@@ -2472,6 +2807,10 @@ export async function startJsonlBridge({
           usage: turnUsage(),
           skillUsage: skillUsageSnapshot(),
           createdAt: Date.now(),
+          growthCycleId:
+            growthCycleIdForTask ||
+            growthCyclesByTaskRun.get(taskRunId) ||
+            null,
         };
         if (!fingerprint.ok) {
           failDeliverySettlement(held, {
@@ -2525,6 +2864,18 @@ export async function startJsonlBridge({
             return;
           }
           pendingApproval = held;
+          if (held.growthCycleId) {
+            const awaiting = awaitGrowthDelivery(
+              bridgeRoot,
+              meta.agentId,
+              held.growthCycleId,
+              taskRunId
+            );
+            projectGrowthCycle(
+              awaiting.record,
+              EVENTS.DREAM_NEXT_TASK_DELIVERY_READY
+            );
+          }
           emitApprovalRequested(emit, held);
           // do NOT emit task.completed — the accept action closes the task.
         }
@@ -2576,6 +2927,17 @@ export async function startJsonlBridge({
           });
         }
         accrueSpend(plainCost, taskRunId); // v0.18 C3
+        settleGrowthOutcome(
+          {
+            taskRunId,
+            growthCycleId:
+              growthCycleIdForTask ||
+              growthCyclesByTaskRun.get(taskRunId) ||
+              null,
+          },
+          "failed",
+          "Growth task completed without a deliverable and cannot enter approval"
+        );
       }
     } catch (e) {
       if (!closing && !cancelledTaskIds.has(taskRunId)) {
@@ -2594,6 +2956,17 @@ export async function startJsonlBridge({
             ? { http_status: e.httpStatus }
             : {}),
         });
+        settleGrowthOutcome(
+          {
+            taskRunId,
+            growthCycleId:
+              growthCycleIdForTask ||
+              growthCyclesByTaskRun.get(taskRunId) ||
+              null,
+          },
+          "failed",
+          String((e && e.message) || e)
+        );
       }
     } finally {
       cancelledTaskIds.delete(taskRunId);
@@ -2766,6 +3139,7 @@ function pendingDeliveryReceipt(held) {
     usage: held.usage,
     skillUsage: Array.isArray(held.skillUsage) ? held.skillUsage : [],
     createdAt: held.createdAt,
+    growthCycleId: held.growthCycleId || null,
   };
 }
 

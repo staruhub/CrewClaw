@@ -1,6 +1,6 @@
-// M0 of the conditional-Dream architecture (docs/dream-conditional-design.md): frozen contract
-// names and versioned schemas for every Dream/Reflect core artifact. M0 defines shapes only —
-// no runtime behavior reads or writes these yet (M1-M4 land together on a feature branch).
+// Frozen contract names and versioned schemas for the conditional-Dream and executable growth
+// architecture. Runtime persistence and TaskEvent transitions live in packages/runtime; this file
+// remains the schema source of truth shared by generators and consumers.
 //
 // Naming rule: a contract string never changes meaning. Breaking changes bump the version suffix
 // and add a new schema next to the old one; consumers reject versions they do not support.
@@ -14,6 +14,7 @@ export const DREAM_DIFF_CONTRACT = "crewclaw.dream-diff/v1";
 export const DREAM_APPROVAL_CONTRACT = "crewclaw.dream-approval/v1";
 export const MEMORY_ACTIVATION_CONTRACT = "crewclaw.memory-activation/v1";
 export const MEMORY_STATE_HASH_SCHEMA = "crewclaw.memory-state-hash/v1";
+export const GROWTH_CYCLE_CONTRACT = "crewclaw.growth-cycle/v1";
 
 const NonEmptyString = z.string().min(1);
 const IsoDateTime = z.iso.datetime();
@@ -251,6 +252,71 @@ export const DREAM_JOB_STATES = [
   "ROLLED_BACK",
 ] as const;
 
+export const GROWTH_CYCLE_STATES = [
+  "RECOMMENDED",
+  "REVISION_REQUIRED",
+  "APPROVED",
+  "QUEUED",
+  "RUNNING",
+  "AWAITING_DELIVERY_APPROVAL",
+  "DELIVERED",
+  "REJECTED",
+  "EVALUATED",
+  "LEARNED",
+  "NEXT_RECOMMENDED",
+  "BLOCKED",
+  "FAILED",
+  "CANCELLED",
+] as const;
+
+export const GrowthCycleTransitionSchema = z
+  .object({
+    idempotency_key: NonEmptyString,
+    event: NonEmptyString,
+    from: z.enum(GROWTH_CYCLE_STATES).nullable(),
+    to: z.enum(GROWTH_CYCLE_STATES),
+    at: IsoDateTime,
+    task_run_id: NonEmptyString.nullable(),
+    detail: NonEmptyString.nullable(),
+  })
+  .strict();
+
+/**
+ * Dream is the employee-growth control plane, while TaskRun remains the execution plane.
+ * This record binds an approved growth recommendation to exactly one normal runtime task and
+ * folds its approval/evaluation outcome back into the next Dream recommendation.
+ */
+export const GrowthCycleSchema = z
+  .object({
+    contract: z.literal(GROWTH_CYCLE_CONTRACT),
+    cycle_id: NonEmptyString,
+    employee_id: NonEmptyString,
+    dream_id: NonEmptyString,
+    kind: z.enum(["next_task", "dream_revision"]),
+    state: z.enum(GROWTH_CYCLE_STATES),
+    goal: NonEmptyString.max(16_000),
+    context: z
+      .object({
+        task_run_ids: z.array(NonEmptyString),
+        evidence_ids: z.array(NonEmptyString),
+        kpi: z.record(z.string(), z.unknown()),
+        evaluation: z.record(z.string(), z.unknown()).nullable(),
+        history_hash: PrefixedSha256,
+      })
+      .strict(),
+    plan_hash: PrefixedSha256,
+    approved_by: NonEmptyString.nullable(),
+    approved_at: IsoDateTime.nullable(),
+    task_run_id: NonEmptyString.nullable(),
+    outcome: z
+      .enum(["accepted", "rejected", "revision_needed", "failed", "cancelled"])
+      .nullable(),
+    transitions: z.array(GrowthCycleTransitionSchema).min(1),
+    created_at: IsoDateTime,
+    updated_at: IsoDateTime,
+  })
+  .strict();
+
 export const DreamJobSchema = z
   .object({
     contract: z.literal(DREAM_JOB_CONTRACT),
@@ -306,3 +372,4 @@ export type DreamCandidate = z.infer<typeof DreamCandidateSchema>;
 export type DreamDiff = z.infer<typeof DreamDiffSchema>;
 export type DreamApproval = z.infer<typeof DreamApprovalSchema>;
 export type MemoryActivation = z.infer<typeof MemoryActivationSchema>;
+export type GrowthCycle = z.infer<typeof GrowthCycleSchema>;

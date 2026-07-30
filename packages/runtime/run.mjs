@@ -898,6 +898,8 @@ function attachIntrinsicRuntimeTools(
             name: "use_skill",
             capability: "skills.use",
             label: "Load installed skill",
+            provider: "crewclaw.runtime",
+            sideEffects: [],
           },
         ]
       : []),
@@ -905,16 +907,26 @@ function attachIntrinsicRuntimeTools(
       name: "recall_memory",
       capability: "memory.recall",
       label: "Recall employee memory",
+      provider: "crewclaw.runtime",
+      sideEffects: [],
     },
     {
       name: "todo_write",
       capability: "task.todo.write",
       label: "Update live task checklist",
+      permission: "write",
+      operation: "write",
+      riskTier: "P1",
+      provider: "crewclaw.runtime",
+      sideEffects: ["Updates the persisted task checklist."],
+      supportsPreview: true,
     },
     {
       name: "ask_user",
       capability: "task.ask_user",
       label: "Ask a structured user question",
+      provider: "crewclaw.runtime",
+      sideEffects: [],
     },
     {
       name: "note_memory",
@@ -923,6 +935,9 @@ function attachIntrinsicRuntimeTools(
       permission: "write",
       operation: "write",
       riskTier: "P1",
+      provider: "crewclaw.runtime",
+      sideEffects: ["Writes a review-gated employee memory candidate."],
+      supportsPreview: true,
     },
     {
       name: "docx_write",
@@ -932,6 +947,9 @@ function attachIntrinsicRuntimeTools(
       operation: "write",
       riskTier: "P2",
       approval: "when_needed",
+      provider: "crewclaw.artifacts",
+      sideEffects: ["Writes a managed DOCX artifact in the workspace."],
+      supportsPreview: true,
     },
     ...(mcpReadiness(mcp).ready
       ? [
@@ -943,6 +961,10 @@ function attachIntrinsicRuntimeTools(
             operation: "read",
             riskTier: "P1",
             approval: "always",
+            provider: "mcp",
+            sideEffects: [
+              "Sends an allowlisted read request to the configured MCP provider.",
+            ],
           },
         ]
       : []),
@@ -996,9 +1018,22 @@ function attachIntrinsicRuntimeTools(
         availability: "ready",
         reason: "运行时 handler 已注册",
         code: "ready",
-        provider: null,
+        provider: definition.provider || "crewclaw.runtime",
         applicable: true,
         authorization,
+        provider_bindings: [
+          {
+            provider: definition.provider || "crewclaw.runtime",
+            tools: [definition.name],
+          },
+        ],
+        side_effects: definition.sideEffects || [],
+        supports_preview: definition.supportsPreview === true,
+        scopes: [employeeId],
+        approval,
+        purpose: null,
+        limits: null,
+        on_unavailable: "fail",
       });
     }
   }
@@ -3552,11 +3587,13 @@ async function agentLoop({
           argsError = error;
         }
         const toolName = tc.function.name;
+        const t0 = Date.now();
         const toolBase = {
           id: callId,
           toolName,
           args,
           rawArguments: tc.function.arguments || "{}",
+          started_at: new Date(t0).toISOString(),
         };
         const emitToolLifecycle = event => {
           const eventDecision =
@@ -3576,12 +3613,19 @@ async function agentLoop({
             ...toolBase,
             ...event,
             ...presentation,
+            ...(new Set(["succeeded", "failed", "blocked", "cancelled"]).has(
+              event.phase
+            )
+              ? {
+                  ended_at: new Date().toISOString(),
+                  elapsed_ms: Math.max(0, Date.now() - t0),
+                }
+              : {}),
           });
         };
         emitToolLifecycle({
           phase: "requested",
         });
-        const t0 = Date.now();
         // Permission Gateway (PRD §13): the model declares, one gateway decides, runTool enforces
         // that exact decision. A missing injected gateway falls back to the same fail-closed policy;
         // there is never a second shell allow-list that can downgrade `confirm` to auto-run.
@@ -3939,6 +3983,7 @@ async function interactiveChat({
     title,
     avatar,
     dreamPolicy,
+    runtime,
     contextIndex,
     contextTokens,
     memoryStateHash,
@@ -3988,6 +4033,10 @@ async function interactiveChat({
         agentId: currentAgentId,
         avatar: avatar || [],
         dreamPolicy,
+        firstTask:
+          runtime?.demo_tasks?.[0]?.input?.task_text ||
+          runtime?.demo_tasks?.[0]?.title ||
+          null,
         contextIndex,
         contextTokens,
         memoryStateHash,

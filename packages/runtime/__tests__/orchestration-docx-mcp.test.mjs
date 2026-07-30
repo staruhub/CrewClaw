@@ -498,7 +498,7 @@ test("ready MCP tools remain per-call authorized in the live employee profile", 
       availability: "ready",
       code: "ready",
       reason: "运行时 handler 已注册",
-      provider: null,
+      provider: "mcp",
       capabilities: ["mcp.read"],
     });
 
