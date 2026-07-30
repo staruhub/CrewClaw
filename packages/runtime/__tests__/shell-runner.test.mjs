@@ -34,6 +34,19 @@ try {
       /退出码 7/.test(error.message)
   );
 
+  await assert.rejects(
+    runTool(
+      "bash",
+      {
+        command: `${executable} -e "process.stdout.write('x'.repeat(300000))"`,
+      },
+      { root, permission: allow }
+    ),
+    error =>
+      error?.code === "shell_output_too_large" &&
+      error?.outputBytes > 256 * 1024
+  );
+
   console.log("shell-runner.test.mjs passed");
 } finally {
   rmSync(root, { recursive: true, force: true });
