@@ -6298,6 +6298,12 @@ async function runTaskMode({
       line: `task report not persisted: ${error?.message || String(error)}`,
     });
   }
+  const finalTaskState = saveTaskRun(WORKSPACE_ROOT, run);
+  if (!finalTaskState.ok) {
+    const line = `final TaskRun snapshot not persisted: ${finalTaskState.error}`;
+    if (taskSink) taskSink.emitRaw("debug.line", { line });
+    else console.error(`${GUTTER}${line}`);
+  }
   if (outputValid && taskSink && actionReader) {
     const approvalId = `task-approval-${run.id}`;
     const fingerprint = captureArtifactFingerprint(completion.deliverable);

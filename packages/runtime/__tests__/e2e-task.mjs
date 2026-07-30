@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { rmSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { loadMemory } from "../memory-store.mjs";
 import { startMockModel } from "./mock-model.mjs";
 import {
@@ -175,6 +176,18 @@ async function run() {
       plain,
       /抓取网页|web_fetch/,
       "the role-allowed web tool should render as a human action line"
+    );
+    const runFile = readdirSync(join(root, ".crewclaw", "runs")).find(
+      file => /^task_.*\.json$/.test(file) && !file.endsWith(".evidence.json")
+    );
+    assert.ok(runFile, "TaskRun JSON is persisted");
+    const persistedRun = JSON.parse(
+      readFileSync(join(root, ".crewclaw", "runs", runFile), "utf8")
+    );
+    assert.equal(
+      persistedRun.evidence_count,
+      1,
+      "the final non-TUI TaskRun snapshot includes persisted evidence"
     );
 
     console.log(
