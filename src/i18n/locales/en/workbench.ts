@@ -45,7 +45,7 @@ export const workbenchEn = {
   approvalHeading: "Human delivery gate",
   released: "released",
   approvalBody:
-    "Delivery is mandatory-gated: inspect evidence, then explicitly accept or reject. Rejecting requires a reason and creates a revision task command.",
+    "Delivery is mandatory-gated. This website shows persisted evidence and runtime commands; acceptance or rejection is executed only in the event-driven TUI.",
   artifact: "Artifact",
   noArtifact: "No artifact emitted",
   evidenceInspected: "inspected",

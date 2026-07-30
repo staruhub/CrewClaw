@@ -23,6 +23,7 @@ import {
   DreamCandidateSchema,
   DreamDiffSchema,
   DreamJobSchema,
+  GrowthCycleSchema,
   MemoryActivationSchema,
   MemoryItemV2Schema,
   ReflectionSchema,
@@ -33,6 +34,12 @@ import { ToolCatalogSchema } from "../tool-catalog";
 
 // M0（条件式 Dream）：每个 Dream/Reflect 核心制品都有版本化 Schema。文件名与契约字符串一一对应。
 const DREAM_ARTIFACT_SCHEMAS: Array<[string, string, string, z.ZodType]> = [
+  [
+    "dream.growth-cycle.schema.json",
+    "CrewClaw Dream Growth Cycle (crewclaw.growth-cycle/v1)",
+    "Persistent approval-gated binding from Dream recommendation to a normal TaskRun and the next learning cycle.",
+    GrowthCycleSchema,
+  ],
   [
     "memory.item.schema.json",
     "CrewClaw Memory Item (crewclaw.memory-item/v2)",

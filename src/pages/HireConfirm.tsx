@@ -33,11 +33,7 @@ import {
   permissionLabel,
   type PermissionRiskLevel,
 } from "@/lib/permissions";
-import {
-  CHECKOUT_PLANS,
-  pricingTone,
-  type CheckoutPlanId,
-} from "@/lib/pricing";
+import { CHECKOUT_PLANS, type CheckoutPlanId } from "@/lib/pricing";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,6 +52,15 @@ import { track } from "@/hooks/use-analytics";
 import { useTeam } from "@/hooks/use-team";
 import { HireCliHandoff } from "@/components/HireCliHandoff";
 import { capabilityGrantTokensForHire } from "@/lib/capability-grants";
+import {
+  decideLocalEmployeeTrial,
+  runLocalEmployeeDoctor,
+  runLocalEmployeeTrial,
+} from "@/lib/local-api";
+import type {
+  LocalDoctorResult,
+  LocalTrialResult,
+} from "@contracts/local-lifecycle";
 import {
   formatMessage,
   useI18n,
@@ -164,10 +169,6 @@ function summarizePermission(
   };
 }
 
-function defaultPlanForPricing(pricing: string): CheckoutPlanId {
-  return pricingTone(pricing) === "Pro" ? "pro" : "free";
-}
-
 const TOOL_RISK_RANK: Record<EmployeeToolCapability["risk_tier"], number> = {
   P0: 0,
   P1: 1,
@@ -210,15 +211,7 @@ type PermissionArea = {
 type DoctorStatus = "pending" | "progress" | "pass" | "fail";
 
 export type DoctorCheck = {
-  id:
-    | "contract"
-    | "runtime"
-    | "tools"
-    | "files"
-    | "network"
-    | "budget"
-    | "approval"
-    | "evidence";
+  id: string;
   name: string;
   status: DoctorStatus;
   detail: string;
@@ -1271,14 +1264,16 @@ export default function HireConfirm() {
   const [toolCapabilities, setToolCapabilities] = useState<string[]>(
     defaultToolCapabilities
   );
-  const [selectedPlan, setSelectedPlan] = useState<CheckoutPlanId>(
-    employee ? defaultPlanForPricing(employee.pricing) : "free"
-  );
-  const [mockCheckoutConfirmed, setMockCheckoutConfirmed] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<CheckoutPlanId>("free");
   const [handoffPrepared, setHandoffPrepared] = useState(false);
   const [doctorStarted, setDoctorStarted] = useState(false);
-  const [trialStarted, setTrialStarted] = useState(false);
-  const [trialAccepted, setTrialAccepted] = useState(false);
+  const [doctorResult, setDoctorResult] = useState<LocalDoctorResult | null>(
+    null
+  );
+  const [doctorLoading, setDoctorLoading] = useState(false);
+  const [trialResult, setTrialResult] = useState<LocalTrialResult | null>(null);
+  const [trialLoading, setTrialLoading] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [localHireState, setLocalHireState] = useState<
     "idle" | "loading" | "hired" | "error"
   >("idle");
@@ -1291,14 +1286,14 @@ export default function HireConfirm() {
   if (employee?.employee_id !== prevEmployeeId) {
     setPrevEmployeeId(employee?.employee_id);
     setToolCapabilities(defaultToolCapabilities);
-    setSelectedPlan(
-      employee ? defaultPlanForPricing(employee.pricing) : "free"
-    );
-    setMockCheckoutConfirmed(false);
+    setSelectedPlan("free");
     setHandoffPrepared(false);
     setDoctorStarted(false);
-    setTrialStarted(false);
-    setTrialAccepted(false);
+    setDoctorResult(null);
+    setDoctorLoading(false);
+    setTrialResult(null);
+    setTrialLoading(false);
+    setLifecycleError(null);
     setLocalHireState("idle");
     setLocalHireMessage(null);
   }
@@ -1369,8 +1364,24 @@ export default function HireConfirm() {
     planName: localizedCheckoutPlan.name,
     t,
   });
-  const doctorSuccess = doctorPassed(doctorChecks);
-  const trialSummary = buildTrialSummary({
+  const displayedDoctorChecks: DoctorCheck[] = doctorResult
+    ? doctorResult.checks.map((check, index) => ({
+        id: `runtime:${index}:${check.name}`,
+        name: check.name,
+        status: check.ok ? "pass" : "fail",
+        detail: check.detail,
+        action: check.ok
+          ? "Verified by the local runtime Doctor."
+          : (doctorResult.fixes[index] ??
+            doctorResult.fixes[0] ??
+            "Resolve this runtime blocker and rerun Doctor."),
+      }))
+    : doctorChecks;
+  const doctorSuccess =
+    doctorResult !== null && doctorResult.status !== "broken";
+  const trialStarted = trialLoading || trialResult !== null;
+  const trialAccepted = trialResult?.status === "accepted";
+  const baseTrialSummary = buildTrialSummary({
     employee,
     selectedCapabilityIds: toolCapabilities,
     planName: localizedCheckoutPlan.name,
@@ -1378,8 +1389,22 @@ export default function HireConfirm() {
     accepted: trialAccepted,
     t,
   });
-  const activationReady =
-    mockCheckoutConfirmed && doctorSuccess && trialStarted && trialAccepted;
+  const trialSummary: TrialSummary = trialResult
+    ? {
+        ...baseTrialSummary,
+        evidence: [
+          `${trialResult.evidence_count} persisted evidence card(s)`,
+          `TaskRun ${trialResult.task_run_id}`,
+        ],
+        artifacts: [
+          trialResult.artifact_id
+            ? `Managed artifact ${trialResult.artifact_id}`
+            : "No artifact was persisted",
+          `${trialResult.tool_invocations} audited runtime tool invocation(s)`,
+        ],
+      }
+    : baseTrialSummary;
+  const activationReady = doctorSuccess && trialStarted && trialAccepted;
 
   const toggleToolCapability = (capabilityId: string) => {
     const capability = employee.tool_capabilities.find(
@@ -1392,8 +1417,9 @@ export default function HireConfirm() {
         : [...current, capabilityId]
     );
     setDoctorStarted(false);
-    setTrialStarted(false);
-    setTrialAccepted(false);
+    setDoctorResult(null);
+    setTrialResult(null);
+    setLifecycleError(null);
   };
 
   if (handoffPrepared) {
@@ -1449,7 +1475,8 @@ export default function HireConfirm() {
                     setLocalHireMessage(null);
                     const result = await team.hire(
                       employee.employee_id,
-                      grantedCapabilityTokens
+                      grantedCapabilityTokens,
+                      trialResult!.task_run_id
                     );
                     if (result.ok) {
                       setLocalHireState("hired");
@@ -1496,9 +1523,21 @@ export default function HireConfirm() {
           <HireCliHandoff
             slug={employee.employee_id}
             capabilities={grantedToolCapabilities}
+            hired={localHired}
             intent={handoffIntent}
           />
           <div className="mt-8 flex flex-wrap gap-3">
+            {trialResult ? (
+              <Button
+                asChild
+                className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
+                variant="outline"
+              >
+                <Link to={`/task-run/${trialResult.task_run_id}`}>
+                  Open trial evidence
+                </Link>
+              </Button>
+            ) : null}
             <Button
               asChild
               className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
@@ -1516,6 +1555,15 @@ export default function HireConfirm() {
             >
               <Link to="/marketplace">{t("keepBrowsing")}</Link>
             </Button>
+            {localHired ? (
+              <Button
+                asChild
+                className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
+                variant="outline"
+              >
+                <Link to="/performance">Open KPI and evaluation</Link>
+              </Button>
+            ) : null}
           </div>
         </section>
       </main>
@@ -1629,10 +1677,10 @@ export default function HireConfirm() {
               onValueChange={plan => {
                 const nextPlan = plan as CheckoutPlanId;
                 setSelectedPlan(nextPlan);
-                setMockCheckoutConfirmed(false);
                 setDoctorStarted(false);
-                setTrialStarted(false);
-                setTrialAccepted(false);
+                setDoctorResult(null);
+                setTrialResult(null);
+                setLifecycleError(null);
                 track("hire_clicked", {
                   employee_id: employee.employee_id,
                   employee_name: employee.name,
@@ -1646,6 +1694,7 @@ export default function HireConfirm() {
                 <label
                   className={cn(
                     "block cursor-pointer rounded-[8px] border p-4 transition-colors",
+                    plan.id === "pro" && "cursor-not-allowed opacity-55",
                     selectedPlan === plan.id
                       ? "border-crew-copper/45 bg-crew-copper/10"
                       : "border-white/10 bg-white/[0.025] hover:border-white/20"
@@ -1655,6 +1704,7 @@ export default function HireConfirm() {
                   <div className="flex items-start gap-3">
                     <RadioGroupItem
                       className="mt-1 border-white/25 text-crew-copper"
+                      disabled={plan.id === "pro"}
                       value={plan.id}
                     />
                     <div className="min-w-0 flex-1">
@@ -1675,6 +1725,12 @@ export default function HireConfirm() {
                       <p className="mt-3 text-sm leading-6 text-crew-body">
                         {plan.description}
                       </p>
+                      {plan.id === "pro" ? (
+                        <p className="mt-2 text-xs font-medium text-amber-200">
+                          Billing is not connected in the local product. This
+                          plan is disabled; no paid entitlement is created.
+                        </p>
+                      ) : null}
                       <div className="mt-4">
                         <PricingBulletList bullets={plan.bullets} />
                       </div>
@@ -1683,62 +1739,6 @@ export default function HireConfirm() {
                 </label>
               ))}
             </RadioGroup>
-          </CardContent>
-        </Card>
-
-        <Card className="mt-5 rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
-          <CardHeader>
-            <CardTitle className="text-base font-semibold">
-              {t("checkoutTitle")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="border-crew-copper/40 bg-crew-copper/12 text-crew-copper">
-                      {t("mockCheckout")}
-                    </Badge>
-                    <span className="text-sm text-crew-body">
-                      {localizedCheckoutPlan.name} -{" "}
-                      {localizedCheckoutPlan.price}
-                    </span>
-                  </div>
-                  <p className="mt-3 max-w-2xl text-sm leading-6 text-crew-body">
-                    {t("checkoutBody")}
-                  </p>
-                </div>
-                <Button
-                  className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
-                  disabled={mockCheckoutConfirmed}
-                  onClick={() => {
-                    setMockCheckoutConfirmed(true);
-                    track("hire_confirmed", {
-                      employee_id: employee.employee_id,
-                      employee_name: employee.name,
-                      step: "mock_checkout_confirmed",
-                      checkout_plan: selectedPlan,
-                      simulated_checkout: true,
-                    });
-                  }}
-                  type="button"
-                >
-                  {mockCheckoutConfirmed
-                    ? t("checkoutSimulated")
-                    : t("confirmCheckout")}
-                </Button>
-              </div>
-              {mockCheckoutConfirmed ? (
-                <Alert className="mt-4 rounded-[8px] border-emerald-400/25 bg-emerald-400/10 text-crew-heading">
-                  <CheckCircle2 className="size-4 text-emerald-200" />
-                  <AlertTitle>{t("checkoutConfirmedTitle")}</AlertTitle>
-                  <AlertDescription className="text-crew-body">
-                    {t("checkoutConfirmedBody")}
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-            </div>
           </CardContent>
         </Card>
 
@@ -1863,27 +1863,62 @@ export default function HireConfirm() {
         </Card>
 
         <DoctorSection
-          checks={doctorChecks}
+          checks={displayedDoctorChecks}
           doctorStarted={doctorStarted}
           doctorSuccess={doctorSuccess}
-          onRun={() => {
+          onRun={async () => {
+            if (doctorLoading) return;
             setDoctorStarted(true);
-            setTrialStarted(false);
-            setTrialAccepted(false);
+            setDoctorLoading(true);
+            setDoctorResult(null);
+            setTrialResult(null);
+            setLifecycleError(null);
             track("hire_confirmed", {
               employee_id: employee.employee_id,
               employee_name: employee.name,
               checkout_plan: selectedPlan,
               step: "doctor_run",
             });
+            try {
+              const granted = toolCapabilitiesForHire(
+                employee.tool_capabilities,
+                toolCapabilities
+              );
+              setDoctorResult(
+                await runLocalEmployeeDoctor(employee.employee_id, granted)
+              );
+            } catch (error) {
+              setLifecycleError(
+                error instanceof Error ? error.message : String(error)
+              );
+            } finally {
+              setDoctorLoading(false);
+            }
           }}
           t={t}
         />
 
         <TrialSection
           doctorSuccess={doctorSuccess}
-          onAcceptTrial={() => {
-            setTrialAccepted(true);
+          onAcceptTrial={async () => {
+            if (!trialResult || trialLoading) return;
+            setTrialLoading(true);
+            setLifecycleError(null);
+            try {
+              setTrialResult(
+                await decideLocalEmployeeTrial(
+                  employee.employee_id,
+                  trialResult.task_run_id,
+                  "accept"
+                )
+              );
+            } catch (error) {
+              setLifecycleError(
+                error instanceof Error ? error.message : String(error)
+              );
+            } finally {
+              setTrialLoading(false);
+            }
             track("hire_confirmed", {
               employee_id: employee.employee_id,
               employee_name: employee.name,
@@ -1891,22 +1926,51 @@ export default function HireConfirm() {
               step: "trial_accepted",
             });
           }}
-          onRunTrial={() => {
-            setTrialStarted(true);
-            setTrialAccepted(false);
+          onRunTrial={async () => {
+            if (trialLoading || !doctorSuccess) return;
+            setTrialLoading(true);
+            setTrialResult(null);
+            setLifecycleError(null);
             track("hire_confirmed", {
               employee_id: employee.employee_id,
               employee_name: employee.name,
               checkout_plan: selectedPlan,
               step: "trial_run",
-              simulated_trial: true,
             });
+            try {
+              const granted = toolCapabilitiesForHire(
+                employee.tool_capabilities,
+                toolCapabilities
+              );
+              setTrialResult(
+                await runLocalEmployeeTrial(
+                  employee.employee_id,
+                  granted,
+                  baseTrialSummary.task
+                )
+              );
+            } catch (error) {
+              setLifecycleError(
+                error instanceof Error ? error.message : String(error)
+              );
+            } finally {
+              setTrialLoading(false);
+            }
           }}
           summary={trialSummary}
           t={t}
           trialAccepted={trialAccepted}
           trialStarted={trialStarted}
         />
+        {lifecycleError ? (
+          <Alert className="mt-5 rounded-[8px] border-red-400/25 bg-red-400/10 text-crew-heading">
+            <XCircle className="size-4 text-red-200" />
+            <AlertTitle>Local lifecycle action failed</AlertTitle>
+            <AlertDescription className="text-crew-body">
+              {lifecycleError}
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         <Separator className="mt-8 bg-white/10" />
 
@@ -1926,7 +1990,7 @@ export default function HireConfirm() {
                 tool_capabilities: grantedToolCapabilities,
                 legacy_context_count: employee.permissions.length,
                 checkout_plan: selectedPlan,
-                simulated_checkout: true,
+                billing_mode: "local_free_only",
               });
               window.localStorage.setItem(
                 HIRE_INTENT_STORAGE_KEY,
@@ -1936,11 +2000,12 @@ export default function HireConfirm() {
                   checkout_plan: selectedPlan,
                   capabilities: grantedToolCapabilities,
                   handoff: handoffIntent,
-                  doctor_checks: doctorChecks.map(check => ({
+                  doctor: doctorResult,
+                  doctor_checks: displayedDoctorChecks.map(check => ({
                     id: check.id,
                     status: check.status,
                   })),
-                  trial: trialSummary,
+                  trial: trialResult,
                   created_at: new Date().toISOString(),
                 })
               );

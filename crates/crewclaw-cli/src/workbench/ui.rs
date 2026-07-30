@@ -2364,7 +2364,7 @@ fn render_tools(
             Style::default().fg(DIM()),
         )));
     } else {
-        for item in state.tool_catalog.iter().take(10) {
+        for item in &state.tool_catalog {
             let ready = item.availability == "ready";
             lines.push(Line::from(vec![
                 Span::styled(
@@ -2375,11 +2375,39 @@ fn render_tools(
                 Span::styled(
                     item.runtime_tool
                         .as_deref()
-                        .map(|name| format!(" → {name}"))
+                        .map(|name| format!(" → {name} · {}", item.availability))
                         .unwrap_or_else(|| format!(" · {}", item.availability)),
                     Style::default().fg(DIM()),
                 ),
             ]));
+            let mut facts = Vec::new();
+            if let Some(value) = item.authorization.as_deref() {
+                facts.push(format!("auth={value}"));
+            }
+            if let Some(value) = item.operation.as_deref() {
+                facts.push(format!("op={value}"));
+            }
+            if let Some(value) = item.risk_tier.as_deref() {
+                facts.push(format!("risk={value}"));
+            }
+            if let Some(value) = item.provider.as_deref() {
+                facts.push(format!("provider={value}"));
+            }
+            if let Some(value) = item.timeout_ms {
+                facts.push(format!("timeout={value}ms"));
+            }
+            if !item.side_effects.is_empty() {
+                facts.push(format!("effects={}", item.side_effects.join(",")));
+            }
+            if let Some(reason) = item.reason.as_deref() {
+                facts.push(format!("reason={reason}"));
+            }
+            if !facts.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("    {}", facts.join(" · ")),
+                    Style::default().fg(DIM()),
+                )));
+            }
         }
     }
     lines.push(Line::from(""));
@@ -2408,6 +2436,34 @@ fn render_tools(
                 Style::default().fg(DIM()),
             ),
         ]));
+        let mut audit = Vec::new();
+        if let Some(value) = tool.capability.as_deref() {
+            audit.push(format!("cap={value}"));
+        }
+        if let Some(value) = tool.decision.as_deref() {
+            audit.push(format!("decision={value}"));
+        }
+        if let Some(value) = tool.decision_source.as_deref() {
+            audit.push(format!("source={value}"));
+        }
+        if let Some(value) = tool.permission_level.as_deref() {
+            audit.push(format!("level={value}"));
+        }
+        if let Some(value) = tool.elapsed_ms {
+            audit.push(format!("elapsed={value}ms"));
+        }
+        if !audit.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!("    {}", audit.join(" · ")),
+                Style::default().fg(DIM()),
+            )));
+        }
+        if let Some(args) = tool.args.as_ref() {
+            lines.push(Line::from(Span::styled(
+                format!("    args={args}"),
+                Style::default().fg(DIM()),
+            )));
+        }
     }
 
     frame.render_widget(
@@ -3919,6 +3975,35 @@ mod tests {
         assert!(compact.contains("昨夜DREAM晨报"));
         assert!(compact.contains("复核4新增1合并1替换1清理1消解3"));
         assert!(compact.contains("技能淘汰预警2"));
+    }
+
+    #[test]
+    fn dream_renders_executable_growth_goal_and_approval_gate() {
+        super::super::flow_state::reset_dream_projection();
+        super::super::flow_state::reduce_dream_event(&TaskEvent::from_parts(
+            "dream.next_task_ready",
+            1,
+            serde_json::json!({
+                "dream_id": "dream-growth-render",
+                "cycle_id": "growth-render-cycle",
+                "kind": "growth_task",
+                "state": "RECOMMENDED",
+                "goal": "生成带证据的下一轮交付",
+                "next_step": "人工审批后进入 runtime"
+            }),
+        ));
+        let state = employee_state();
+        let mut ui = UiState::default();
+        ui.screen = Screen::Dream;
+        let mut terminal = Terminal::new(TestBackend::new(160, 44)).expect("term");
+        terminal
+            .draw(|frame| render(frame, &state, &ui, ""))
+            .expect("draw executable growth task");
+        let compact = screen(&terminal).replace(' ', "");
+        assert!(compact.contains("GROWTH"));
+        assert!(compact.contains("growth_task·RECOMMENDED"));
+        assert!(compact.contains("生成带证据的下一轮交付"));
+        assert!(compact.contains("[p]审批并送入同一runtime/TaskRun管线"));
     }
 
     /// v0.16 W6.2：DREAM 双栏(main + memory)Layout 在窄终端下不panic。

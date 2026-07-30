@@ -8,7 +8,6 @@ import { env } from "./lib/env";
 import { getEmployeePackage } from "./lib/pack-employee";
 import {
   fireLocalEmployee,
-  hireLocalEmployee,
   LocalTeamError,
   readLocalEmployeePerformance,
   readLocalTeam,
@@ -19,6 +18,13 @@ import {
   readSmallJsonBody,
 } from "./lib/local-request";
 import { submitVerifiedReview } from "./lib/local-reviews";
+import {
+  decideLocalTrial,
+  hireLocalEmployeeFromTrial,
+  LocalLifecycleError,
+  runLocalDoctor,
+  runLocalTrial,
+} from "./lib/local-lifecycle";
 
 type AppEnv = { Bindings: HttpBindings };
 const app = new Hono<AppEnv>();
@@ -90,9 +96,11 @@ function localApiError(c: Context<AppEnv>, error: unknown) {
   const status =
     error instanceof LocalTeamError
       ? error.status
-      : error instanceof LocalRequestError
+      : error instanceof LocalLifecycleError
         ? error.status
-        : ((error as { status?: number })?.status ?? 500);
+        : error instanceof LocalRequestError
+          ? error.status
+          : ((error as { status?: number })?.status ?? 500);
   const body = {
     error:
       error instanceof Error
@@ -101,9 +109,11 @@ function localApiError(c: Context<AppEnv>, error: unknown) {
     code:
       error instanceof LocalTeamError
         ? error.code
-        : status === 500
-          ? "LOCAL_STATE_UNAVAILABLE"
-          : "LOCAL_REQUEST_REJECTED",
+        : error instanceof LocalLifecycleError
+          ? error.code
+          : status === 500
+            ? "LOCAL_STATE_UNAVAILABLE"
+            : "LOCAL_REQUEST_REJECTED",
   };
   if (status === 400) return c.json(body, 400);
   if (status === 403) return c.json(body, 403);
@@ -134,7 +144,9 @@ app.post("/api/local/team/hire", async c => {
       remoteAddress: remoteAddress(c),
       mutation: true,
     });
-    const result = await hireLocalEmployee(await readSmallJsonBody(c.req.raw));
+    const result = await hireLocalEmployeeFromTrial(
+      await readSmallJsonBody(c.req.raw)
+    );
     return c.json(result, result.created ? 201 : 200);
   } catch (error) {
     return localApiError(c, error);
@@ -161,6 +173,59 @@ app.get("/api/local/employees/:slug/performance", async c => {
       return c.json({ error: "Invalid employee id." }, 400);
     }
     return c.json(await readLocalEmployeePerformance(slug));
+  } catch (error) {
+    return localApiError(c, error);
+  }
+});
+
+app.post("/api/local/employees/:slug/doctor", async c => {
+  try {
+    assertLocalApiRequest(c.req.raw, {
+      remoteAddress: remoteAddress(c),
+      mutation: true,
+    });
+    return c.json(
+      await runLocalDoctor(
+        c.req.param("slug"),
+        await readSmallJsonBody(c.req.raw)
+      )
+    );
+  } catch (error) {
+    return localApiError(c, error);
+  }
+});
+
+app.post("/api/local/employees/:slug/trials", async c => {
+  try {
+    assertLocalApiRequest(c.req.raw, {
+      remoteAddress: remoteAddress(c),
+      mutation: true,
+    });
+    return c.json(
+      await runLocalTrial(
+        c.req.param("slug"),
+        await readSmallJsonBody(c.req.raw)
+      ),
+      201
+    );
+  } catch (error) {
+    return localApiError(c, error);
+  }
+});
+
+app.post("/api/local/employees/:slug/trials/:taskRunId/decision", async c => {
+  try {
+    assertLocalApiRequest(c.req.raw, {
+      remoteAddress: remoteAddress(c),
+      mutation: true,
+    });
+    return c.json(
+      await decideLocalTrial(
+        c.req.param("slug"),
+        c.req.param("taskRunId"),
+        await readSmallJsonBody(c.req.raw)
+      )
+    );
   } catch (error) {
     return localApiError(c, error);
   }

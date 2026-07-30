@@ -30,13 +30,12 @@ export const CHECKOUT_PLANS: CheckoutPlan[] = [
     id: "pro",
     name: "Pro",
     price: "$19",
-    cadence: "mock monthly seat",
-    description:
-      "Preview a paid seat flow before the employee joins your crew.",
+    cadence: "billing unavailable",
+    description: "Paid seats are not implemented in the local product.",
     bullets: [
-      "Mock checkout only",
-      "No card is charged",
-      "Same local onboarding",
+      "Disabled until billing is connected",
+      "No paid entitlement is created",
+      "Use the free local onboarding path",
     ],
   },
 ];

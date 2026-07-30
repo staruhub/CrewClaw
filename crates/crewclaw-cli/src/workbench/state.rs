@@ -1354,9 +1354,16 @@ pub struct TaskMeta {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolState {
     pub tool: Option<String>,
+    pub capability: Option<String>,
     pub status: String,
     pub summary: Option<String>,
     pub args: Option<Value>,
+    pub decision: Option<String>,
+    pub decision_source: Option<String>,
+    pub permission_level: Option<String>,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub elapsed_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1478,6 +1485,12 @@ pub struct ToolCapabilityState {
     pub runtime_tool: Option<String>,
     pub availability: String,
     pub reason: Option<String>,
+    pub authorization: Option<String>,
+    pub operation: Option<String>,
+    pub risk_tier: Option<String>,
+    pub provider: Option<String>,
+    pub timeout_ms: Option<u64>,
+    pub side_effects: Vec<String>,
 }
 
 impl Default for AppState {
@@ -1621,6 +1634,16 @@ impl AppState {
                 | TaskEvent::DreamRejected { .. }
                 | TaskEvent::DreamActivated { .. }
                 | TaskEvent::DreamRolledBack { .. }
+                | TaskEvent::DreamNextTaskReady { .. }
+                | TaskEvent::DreamRevisionTaskCreated { .. }
+                | TaskEvent::DreamNextTaskApproved { .. }
+                | TaskEvent::DreamNextTaskQueued { .. }
+                | TaskEvent::DreamNextTaskStarted { .. }
+                | TaskEvent::DreamNextTaskDeliveryReady { .. }
+                | TaskEvent::DreamNextTaskSettled { .. }
+                | TaskEvent::DreamNextTaskEvaluated { .. }
+                | TaskEvent::DreamNextTaskLearned { .. }
+                | TaskEvent::DreamNextCycleRecommended { .. }
                 | TaskEvent::DebugLine { .. }
                 | TaskEvent::Unknown
         )
@@ -1796,7 +1819,17 @@ impl AppState {
             | TaskEvent::DreamApproved { .. }
             | TaskEvent::DreamRejected { .. }
             | TaskEvent::DreamActivated { .. }
-            | TaskEvent::DreamRolledBack { .. } => {
+            | TaskEvent::DreamRolledBack { .. }
+            | TaskEvent::DreamNextTaskReady { .. }
+            | TaskEvent::DreamRevisionTaskCreated { .. }
+            | TaskEvent::DreamNextTaskApproved { .. }
+            | TaskEvent::DreamNextTaskQueued { .. }
+            | TaskEvent::DreamNextTaskStarted { .. }
+            | TaskEvent::DreamNextTaskDeliveryReady { .. }
+            | TaskEvent::DreamNextTaskSettled { .. }
+            | TaskEvent::DreamNextTaskEvaluated { .. }
+            | TaskEvent::DreamNextTaskLearned { .. }
+            | TaskEvent::DreamNextCycleRecommended { .. } => {
                 let id = string_field(data, "dream_id").unwrap_or_else(|| self.id_for(data));
                 let event_type = ev.event_type();
                 let blocked = matches!(
@@ -3619,6 +3652,15 @@ impl AppState {
                             availability: string_field(entry, "availability")
                                 .unwrap_or_else(|| "unknown".to_string()),
                             reason: string_field(entry, "reason"),
+                            authorization: string_field(entry, "authorization"),
+                            operation: string_field(entry, "operation"),
+                            risk_tier: string_field(entry, "risk_tier"),
+                            provider: string_field(entry, "provider"),
+                            timeout_ms: entry
+                                .get("limits")
+                                .and_then(|limits| limits.get("timeout_ms"))
+                                .and_then(Value::as_u64),
+                            side_effects: string_array_field(entry, "side_effects"),
                         })
                     })
                     .collect()
@@ -3654,8 +3696,13 @@ impl AppState {
             &id,
             ToolPatch {
                 tool: tool.clone(),
+                capability: string_field(data, "capability"),
                 status: Some(next.to_string()),
                 args: data.get("args").cloned(),
+                decision: string_field(data, "decision"),
+                decision_source: string_field(data, "decision_source"),
+                permission_level: string_field(data, "permission_level"),
+                started_at: string_field(data, "started_at"),
                 ..ToolPatch::default()
             },
         );
@@ -3732,9 +3779,16 @@ impl AppState {
             &id,
             ToolPatch {
                 tool: tool.clone(),
+                capability: string_field(data, "capability"),
                 status: Some(status.to_string()),
                 summary: summary.clone(),
                 args: data.get("args").cloned(),
+                decision: string_field(data, "decision"),
+                decision_source: string_field(data, "decision_source"),
+                permission_level: string_field(data, "permission_level"),
+                started_at: string_field(data, "started_at"),
+                ended_at: string_field(data, "ended_at"),
+                elapsed_ms: data.get("elapsed_ms").and_then(Value::as_u64),
             },
         );
         if existed {
@@ -3919,12 +3973,22 @@ impl AppState {
             .entry(id.to_string())
             .or_insert_with(|| ToolState {
                 tool: None,
+                capability: None,
                 status: String::new(),
                 summary: None,
                 args: None,
+                decision: None,
+                decision_source: None,
+                permission_level: None,
+                started_at: None,
+                ended_at: None,
+                elapsed_ms: None,
             });
         if let Some(name) = patch.tool {
             tool.tool = Some(name);
+        }
+        if let Some(capability) = patch.capability {
+            tool.capability = Some(capability);
         }
         if let Some(status) = patch.status {
             tool.status = status;
@@ -3935,15 +3999,40 @@ impl AppState {
         if let Some(args) = patch.args {
             tool.args = Some(args);
         }
+        if let Some(decision) = patch.decision {
+            tool.decision = Some(decision);
+        }
+        if let Some(source) = patch.decision_source {
+            tool.decision_source = Some(source);
+        }
+        if let Some(level) = patch.permission_level {
+            tool.permission_level = Some(level);
+        }
+        if let Some(started_at) = patch.started_at {
+            tool.started_at = Some(started_at);
+        }
+        if let Some(ended_at) = patch.ended_at {
+            tool.ended_at = Some(ended_at);
+        }
+        if let Some(elapsed_ms) = patch.elapsed_ms {
+            tool.elapsed_ms = Some(elapsed_ms);
+        }
     }
 }
 
 #[derive(Default)]
 struct ToolPatch {
     tool: Option<String>,
+    capability: Option<String>,
     status: Option<String>,
     summary: Option<String>,
     args: Option<Value>,
+    decision: Option<String>,
+    decision_source: Option<String>,
+    permission_level: Option<String>,
+    started_at: Option<String>,
+    ended_at: Option<String>,
+    elapsed_ms: Option<u64>,
 }
 
 fn tool_transition_allowed(current: &str, next: &str) -> bool {
@@ -6155,6 +6244,88 @@ mod tests {
             1
         );
         assert!(state.debug.iter().any(|line| line.contains("wrong")));
+    }
+
+    #[test]
+    fn session_ready_and_tool_events_preserve_runtime_authorization_audit() {
+        let mut state = AppState::default();
+        state.reduce(&ev(
+            "session.ready",
+            serde_json::json!({
+                "tool_catalog": {
+                    "resolution": [{
+                        "capability": "shell.command",
+                        "runtime_tool": "shell_exec",
+                        "availability": "not_granted",
+                        "reason": "capability token is required",
+                        "authorization": "confirm",
+                        "operation": "execute",
+                        "risk_tier": "P3",
+                        "provider": "builtin",
+                        "limits": {"timeout_ms": 30000},
+                        "side_effects": ["filesystem", "process"]
+                    }]
+                }
+            }),
+        ));
+        assert_eq!(state.tool_catalog.len(), 1);
+        assert_eq!(
+            state.tool_catalog[0],
+            ToolCapabilityState {
+                capability: "shell.command".to_string(),
+                runtime_tool: Some("shell_exec".to_string()),
+                availability: "not_granted".to_string(),
+                reason: Some("capability token is required".to_string()),
+                authorization: Some("confirm".to_string()),
+                operation: Some("execute".to_string()),
+                risk_tier: Some("P3".to_string()),
+                provider: Some("builtin".to_string()),
+                timeout_ms: Some(30_000),
+                side_effects: vec!["filesystem".to_string(), "process".to_string()],
+            }
+        );
+
+        state.reduce(&ev(
+            "tool.running",
+            serde_json::json!({
+                "id": "tool-audit",
+                "tool": "shell_exec",
+                "capability": "shell.command",
+                "args": {"command": "cargo test"},
+                "decision": "allow_session",
+                "decision_source": "session_permission_lease",
+                "permission_level": "P3",
+                "started_at": "2026-07-30T12:00:00.000Z"
+            }),
+        ));
+        state.reduce(&ev(
+            "tool.succeeded",
+            serde_json::json!({
+                "id": "tool-audit",
+                "tool": "shell_exec",
+                "capability": "shell.command",
+                "decision": "allow_session",
+                "decision_source": "session_permission_lease",
+                "permission_level": "P3",
+                "ended_at": "2026-07-30T12:00:01.250Z",
+                "elapsed_ms": 1250,
+                "summary": "tests passed"
+            }),
+        ));
+        let tool = state.tools.get("tool-audit").expect("tool audit record");
+        assert_eq!(tool.status, "succeeded");
+        assert_eq!(tool.capability.as_deref(), Some("shell.command"));
+        assert_eq!(tool.decision.as_deref(), Some("allow_session"));
+        assert_eq!(
+            tool.decision_source.as_deref(),
+            Some("session_permission_lease")
+        );
+        assert_eq!(tool.permission_level.as_deref(), Some("P3"));
+        assert_eq!(tool.elapsed_ms, Some(1250));
+        assert_eq!(
+            tool.args,
+            Some(serde_json::json!({"command": "cargo test"}))
+        );
     }
 
     #[test]

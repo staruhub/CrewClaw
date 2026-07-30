@@ -990,6 +990,12 @@ mod tests {
             runtime_tool: None,
             availability: availability.to_string(),
             reason: None,
+            authorization: None,
+            operation: None,
+            risk_tier: None,
+            provider: None,
+            timeout_ms: None,
+            side_effects: Vec::new(),
         };
         state.tool_catalog = vec![
             cap("web.search", "ready"),

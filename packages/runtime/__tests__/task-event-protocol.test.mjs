@@ -53,7 +53,7 @@ test("Node event registry contains the cross-runtime lifecycle events", () => {
   );
 });
 
-test("dream/v1 freezes exactly ten events", () => {
+test("dream/v1 freezes the memory and executable growth lifecycle events", () => {
   const dreamEvents = Object.values(EVENTS).filter(type =>
     type.startsWith("dream.")
   );
@@ -63,8 +63,18 @@ test("dream/v1 freezes exactly ten events", () => {
     "dream.blocked",
     "dream.candidate_ready",
     "dream.morning_report",
+    "dream.next_cycle_recommended",
+    "dream.next_task_approved",
+    "dream.next_task_delivery_ready",
+    "dream.next_task_evaluated",
+    "dream.next_task_learned",
+    "dream.next_task_queued",
+    "dream.next_task_ready",
+    "dream.next_task_settled",
+    "dream.next_task_started",
     "dream.recommended",
     "dream.rejected",
+    "dream.revision_task_created",
     "dream.rolled_back",
     "dream.started",
     "dream.validation_failed",

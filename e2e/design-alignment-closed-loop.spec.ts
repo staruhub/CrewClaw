@@ -115,6 +115,17 @@ function performanceRecord(id: string): LocalEmployeePerformance {
 
 async function mockLocalApis(page: Page) {
   await page.route("**/api/local/team", async route => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({
+        contentType: "application/json",
+        json: {
+          team: [workspaceEmployee()],
+          employee: workspaceEmployee(),
+          message: "Employee hired from accepted trial.",
+        },
+      });
+      return;
+    }
     await route.fulfill({
       contentType: "application/json",
       json: { source: "e2e", team: [workspaceEmployee()] },
@@ -125,6 +136,82 @@ async function mockLocalApis(page: Page) {
     await route.fulfill({
       contentType: "application/json",
       json: performanceRecord(id),
+    });
+  });
+  await page.route("**/api/local/employees/*/doctor", async route => {
+    const body = route.request().postDataJSON() as {
+      permissions_granted?: string[];
+    };
+    const blocked =
+      body.permissions_granted?.includes("places.search") ?? false;
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        contract: "crewclaw.local-doctor/v1",
+        employee_id: employeeId,
+        status: blocked ? "broken" : "warning",
+        checks: [
+          {
+            name: "tool.places.search",
+            ok: !blocked,
+            detail: blocked
+              ? "places.search has no configured provider"
+              : "places.search is not granted for this trial",
+          },
+        ],
+        missing: blocked ? ["places.search"] : [],
+        impact: blocked
+          ? "The selected capability cannot execute."
+          : "Optional capabilities remain disabled.",
+        fixes: blocked
+          ? ["Disable places.search or configure its provider."]
+          : [],
+        allow_degrade: !blocked,
+        degraded_level: blocked ? "L3" : "L2",
+        capability_resolution: [
+          {
+            capability: "places.search",
+            runtime_tool: null,
+            availability: blocked ? "unbound" : "not_granted",
+            reason: blocked
+              ? "No provider is configured."
+              : "Not granted for this trial.",
+            authorization: blocked ? "per_call" : "not_granted",
+            timeout_ms: 30_000,
+          },
+        ],
+        checked_at: "2026-07-29T00:00:00.000Z",
+      },
+    });
+  });
+  const trialResponse = (decision: boolean) => ({
+    contract: "crewclaw.local-trial/v1",
+    employee_id: employeeId,
+    task_run_id: "trial-closed-loop-e2e",
+    status: decision ? "accepted" : "delivered",
+    artifact_id: "artifact-trial-closed-loop-e2e",
+    evidence_count: 1,
+    tool_invocations: 1,
+    permissions_granted: selectedCapabilities(),
+    doctor_status: "warning",
+    decision: decision ? "accept" : null,
+    next_action: decision ? "hire_employee" : "approve_trial",
+    started_at: "2026-07-29T00:00:00.000Z",
+    updated_at: "2026-07-29T00:00:01.000Z",
+  });
+  await page.route(
+    "**/api/local/employees/*/trials/*/decision",
+    async route => {
+      await route.fulfill({
+        contentType: "application/json",
+        json: trialResponse(true),
+      });
+    }
+  );
+  await page.route("**/api/local/employees/*/trials", async route => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: trialResponse(false),
     });
   });
 }
@@ -185,7 +272,7 @@ test("discovery carries a visitor from landing to marketplace comparison and a r
   await expect(page.getByText("Receipt-backed local KPI")).toBeVisible();
 });
 
-test("activation gates require checkout Doctor and accepted trial before hire intent", async ({
+test("activation gates require Doctor and accepted trial before hire intent", async ({
   page,
 }) => {
   await mockLocalApis(page);
@@ -211,10 +298,6 @@ test("activation gates require checkout Doctor and accepted trial before hire in
     page.getByRole("button", { name: "Accept trial", exact: true })
   ).toBeDisabled();
 
-  await page
-    .getByRole("button", { name: "Confirm simulated checkout" })
-    .click();
-  await expect(page.getByText("Simulated checkout confirmed.")).toBeVisible();
   await page.getByRole("button", { name: "Run Doctor" }).click();
   await expect(
     page.getByText("Doctor found activation blockers.")
@@ -261,7 +344,13 @@ test("activation gates require checkout Doctor and accepted trial before hire in
   expect(intent.doctor_checks).toEqual(
     expect.arrayContaining([expect.objectContaining({ status: "pass" })])
   );
-  expect(intent.trial.approval).toContain("Accepted by human reviewer");
+  expect(intent.trial).toEqual(
+    expect.objectContaining({
+      status: "accepted",
+      decision: "accept",
+      next_action: "hire_employee",
+    })
+  );
   const cachedTeam = await page.evaluate(
     key => JSON.parse(localStorage.getItem(key) ?? "[]"),
     teamStorageKey
@@ -283,16 +372,17 @@ test("activation gates require checkout Doctor and accepted trial before hire in
   await expect(page.getByText("Human delivery gate")).toBeVisible();
   await expect(page.getByText("Delivery is mandatory-gated")).toBeVisible();
   await expect(page.getByText("inspect before approval")).toBeVisible();
-  await page
-    .getByPlaceholder("Missing source, wrong scope, unclear claim...")
-    .fill("Evidence source needs a freshness check");
-  await page
-    .getByPlaceholder("Ask employee to revise pricing section...")
-    .fill("Refresh official source before final acceptance");
-  await page.getByRole("button", { name: "Create revision" }).click();
   await expect(
-    page.getByText(/pending\.run .*Evidence source needs a freshness check/)
+    page.getByText(
+      "This website is a read-only projection of persisted TaskRun evidence."
+    )
   ).toBeVisible();
+  await expect(
+    page.getByText(/Open the CrewClaw TUI to execute the runtime-emitted/)
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Create revision" })
+  ).toHaveCount(0);
 });
 
 test("performance KPI and Dream review keep incomplete evidence honest", async ({

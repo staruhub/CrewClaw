@@ -16,6 +16,20 @@ import { gzipSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
 
 const repoRoot = process.cwd();
+const generatedEmployees = JSON.parse(
+  readFileSync(
+    join(repoRoot, "src", "data", "employees.generated.json"),
+    "utf8"
+  )
+) as {
+  employees: Array<{ employee_id: string; first_task: string }>;
+};
+const adoptionEmployee = generatedEmployees.employees.find(
+  employee => employee.employee_id === "ai-adoption-whale"
+);
+if (!adoptionEmployee) {
+  throw new Error("Production E2E requires the ai-adoption-whale employee");
+}
 
 test.use({ locale: "en-US" });
 
@@ -200,13 +214,12 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
     )
   ).toBeVisible();
 
-  await page.goto("/hire/ai-adoption-whale");
+  await page.goto(
+    `/hire/ai-adoption-whale?task=${encodeURIComponent(adoptionEmployee.first_task)}`
+  );
   await expect(
     page.getByRole("button", { name: "Pass Doctor and accept trial first" })
   ).toBeDisabled();
-  await page
-    .getByRole("button", { name: "Confirm simulated checkout", exact: true })
-    .click();
   await page.getByRole("button", { name: "Run Doctor", exact: true }).click();
   await expect(page.getByText(/Doctor passed/i)).toBeVisible();
   await page
@@ -227,6 +240,18 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
     page.getByRole("heading", {
       name: /AI Adoption Whale is on your local roster/i,
     })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Continue in the employee workbench",
+    })
+  ).toBeVisible();
+  await expect(page.getByText("Hired locally", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      `crew run ai-adoption-whale '${adoptionEmployee.first_task}' --tui`,
+      { exact: true }
+    )
   ).toBeVisible();
 
   expect(consoleErrors, httpErrors.join("\n")).toEqual([]);

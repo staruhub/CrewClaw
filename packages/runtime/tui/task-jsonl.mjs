@@ -33,6 +33,7 @@ const USER_ACTION_TYPES = new Set([
   "dream.approve",
   "dream.reject",
   "dream.rollback",
+  "dream.next_task_approve",
   "viewport.resize",
 ]);
 
@@ -99,6 +100,7 @@ export function applyUserAction(
     case "dream.approve":
     case "dream.reject":
     case "dream.rollback":
+    case "dream.next_task_approve":
       return {
         handled: true,
         dreamAction: action.type.slice("dream.".length),

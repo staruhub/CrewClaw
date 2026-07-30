@@ -87,6 +87,16 @@ export const EVENTS = {
   DREAM_REJECTED: "dream.rejected",
   DREAM_ACTIVATED: "dream.activated",
   DREAM_ROLLED_BACK: "dream.rolled_back",
+  DREAM_NEXT_TASK_READY: "dream.next_task_ready",
+  DREAM_REVISION_TASK_CREATED: "dream.revision_task_created",
+  DREAM_NEXT_TASK_APPROVED: "dream.next_task_approved",
+  DREAM_NEXT_TASK_QUEUED: "dream.next_task_queued",
+  DREAM_NEXT_TASK_STARTED: "dream.next_task_started",
+  DREAM_NEXT_TASK_DELIVERY_READY: "dream.next_task_delivery_ready",
+  DREAM_NEXT_TASK_SETTLED: "dream.next_task_settled",
+  DREAM_NEXT_TASK_EVALUATED: "dream.next_task_evaluated",
+  DREAM_NEXT_TASK_LEARNED: "dream.next_task_learned",
+  DREAM_NEXT_CYCLE_RECOMMENDED: "dream.next_cycle_recommended",
   // v0.8 M3 — a slash command's result. The engine executes commands (they depend on engine
   // state: registry/history/model); the front-end only shows output. `clear:true` also tells
   // the front-end to reset its transcript so /clear stays a single source of truth.
@@ -327,6 +337,16 @@ export function validateTaskEventPayload(type, data) {
     case EVENTS.DREAM_REJECTED:
     case EVENTS.DREAM_ACTIVATED:
     case EVENTS.DREAM_ROLLED_BACK:
+    case EVENTS.DREAM_NEXT_TASK_READY:
+    case EVENTS.DREAM_REVISION_TASK_CREATED:
+    case EVENTS.DREAM_NEXT_TASK_APPROVED:
+    case EVENTS.DREAM_NEXT_TASK_QUEUED:
+    case EVENTS.DREAM_NEXT_TASK_STARTED:
+    case EVENTS.DREAM_NEXT_TASK_DELIVERY_READY:
+    case EVENTS.DREAM_NEXT_TASK_SETTLED:
+    case EVENTS.DREAM_NEXT_TASK_EVALUATED:
+    case EVENTS.DREAM_NEXT_TASK_LEARNED:
+    case EVENTS.DREAM_NEXT_CYCLE_RECOMMENDED:
       requireString(data, "dream_id", errors);
       requireString(data, "employee_id", errors);
       break;

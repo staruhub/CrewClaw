@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 
 import {
   TOOL_CATALOG,
+  TOOLS,
   agentLoop,
   createTaskEvidenceCard,
   denyUnavailableApproval,
@@ -326,7 +327,33 @@ assert.equal(
   assert.equal(declaration.authorization, "not_granted");
   assert.equal(declaration.availability, "not_granted");
   assert.equal(declaration.code, "not_granted");
+  assert.equal(declaration.operation, "read");
+  assert.equal(declaration.risk_tier, "P2");
+  assert.ok(Array.isArray(declaration.side_effects));
+  assert.equal(
+    declaration.limits === null ||
+      Number.isSafeInteger(declaration.limits.timeout_ms),
+    true
+  );
   assert.equal(ready.data.tool_catalog.surface, "chat");
+  const runtimeNames = new Set(TOOLS.map(tool => tool.function.name));
+  for (const capability of ready.data.tool_catalog.resolution) {
+    if (capability.runtime_tool) {
+      assert.equal(
+        runtimeNames.has(capability.runtime_tool),
+        true,
+        `${capability.capability} must resolve to the actual runtime registry`
+      );
+    }
+    assert.equal(typeof capability.authorization, "string");
+    assert.equal(typeof capability.operation, "string");
+    assert.match(capability.risk_tier, /^P[0-4]$/);
+    assert.equal(
+      Array.isArray(capability.side_effects),
+      true,
+      `${capability.capability} must expose side-effect metadata`
+    );
+  }
   await rm(bridgeRoot, { recursive: true, force: true });
 }
 

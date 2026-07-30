@@ -1,6 +1,10 @@
 import type { LocalEmployeePerformance } from "@contracts/local-performance";
 import type { OffboardingReceipt } from "@contracts/offboarding";
 import type { OffboardingMode, WorkspaceEmployee } from "@contracts/team";
+import type {
+  LocalDoctorResult,
+  LocalTrialResult,
+} from "@contracts/local-lifecycle";
 
 type TeamMutationResponse = {
   team: WorkspaceEmployee[];
@@ -49,6 +53,7 @@ export async function hireLocalTeamEmployee(input: {
   employee_id: string;
   version: string;
   permissions_granted: string[];
+  trial_task_run_id: string;
 }) {
   return localJson<TeamMutationResponse>("/api/local/team/hire", {
     method: "POST",
@@ -84,6 +89,62 @@ export async function fireLocalTeamEmployee(
 export async function fetchLocalEmployeePerformance(employeeId: string) {
   return localJson<LocalEmployeePerformance>(
     `/api/local/employees/${encodeURIComponent(employeeId)}/performance`
+  );
+}
+
+export async function runLocalEmployeeDoctor(
+  employeeId: string,
+  permissionsGranted: string[]
+) {
+  return localJson<LocalDoctorResult>(
+    `/api/local/employees/${encodeURIComponent(employeeId)}/doctor`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CrewClaw-Local": "1",
+      },
+      body: JSON.stringify({ permissions_granted: permissionsGranted }),
+    }
+  );
+}
+
+export async function runLocalEmployeeTrial(
+  employeeId: string,
+  permissionsGranted: string[],
+  goal: string
+) {
+  return localJson<LocalTrialResult>(
+    `/api/local/employees/${encodeURIComponent(employeeId)}/trials`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CrewClaw-Local": "1",
+      },
+      body: JSON.stringify({
+        permissions_granted: permissionsGranted,
+        goal,
+      }),
+    }
+  );
+}
+
+export async function decideLocalEmployeeTrial(
+  employeeId: string,
+  taskRunId: string,
+  decision: "accept" | "reject"
+) {
+  return localJson<LocalTrialResult>(
+    `/api/local/employees/${encodeURIComponent(employeeId)}/trials/${encodeURIComponent(taskRunId)}/decision`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CrewClaw-Local": "1",
+      },
+      body: JSON.stringify({ decision }),
+    }
   );
 }
 

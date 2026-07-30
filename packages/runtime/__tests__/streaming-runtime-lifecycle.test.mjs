@@ -169,14 +169,14 @@ test("callModel renews its idle watchdog on chunks and keeps a separate total ca
           clearInterval(timer);
           res.end("data: [DONE]\n\n");
         }
-      }, 25);
+      }, 30);
       res.on("close", () => clearInterval(timer));
     },
     async baseUrl => {
       const result = await callModel({
         ...modelOptions(baseUrl),
-        idleTimeoutMs: 40,
-        totalTimeoutMs: 300,
+        idleTimeoutMs: 120,
+        totalTimeoutMs: 500,
       });
       assert.equal(result.content, "长任务完成");
     }
@@ -187,14 +187,14 @@ test("callModel renews its idle watchdog on chunks and keeps a separate total ca
       res.write(
         `data: ${JSON.stringify({ choices: [{ delta: { content: "开始" } }] })}\n\n`
       );
-      setTimeout(() => res.end("data: [DONE]\n\n"), 90);
+      setTimeout(() => res.end("data: [DONE]\n\n"), 250);
     },
     async baseUrl => {
       await assert.rejects(
         callModel({
           ...modelOptions(baseUrl),
-          idleTimeoutMs: 30,
-          totalTimeoutMs: 300,
+          idleTimeoutMs: 100,
+          totalTimeoutMs: 500,
         }),
         /stream was idle.*retry/
       );
@@ -208,20 +208,20 @@ test("callModel renews its idle watchdog on chunks and keeps a separate total ca
           res.write(
             `data: ${JSON.stringify({ choices: [{ delta: { content: "." } }] })}\n\n`
           ),
-        15
+        30
       );
       setTimeout(() => {
         clearInterval(timer);
         res.end("data: [DONE]\n\n");
-      }, 120);
+      }, 350);
       res.on("close", () => clearInterval(timer));
     },
     async baseUrl => {
       await assert.rejects(
         callModel({
           ...modelOptions(baseUrl),
-          idleTimeoutMs: 40,
-          totalTimeoutMs: 55,
+          idleTimeoutMs: 120,
+          totalTimeoutMs: 150,
         }),
         /generation exceeded.*HERMES_TOTAL_TIMEOUT_MS/
       );

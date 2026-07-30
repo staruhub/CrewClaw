@@ -85,6 +85,11 @@ pub struct DreamDiffRow {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DreamUiSnapshot {
     pub dream_id: String,
+    pub cycle_id: String,
+    pub growth_kind: String,
+    pub growth_goal: String,
+    pub task_run_id: String,
+    pub outcome: String,
     pub state: String,
     pub summary: String,
     pub base_memory_hash: String,
@@ -206,6 +211,25 @@ pub fn reduce_dream_event(event: &super::protocol::TaskEvent) {
                     "dream.rejected" => "REJECTED",
                     "dream.activated" => "ACTIVE",
                     "dream.rolled_back" => "ROLLED_BACK",
+                    "dream.next_task_ready" => "RECOMMENDED",
+                    "dream.revision_task_created" => "REVISION_REQUIRED",
+                    "dream.next_task_approved" => "APPROVED",
+                    "dream.next_task_queued" => "QUEUED",
+                    "dream.next_task_started" => "RUNNING",
+                    "dream.next_task_delivery_ready" => "AWAITING_DELIVERY_APPROVAL",
+                    "dream.next_task_settled" => data
+                        .get("outcome")
+                        .and_then(serde_json::Value::as_str)
+                        .map(|outcome| match outcome {
+                            "accepted" => "DELIVERED",
+                            "rejected" | "revision_needed" => "REJECTED",
+                            "cancelled" => "CANCELLED",
+                            _ => "FAILED",
+                        })
+                        .unwrap_or("FAILED"),
+                    "dream.next_task_evaluated" => "EVALUATED",
+                    "dream.next_task_learned" => "LEARNED",
+                    "dream.next_cycle_recommended" => "NEXT_RECOMMENDED",
                     _ => "UNKNOWN",
                 }
                 .to_string()
@@ -215,6 +239,11 @@ pub fn reduce_dream_event(event: &super::protocol::TaskEvent) {
             ("base_memory_hash", &mut snapshot.base_memory_hash),
             ("candidate_memory_hash", &mut snapshot.candidate_memory_hash),
             ("next_step", &mut snapshot.next_step),
+            ("cycle_id", &mut snapshot.cycle_id),
+            ("kind", &mut snapshot.growth_kind),
+            ("goal", &mut snapshot.growth_goal),
+            ("task_run_id", &mut snapshot.task_run_id),
+            ("outcome", &mut snapshot.outcome),
         ] {
             if let Some(value) = data.get(field).and_then(serde_json::Value::as_str) {
                 *target = value.to_string();
@@ -832,5 +861,48 @@ mod tests {
         ));
         assert!(dream_morning_report().is_none());
         assert!(dream_snapshot().is_none());
+    }
+
+    #[test]
+    fn growth_events_project_executable_goal_task_and_revision_state() {
+        reset_dream_projection();
+        reduce_dream_event(&super::super::protocol::TaskEvent::from_parts(
+            "dream.next_task_started",
+            1,
+            serde_json::json!({
+                "dream_id": "dream-growth-ui",
+                "cycle_id": "growth-cycle-one",
+                "kind": "growth_task",
+                "state": "RUNNING",
+                "goal": "Produce an evidence-backed delivery.",
+                "task_run_id": "task-growth-one"
+            }),
+        ));
+        let running = dream_snapshot().expect("running growth projection");
+        assert_eq!(running.state, "RUNNING");
+        assert_eq!(running.cycle_id, "growth-cycle-one");
+        assert_eq!(running.growth_kind, "growth_task");
+        assert_eq!(running.growth_goal, "Produce an evidence-backed delivery.");
+        assert_eq!(running.task_run_id, "task-growth-one");
+
+        reduce_dream_event(&super::super::protocol::TaskEvent::from_parts(
+            "dream.revision_task_created",
+            2,
+            serde_json::json!({
+                "dream_id": "dream-growth-revision",
+                "cycle_id": "growth-cycle-revision",
+                "kind": "dream_revision",
+                "goal": "Add source provenance and resubmit.",
+                "next_step": "Human approval is required before execution."
+            }),
+        ));
+        let revision = dream_snapshot().expect("revision growth projection");
+        assert_eq!(revision.state, "REVISION_REQUIRED");
+        assert_eq!(revision.cycle_id, "growth-cycle-revision");
+        assert_eq!(revision.growth_kind, "dream_revision");
+        assert_eq!(
+            revision.next_step,
+            "Human approval is required before execution."
+        );
     }
 }

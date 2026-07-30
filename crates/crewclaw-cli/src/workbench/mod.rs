@@ -1666,6 +1666,12 @@ fn handle_key_event(
                     "rollback", None,
                 )));
             }
+            KeyCode::Char('p') if ui_state.screen == Screen::Dream => {
+                return Ok(TerminalAction::SendAction(UserAction::dream(
+                    "next_task_approve",
+                    None,
+                )));
+            }
             KeyCode::Char('i') => {
                 ui_state.mode = InputMode::Insert;
                 // 回输入即回到跟随流（清事件游标）。
@@ -3225,6 +3231,7 @@ mod tests {
             (KeyCode::Enter, "dream.approve"),
             (KeyCode::Char('x'), "dream.reject"),
             (KeyCode::Char('u'), "dream.rollback"),
+            (KeyCode::Char('p'), "dream.next_task_approve"),
         ] {
             let action = handle_key_event(
                 &mut state,

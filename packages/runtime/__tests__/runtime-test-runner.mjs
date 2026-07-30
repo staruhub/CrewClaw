@@ -31,8 +31,20 @@ export function runRuntimeScripts(
     console.error(`\x1b[31m✗ ${failure.file}\x1b[0m`);
     if (failure.error)
       console.error(`    runner error: ${failure.error.message}`);
-    const tail = failure.output.trim().split(/\r?\n/).slice(-12).join("\n");
-    if (tail) console.error(tail.replace(/^/gm, "    "));
+    const lines = failure.output.trim().split(/\r?\n/);
+    const firstFailure = lines.findIndex(line => /^not ok\b/.test(line.trim()));
+    const diagnostic =
+      firstFailure >= 0
+        ? lines.slice(firstFailure, Math.min(lines.length, firstFailure + 40))
+        : lines.slice(-40);
+    const tail = lines.slice(-12);
+    const rendered = [
+      ...diagnostic,
+      ...(diagnostic.at(-1) === tail.at(-1)
+        ? []
+        : ["    ... final TAP summary ...", ...tail]),
+    ].join("\n");
+    if (rendered) console.error(rendered.replace(/^/gm, "    "));
   }
   console.log(
     `\n${label}: ${pass} passed, ${failed.length} failed (of ${files.length}).`

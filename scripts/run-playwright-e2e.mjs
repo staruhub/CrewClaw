@@ -128,6 +128,8 @@ try {
           }
         : {}),
       ...(e2eWorkspaceRoot ? { CREWCLAW_ROOT: e2eWorkspaceRoot } : {}),
+      TAVILY_API_KEY:
+        process.env.TAVILY_API_KEY || "crewclaw-e2e-provider-health-only",
       NODE_ENV: mode === "production" ? "production" : process.env.NODE_ENV,
       PORT: String(port),
     },
@@ -142,7 +144,11 @@ try {
     playwrightArgs.push("--config", "playwright.production.config.ts");
   }
   exitCode = await runPnpm(playwrightArgs, {
-    env: { ...process.env, CREWCLAW_E2E_EXTERNAL_SERVER: "1" },
+    env: {
+      ...process.env,
+      CREWCLAW_E2E_EXTERNAL_SERVER: "1",
+      CREWCLAW_ROOT: e2eWorkspaceRoot,
+    },
   });
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

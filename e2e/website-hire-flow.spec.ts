@@ -56,7 +56,6 @@ test("all 5 available employees have reachable detail pages", async ({
 test("a visitor can prepare a local hire handoff without faking roster state", async ({
   page,
 }) => {
-  test.setTimeout(60_000);
   const employeeId = "macao-networking-agent";
   const displayName = "Macao Networking Agent";
 
@@ -121,16 +120,16 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
   await expect(disabledCrm).not.toBeChecked();
   await expect(disabledCrm).toBeDisabled();
 
-  // The website records intent only after checkout, Doctor, and human-reviewed trial.
-  await page
-    .getByRole("button", { name: "Confirm simulated checkout", exact: true })
-    .click();
+  // The website records intent only after Doctor and a human-reviewed real trial.
   await page.getByRole("button", { name: "Run Doctor", exact: true }).click();
   await expect(page.getByText(/Doctor passed/i)).toBeVisible();
   await page
     .getByRole("button", { name: "Run bounded trial", exact: true })
     .click();
   await page.getByRole("button", { name: "Accept trial", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Trial accepted", exact: true })
+  ).toBeDisabled();
   await page
     .getByRole("button", { name: "Activate local hire", exact: true })
     .click();

@@ -77,6 +77,19 @@ const RawArtifactSchema = z.object({
   created_at: z.string().min(1).max(256),
 });
 
+const RawEvidenceCardSchema = z
+  .object({
+    source_url: z
+      .string()
+      .max(16 * 1024)
+      .optional(),
+    source_ref: z
+      .string()
+      .max(16 * 1024)
+      .optional(),
+  })
+  .passthrough();
+
 const ExpertRegistrySchema = z.object({
   experts: z
     .array(
@@ -405,7 +418,8 @@ function publicTaskRunProjection(
   run: RawTaskRun,
   artifact: WorkbenchArtifact | null,
   report: string | null,
-  expert: { employee_name?: string; role?: string }
+  expert: { employee_name?: string; role?: string },
+  sources: string[]
 ): TaskRun {
   return {
     id: run.id,
@@ -436,6 +450,7 @@ function publicTaskRunProjection(
     started_at: run.started_at,
     updated_at: run.updated_at,
     grade: { passed: run.output_valid === true, missing: [] },
+    ...(sources.length > 0 ? { sources } : {}),
     ...(report || artifact?.preview
       ? { deliverable: capPreview(report ?? artifact?.preview ?? "") }
       : {}),
@@ -444,7 +459,7 @@ function publicTaskRunProjection(
 
 export async function loadTaskRun(
   id: string,
-  { root = process.cwd() }: { root?: string } = {}
+  { root = process.env.CREWCLAW_ROOT ?? process.cwd() }: { root?: string } = {}
 ): Promise<TaskRun | null> {
   if (!SafeIdSchema.safeParse(id).success) return null;
   try {
@@ -467,8 +482,26 @@ export async function loadTaskRun(
       path.join(".crewclaw", "runs"),
       `${id}.report.md`
     );
+    const evidenceBody = await readWorkspaceStateText(
+      root,
+      path.join(".crewclaw", "runs"),
+      `${id}.evidence.json`
+    );
+    const evidence = evidenceBody
+      ? z
+          .array(RawEvidenceCardSchema)
+          .max(20_000)
+          .parse(JSON.parse(evidenceBody))
+      : [];
+    const sources = [
+      ...new Set(
+        evidence
+          .map(card => card.source_url ?? card.source_ref)
+          .filter((value): value is string => Boolean(value))
+      ),
+    ];
     const expert = await loadRegistryExpert(run.employee_id, root);
-    return publicTaskRunProjection(run, artifact, report, expert);
+    return publicTaskRunProjection(run, artifact, report, expert, sources);
   } catch {
     // This is a public endpoint. Unsafe/corrupt state is indistinguishable from a missing run so
     // filesystem layout, link targets and parser details never cross the HTTP boundary.

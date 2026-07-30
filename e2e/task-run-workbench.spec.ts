@@ -4,7 +4,8 @@ import { localizeTaskRun } from "../src/i18n/task-run-content";
 
 const run = getLatestTaskRun();
 const localizedRun = localizeTaskRun(run, "en");
-const primaryArtifact = localizedRun.artifacts[0];
+const fixtureArtifact = localizedRun.artifacts[0];
+const primaryArtifactName = `${run.artifact}.md`;
 
 test("task run workbench exposes event-driven supervision panels", async ({
   page,
@@ -53,7 +54,7 @@ test("task run workbench exposes event-driven supervision panels", async ({
   ).toBeVisible();
   await expect(
     page.getByRole("button", {
-      name: new RegExp(primaryArtifact.name.replace(".", "\\.")),
+      name: new RegExp(primaryArtifactName.replace(".", "\\.")),
     })
   ).toBeVisible();
 
@@ -64,19 +65,14 @@ test("task run workbench exposes event-driven supervision panels", async ({
     page.getByText("Preview", { exact: true }).first()
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: primaryArtifact.name })
+    page.getByRole("heading", { name: primaryArtifactName })
   ).toBeVisible();
   await expect(
-    page.getByText(primaryArtifact.preview.split("\n")[0])
+    page.getByText(fixtureArtifact.preview.split("\n")[0])
   ).toBeVisible();
 
   await expect(page.getByText("Checks", { exact: true })).toBeVisible();
-  await expect(
-    page.getByText(primaryArtifact.checks[0].label).first()
-  ).toBeVisible();
-  await expect(
-    page.getByText(primaryArtifact.checks[1].label).first()
-  ).toBeVisible();
+  await expect(page.getByText(/useful/)).toBeVisible();
 
   await expect(
     page.getByText("Evidence", { exact: true }).last()
@@ -90,17 +86,15 @@ test("task run workbench exposes event-driven supervision panels", async ({
 
   await expect(page.getByText("Approval", { exact: true })).toBeVisible();
   await expect(page.getByText("Human delivery gate")).toBeVisible();
-  await expect(page.getByText("Accept delivery")).toBeVisible();
-  await page
-    .getByPlaceholder("Missing source, wrong scope, unclear claim...")
-    .fill("Price source is not current enough");
-  await page
-    .getByPlaceholder("Ask employee to revise pricing section...")
-    .fill("Re-check pricing against official source");
-  await page.getByRole("button", { name: "Create revision" }).click();
-  await expect(page.getByText(/pending\.run \{"type":/)).toBeVisible();
-  await expect(page.getByText(/"reason":/)).toBeVisible();
-  await expect(page.getByText(/"revisionTask":/)).toBeVisible();
+  await expect(
+    page.getByText(/read-only projection of persisted TaskRun evidence/i)
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Open the CrewClaw TUI to execute/i)
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Accept delivery" })
+  ).toHaveCount(0);
 
   await expect(page.getByText("Tools and permissions")).toBeVisible();
   const toolAudit = page
@@ -126,7 +120,5 @@ test("task run workbench exposes event-driven supervision panels", async ({
     .getByRole("heading", { name: "Debug / JSONL / Audit" })
     .locator("..");
   await expect(inspectPanel.getByText("Run Truth")).toBeVisible();
-  await expect(inspectPanel.locator("pre")).toContainText(
-    run.inspect.raw_events[1]
-  );
+  await expect(inspectPanel.locator("pre")).toContainText(run.events[1].type);
 });
