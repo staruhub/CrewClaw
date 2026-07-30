@@ -1872,6 +1872,18 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
       cleanup();
       resolve(s);
     };
+    const fail = error => {
+      if (done) return;
+      done = true;
+      cleanup();
+      reject(error);
+    };
+    const commandError = (code, message, details = {}) => {
+      const error = new Error(message);
+      error.code = code;
+      Object.assign(error, details);
+      return error;
+    };
     const settleAfterTermination = settle => {
       if (done) return;
       done = true;
@@ -1919,10 +1931,20 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
               true
             );
           } catch (err) {
-            finish("（无法执行命令：" + err.message + "）");
+            fail(
+              commandError(
+                "shell_command_unavailable",
+                "无法执行命令：" + err.message
+              )
+            );
           }
         } else {
-          finish("（无法执行命令：" + e.message + "）");
+          fail(
+            commandError(
+              "shell_command_unavailable",
+              "无法执行命令：" + e.message
+            )
+          );
         }
       });
       child.once("close", code => {
@@ -1955,7 +1977,23 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
             }
             return;
           }
-          finish(`（无法执行命令：${out.trim()}）`);
+          fail(
+            commandError(
+              "shell_command_unavailable",
+              `无法执行命令：${out.trim()}`
+            )
+          );
+          return;
+        }
+        if (code !== 0) {
+          const output = out.trim().slice(0, 4000);
+          fail(
+            commandError(
+              "shell_command_failed",
+              `命令执行失败（退出码 ${code ?? "unknown"}）${output ? `：${output}` : ""}`,
+              { exitCode: code, output }
+            )
+          );
           return;
         }
         finish(out.trim().slice(0, 4000) || "（无输出）");
@@ -1989,8 +2027,13 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
           });
     };
     timer = setTimeout(() => {
-      const timedOut = (out.trim() || "") + "\n（命令超时 30s，已终止）";
-      settleAfterTermination(() => resolve(timedOut));
+      const output = out.trim().slice(0, 4000);
+      const error = commandError(
+        "shell_command_timeout",
+        `命令超时 30s，已终止${output ? `：${output}` : ""}`,
+        { output, timedOut: true }
+      );
+      settleAfterTermination(() => reject(error));
     }, 30000);
     try {
       const primaryIsFallback = process.platform === "win32" && !windowsBash;
@@ -2012,7 +2055,12 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
       try {
         attach(spawnShellChild(true), true);
       } catch (err) {
-        finish("（无法执行命令：" + err.message + "）");
+        fail(
+          commandError(
+            "shell_command_unavailable",
+            "无法执行命令：" + err.message
+          )
+        );
       }
     }
   });
