@@ -459,7 +459,7 @@ function publicTaskRunProjection(
 
 export async function loadTaskRun(
   id: string,
-  { root = process.cwd() }: { root?: string } = {}
+  { root = process.env.CREWCLAW_ROOT ?? process.cwd() }: { root?: string } = {}
 ): Promise<TaskRun | null> {
   if (!SafeIdSchema.safeParse(id).success) return null;
   try {

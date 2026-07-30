@@ -77,6 +77,19 @@ afterEach(async () => {
 });
 
 describe("public task-run state boundary", () => {
+  it("uses CREWCLAW_ROOT for the default local workspace projection", async () => {
+    const root = await temporaryRoot();
+    await seedRun(root);
+    const previousRoot = process.env.CREWCLAW_ROOT;
+    process.env.CREWCLAW_ROOT = root;
+    try {
+      expect((await loadTaskRun("task-safe"))?.id).toBe("task-safe");
+    } finally {
+      if (previousRoot === undefined) delete process.env.CREWCLAW_ROOT;
+      else process.env.CREWCLAW_ROOT = previousRoot;
+    }
+  });
+
   it("loads a valid run through a whitelist projection", async () => {
     const root = await temporaryRoot();
     await seedRun(root);

@@ -115,6 +115,17 @@ function performanceRecord(id: string): LocalEmployeePerformance {
 
 async function mockLocalApis(page: Page) {
   await page.route("**/api/local/team", async route => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({
+        contentType: "application/json",
+        json: {
+          team: [workspaceEmployee()],
+          employee: workspaceEmployee(),
+          message: "Employee hired from accepted trial.",
+        },
+      });
+      return;
+    }
     await route.fulfill({
       contentType: "application/json",
       json: { source: "e2e", team: [workspaceEmployee()] },
@@ -125,6 +136,73 @@ async function mockLocalApis(page: Page) {
     await route.fulfill({
       contentType: "application/json",
       json: performanceRecord(id),
+    });
+  });
+  await page.route("**/api/local/employees/*/doctor", async route => {
+    const body = route.request().postDataJSON() as {
+      permissions_granted?: string[];
+    };
+    const blocked =
+      body.permissions_granted?.includes("places.search") ?? false;
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        contract: "crewclaw.local-doctor/v1",
+        employee_id: employeeId,
+        status: blocked ? "broken" : "warning",
+        checks: [
+          {
+            name: "tool.places.search",
+            ok: !blocked,
+            detail: blocked
+              ? "places.search has no configured provider"
+              : "places.search is not granted for this trial",
+          },
+        ],
+        missing: blocked ? ["places.search"] : [],
+        impact: blocked
+          ? "The selected capability cannot execute."
+          : "Optional capabilities remain disabled.",
+        fixes: blocked
+          ? ["Disable places.search or configure its provider."]
+          : [],
+        allow_degrade: !blocked,
+        degraded_level: blocked ? "L3" : "L2",
+        capability_resolution: [
+          {
+            capability: "places.search",
+            runtime_tool: null,
+            availability: blocked ? "unbound" : "not_granted",
+            reason: blocked
+              ? "No provider is configured."
+              : "Not granted for this trial.",
+            authorization: blocked ? "per_call" : "not_granted",
+            timeout_ms: 30_000,
+          },
+        ],
+        checked_at: "2026-07-29T00:00:00.000Z",
+      },
+    });
+  });
+  await page.route("**/api/local/employees/*/trials*", async route => {
+    const decision = route.request().url().endsWith("/decision");
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        contract: "crewclaw.local-trial/v1",
+        employee_id: employeeId,
+        task_run_id: "trial-closed-loop-e2e",
+        status: decision ? "accepted" : "delivered",
+        artifact_id: "artifact-trial-closed-loop-e2e",
+        evidence_count: 1,
+        tool_invocations: 1,
+        permissions_granted: selectedCapabilities(),
+        doctor_status: "warning",
+        decision: decision ? "accept" : null,
+        next_action: decision ? "hire_employee" : "approve_trial",
+        started_at: "2026-07-29T00:00:00.000Z",
+        updated_at: "2026-07-29T00:00:01.000Z",
+      },
     });
   });
 }

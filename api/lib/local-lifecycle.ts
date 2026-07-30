@@ -123,7 +123,12 @@ async function loadRuntimeRegistry(
   const moduleUrl = pathToFileURL(
     resolve(packageRoot, "packages/runtime/run.mjs")
   ).href;
-  const loaded = (await import(moduleUrl)) as Partial<RuntimeRegistry>;
+  // Vite's dev SSR transformer cannot statically analyze a file URL, while the production
+  // bundle deliberately leaves this runtime boundary external. The URL is constructed only
+  // from the trusted package root above.
+  const loaded = (await import(
+    /* @vite-ignore */ moduleUrl
+  )) as Partial<RuntimeRegistry>;
   if (!loaded.TOOLS || typeof loaded.runTool !== "function") {
     throw new LocalLifecycleError(
       "The runtime tool registry is unavailable.",
