@@ -14,8 +14,13 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
+import { getEmployee } from "../src/data/employees";
 
 const repoRoot = process.cwd();
+const adoptionEmployee = getEmployee("ai-adoption-whale");
+if (!adoptionEmployee) {
+  throw new Error("Production E2E requires the ai-adoption-whale employee");
+}
 
 test.use({ locale: "en-US" });
 
@@ -233,7 +238,8 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
   await expect(page.getByText("Hired locally", { exact: true })).toBeVisible();
   await expect(
     page.getByText(
-      /crew run ai-adoption-whale 'Prepare a practical AI adoption plan.*--tui/
+      `crew run ai-adoption-whale '${adoptionEmployee.first_task}' --tui`,
+      { exact: true }
     )
   ).toBeVisible();
 
