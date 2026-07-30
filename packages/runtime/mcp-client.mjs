@@ -118,6 +118,70 @@ function jsonRpcError(value) {
   return error;
 }
 
+function waitForMcpChildExit(child, timeoutMs = 3000) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = error => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.removeListener("close", onClose);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onClose = () => finish();
+    const timer = setTimeout(() => {
+      const error = new Error("MCP 进程树在 3s 内未确认终止");
+      error.code = "mcp_process_tree_termination_failed";
+      finish(error);
+    }, timeoutMs);
+    child.once("close", onClose);
+    if (child.exitCode !== null || child.signalCode) finish();
+  });
+}
+
+async function terminateMcpProcessTree(child) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode) return;
+  if (process.platform === "win32") {
+    await new Promise((resolve, reject) => {
+      const killer = spawn(
+        "taskkill",
+        ["/PID", String(child.pid), "/T", "/F"],
+        { windowsHide: true, shell: false, stdio: "ignore" }
+      );
+      killer.once("error", error => reject(error));
+      killer.once("close", code => {
+        if (code === 0 || child.exitCode !== null || child.signalCode)
+          resolve();
+        else reject(new Error(`taskkill 退出码 ${code}`));
+      });
+    }).catch(error => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The child may already have exited between taskkill and the fallback.
+      }
+      const wrapped = new Error(`无法终止 MCP 进程树：${error.message}`);
+      wrapped.code = "mcp_process_tree_termination_failed";
+      throw wrapped;
+    });
+  } else {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The process group may already be gone.
+      }
+    }
+  }
+  await waitForMcpChildExit(child);
+}
+
 async function withMcpSession(
   server,
   operation,
@@ -135,6 +199,7 @@ async function withMcpSession(
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       shell: false,
+      detached: process.platform !== "win32",
     });
     let nextId = 0;
     let stdout = "";
@@ -149,9 +214,20 @@ async function withMcpSession(
       for (const waiter of pending.values())
         waiter.reject(error || new Error("MCP closed"));
       pending.clear();
-      if (!child.killed) child.kill();
-      if (error) reject(error);
-      else resolve(value);
+      void terminateMcpProcessTree(child)
+        .then(() => {
+          if (error) reject(error);
+          else resolve(value);
+        })
+        .catch(terminationError => {
+          if (!error) {
+            terminationError.code = "external_effect_may_have_succeeded";
+            terminationError.nonRetryable = true;
+          } else {
+            terminationError.cause = error;
+          }
+          reject(terminationError);
+        });
     };
     const request = (method, params = {}) =>
       new Promise((requestResolve, requestReject) => {
@@ -305,6 +381,9 @@ export async function callMcpTool(
       .slice(0, 50000);
   } catch (error) {
     operationError = error;
+    if (error?.code === "external_effect_may_have_succeeded") {
+      status = "indeterminate";
+    }
   }
   let auditError = null;
   if (audit) {

@@ -30,6 +30,19 @@ const allow = {
   reason: "test",
 };
 
+async function waitForProcessExit(pid, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  return false;
+}
+
 test("todo_write requires one real approval and emits live status updates", async () => {
   const todoState = { proposed: false, approved: false, todos: [] };
   const updates = [];
@@ -265,6 +278,56 @@ test("MCP client discovers a live schema lazily, calls the tool, and writes an a
       "succeeded"
     );
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("MCP completion terminates the provider process tree", async () => {
+  const root = mkdtempSync(join(tmpdir(), "crewclaw-mcp-process-tree-"));
+  const fixture = join(root, "fake-mcp.mjs");
+  const pidFile = join(root, "grandchild.pid");
+  writeFileSync(
+    fixture,
+    `import{spawn}from"node:child_process";import{writeFileSync}from"node:fs";let buffer="";process.stdin.setEncoding("utf8");process.stdin.on("data",chunk=>{buffer+=chunk;const lines=buffer.split(/\\r?\\n/);buffer=lines.pop()||"";for(const line of lines){if(!line.trim())continue;const m=JSON.parse(line);if(!Object.hasOwn(m,"id"))continue;let result={};if(m.method==="initialize")result={protocolVersion:"2024-11-05",capabilities:{tools:{}},serverInfo:{name:"fixture",version:"1"}};if(m.method==="tools/list")result={tools:[{name:"spawn_read",inputSchema:{type:"object"}}]};if(m.method==="tools/call"){const child=spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"});writeFileSync(process.argv[2],String(child.pid));result={content:[{type:"text",text:"done"}]};}process.stdout.write(JSON.stringify({jsonrpc:"2.0",id:m.id,result})+"\\n");}});`,
+    "utf8"
+  );
+  let grandchildPid = null;
+  try {
+    const mcp = parseMcpConfig(
+      {
+        mcp_servers: {
+          fixture: {
+            command: process.execPath,
+            args: [fixture, pidFile],
+            env: {},
+            tools: { include: ["spawn_read"] },
+          },
+        },
+      },
+      { env: {}, profileDir: root }
+    );
+    assert.equal(
+      await callMcpTool(
+        mcp,
+        { server: "fixture", tool: "spawn_read", arguments: {} },
+        { root, employeeId: "review", taskRunId: "task-process-tree" }
+      ),
+      "done"
+    );
+    grandchildPid = Number(readFileSync(pidFile, "utf8"));
+    assert.equal(
+      await waitForProcessExit(grandchildPid),
+      true,
+      `MCP grandchild ${grandchildPid} survived session completion`
+    );
+  } finally {
+    if (grandchildPid && !(await waitForProcessExit(grandchildPid, 50))) {
+      try {
+        process.kill(grandchildPid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
     rmSync(root, { recursive: true, force: true });
   }
 });
