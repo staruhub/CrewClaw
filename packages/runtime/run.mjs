@@ -3655,7 +3655,10 @@ async function agentLoop({
             );
           } catch (error) {
             executionError = error;
-            result = `（工具执行失败：${error?.message || error}）`;
+            result =
+              error?.code === "external_effect_may_have_succeeded"
+                ? `（外部动作结果不确定，禁止重试：${error?.message || error}）`
+                : `（工具执行失败：${error?.message || error}）`;
           }
         }
         const elapsedMs = Date.now() - t0;

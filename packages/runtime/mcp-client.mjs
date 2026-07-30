@@ -237,7 +237,45 @@ export async function callMcpTool(
     throw new Error(`MCP 工具不在 allowlist: ${serverName}.${toolName}`);
   }
   const startedAt = new Date().toISOString();
+  const audit =
+    root && employeeId
+      ? {
+          path: resolveStatePath(
+            join(
+              root,
+              ".crewclaw",
+              "mcp",
+              String(employeeId).replace(/[^a-zA-Z0-9_-]/g, "_"),
+              `${Date.now()}-${randomUUID()}.json`
+            ),
+            root
+          ),
+          base: {
+            contract: "crewclaw.mcp-call/v1",
+            employee_id: employeeId,
+            task_run_id: taskRunId || null,
+            server: serverName,
+            tool: toolName,
+            started_at: startedAt,
+          },
+        }
+      : null;
+  if (audit) {
+    // Persist intent before crossing the external-effect boundary. If this fails, the provider is
+    // never called, so callers can safely retry after repairing local state.
+    writeJsonAtomic(
+      audit.path,
+      {
+        ...audit.base,
+        status: "started",
+        completed_at: null,
+      },
+      { root }
+    );
+  }
   let status = "failed";
+  let output = "";
+  let operationError = null;
   try {
     const result = await withMcpSession(
       server,
@@ -260,37 +298,39 @@ export async function callMcpTool(
           "MCP tool returned isError"
       );
     }
-    return (result?.content || [])
+    output = (result?.content || [])
       .map(item => item?.text || (item ? JSON.stringify(item) : ""))
       .filter(Boolean)
       .join("\n")
       .slice(0, 50000);
-  } finally {
-    if (root && employeeId) {
-      const path = resolveStatePath(
-        join(
-          root,
-          ".crewclaw",
-          "mcp",
-          String(employeeId).replace(/[^a-zA-Z0-9_-]/g, "_"),
-          `${Date.now()}-${randomUUID()}.json`
-        ),
-        root
-      );
+  } catch (error) {
+    operationError = error;
+  }
+  let auditError = null;
+  if (audit) {
+    try {
       writeJsonAtomic(
-        path,
+        audit.path,
         {
-          contract: "crewclaw.mcp-call/v1",
-          employee_id: employeeId,
-          task_run_id: taskRunId || null,
-          server: serverName,
-          tool: toolName,
+          ...audit.base,
           status,
-          started_at: startedAt,
           completed_at: new Date().toISOString(),
         },
         { root }
       );
+    } catch (error) {
+      auditError = error;
     }
   }
+  if (auditError && status === "succeeded") {
+    const error = new Error(
+      "MCP 外部动作可能已成功，但本地结算审计失败；禁止自动重试"
+    );
+    error.code = "external_effect_may_have_succeeded";
+    error.nonRetryable = true;
+    error.cause = auditError;
+    throw error;
+  }
+  if (operationError) throw operationError;
+  return output;
 }
