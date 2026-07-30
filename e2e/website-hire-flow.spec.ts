@@ -56,7 +56,6 @@ test("all 5 available employees have reachable detail pages", async ({
 test("a visitor can prepare a local hire handoff without faking roster state", async ({
   page,
 }) => {
-  test.setTimeout(60_000);
   const employeeId = "macao-networking-agent";
   const displayName = "Macao Networking Agent";
 
@@ -128,6 +127,9 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
     .getByRole("button", { name: "Run bounded trial", exact: true })
     .click();
   await page.getByRole("button", { name: "Accept trial", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Trial accepted", exact: true })
+  ).toBeDisabled();
   await page
     .getByRole("button", { name: "Activate local hire", exact: true })
     .click();
