@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 
 const INSTALL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const TSX_IMPORT = import.meta.resolve("tsx");
 
 const LIMITS = Object.freeze({
   maxEntries: 4_096,
@@ -386,7 +387,7 @@ function validateStagedEmployee(stagedEmployee) {
   );
   const result = spawnSync(
     process.execPath,
-    ["--import", "tsx", validator, canonicalStagedEmployee],
+    ["--import", TSX_IMPORT, validator, canonicalStagedEmployee],
     {
       cwd: INSTALL_ROOT,
       encoding: "utf8",

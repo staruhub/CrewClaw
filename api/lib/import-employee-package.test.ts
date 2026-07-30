@@ -35,7 +35,9 @@ function writeArchive(root: string, gzip: Buffer) {
 
 function runImporter(root: string, archive: string, sha256?: string) {
   return spawnSync(process.execPath, [importer, root, archive, sha256 ?? "-"], {
-    cwd: repoRoot,
+    // Production invokes the importer from an isolated CrewClaw root, not the package manager
+    // workspace. Runtime-only dependencies must therefore resolve relative to the importer.
+    cwd: root,
     encoding: "utf8",
     windowsHide: true,
   });
