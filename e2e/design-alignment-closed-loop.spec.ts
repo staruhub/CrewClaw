@@ -184,25 +184,34 @@ async function mockLocalApis(page: Page) {
       },
     });
   });
-  await page.route("**/api/local/employees/*/trials*", async route => {
-    const decision = route.request().url().endsWith("/decision");
+  const trialResponse = (decision: boolean) => ({
+    contract: "crewclaw.local-trial/v1",
+    employee_id: employeeId,
+    task_run_id: "trial-closed-loop-e2e",
+    status: decision ? "accepted" : "delivered",
+    artifact_id: "artifact-trial-closed-loop-e2e",
+    evidence_count: 1,
+    tool_invocations: 1,
+    permissions_granted: selectedCapabilities(),
+    doctor_status: "warning",
+    decision: decision ? "accept" : null,
+    next_action: decision ? "hire_employee" : "approve_trial",
+    started_at: "2026-07-29T00:00:00.000Z",
+    updated_at: "2026-07-29T00:00:01.000Z",
+  });
+  await page.route(
+    "**/api/local/employees/*/trials/*/decision",
+    async route => {
+      await route.fulfill({
+        contentType: "application/json",
+        json: trialResponse(true),
+      });
+    }
+  );
+  await page.route("**/api/local/employees/*/trials", async route => {
     await route.fulfill({
       contentType: "application/json",
-      json: {
-        contract: "crewclaw.local-trial/v1",
-        employee_id: employeeId,
-        task_run_id: "trial-closed-loop-e2e",
-        status: decision ? "accepted" : "delivered",
-        artifact_id: "artifact-trial-closed-loop-e2e",
-        evidence_count: 1,
-        tool_invocations: 1,
-        permissions_granted: selectedCapabilities(),
-        doctor_status: "warning",
-        decision: decision ? "accept" : null,
-        next_action: decision ? "hire_employee" : "approve_trial",
-        started_at: "2026-07-29T00:00:00.000Z",
-        updated_at: "2026-07-29T00:00:01.000Z",
-      },
+      json: trialResponse(false),
     });
   });
 }

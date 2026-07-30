@@ -190,6 +190,6 @@ test("localizes workbench static chrome while keeping technical identifiers inta
     page.getByText("web.search", { exact: true }).first()
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "seed-2.1-research.md" })
+    page.getByRole("heading", { name: "artifact_1719306072123.md" })
   ).toBeVisible();
 });

@@ -7,6 +7,7 @@ const browserExecutable = process.env.PLAYWRIGHT_EXECUTABLE_PATH?.trim();
 
 export default defineConfig({
   testDir: "./e2e",
+  globalSetup: "./e2e/global-setup.ts",
   testIgnore: ["**/._*", "**/production-distribution.spec.ts"],
   fullyParallel: false,
   timeout: 180_000,
