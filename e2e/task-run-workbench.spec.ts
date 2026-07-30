@@ -120,7 +120,5 @@ test("task run workbench exposes event-driven supervision panels", async ({
     .getByRole("heading", { name: "Debug / JSONL / Audit" })
     .locator("..");
   await expect(inspectPanel.getByText("Run Truth")).toBeVisible();
-  await expect(inspectPanel.locator("pre")).toContainText(
-    run.inspect.raw_events[1]
-  );
+  await expect(inspectPanel.locator("pre")).toContainText(run.events[1].type);
 });

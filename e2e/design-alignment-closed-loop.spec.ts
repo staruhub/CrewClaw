@@ -344,7 +344,13 @@ test("activation gates require Doctor and accepted trial before hire intent", as
   expect(intent.doctor_checks).toEqual(
     expect.arrayContaining([expect.objectContaining({ status: "pass" })])
   );
-  expect(intent.trial.approval).toContain("Accepted by human reviewer");
+  expect(intent.trial).toEqual(
+    expect.objectContaining({
+      status: "accepted",
+      decision: "accept",
+      next_action: "hire_employee",
+    })
+  );
   const cachedTeam = await page.evaluate(
     key => JSON.parse(localStorage.getItem(key) ?? "[]"),
     teamStorageKey
