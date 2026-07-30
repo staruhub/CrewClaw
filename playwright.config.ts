@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 const port = Number(process.env.E2E_PORT ?? 3173);
 const baseURL = `http://127.0.0.1:${port}`;
 const externalServer = process.env.CREWCLAW_E2E_EXTERNAL_SERVER === "1";
+const browserExecutable = process.env.PLAYWRIGHT_EXECUTABLE_PATH?.trim();
 
 export default defineConfig({
   testDir: "./e2e",
@@ -33,7 +34,11 @@ export default defineConfig({
       name: "chrome",
       use: {
         ...devices["Desktop Chrome"],
-        channel: process.env.PLAYWRIGHT_CHROMIUM_CHANNEL ?? "chrome",
+        ...(browserExecutable
+          ? { launchOptions: { executablePath: browserExecutable } }
+          : {
+              channel: process.env.PLAYWRIGHT_CHROMIUM_CHANNEL ?? "chrome",
+            }),
       },
     },
   ],

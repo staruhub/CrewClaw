@@ -188,8 +188,11 @@ pnpm run crewclaw -- verify
 - 不直接写 `~/.hermes`；使用官方 Hermes profile 命令安装或导入。
 - MCP 配置必须声明 allowlist 或 denylist。
 - `C1` 只表示 **package validated**，不等于实验室认证；`C2` 和 `C3` 需要更强的签名凭证与现场证据。
-- 浏览器中的付费 checkout 是明确标注的模拟流程，不会真实扣款。
+- 付费方案在没有真实 billing/entitlement 后端时明确禁用；本地免费生命周期是当前唯一可执行的网站雇佣路径。
 - 漏洞、凭据泄露或用户数据问题请按 [`SECURITY.md`](SECURITY.md) 私下报告，不要公开提交 issue。
+
+网站闭环、Dream 状态机、TaskEvent 清单和逐项工具 parity 见
+[`docs/product-lifecycle-closure.md`](docs/product-lifecycle-closure.md)。
 
 ## Roadmap
 
