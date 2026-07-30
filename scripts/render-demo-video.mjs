@@ -7,7 +7,7 @@ import { dirname, extname, join, resolve } from "node:path";
 import { chromium } from "playwright";
 
 const outputPath = resolve(
-  process.env.CREWCLAW_DEMO_OUT || "public/crewclaw-demo.zh-CN.mp4"
+  process.env.CREWCLAW_DEMO_OUT || "artifacts/crewclaw-future-concept.zh-CN.mp4"
 );
 const workDir = await mkdtemp(join(tmpdir(), "crewclaw-concept-demo-"));
 const rawPath = join(workDir, "crewclaw-concept-demo.webm");

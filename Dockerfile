@@ -20,6 +20,7 @@ COPY . .
 RUN pnpm run validate:all-experts && \
     pnpm run build:web && \
     test -f dist/public/index.html && \
+    test -f dist/public/crewclaw-demo.zh-CN.mp4 && \
     test -f dist/boot.js && \
     test -f dist/employee-packages/ai-adoption-whale.tar.gz
 

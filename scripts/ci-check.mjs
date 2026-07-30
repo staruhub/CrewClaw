@@ -11,6 +11,7 @@ if (!pnpmCli) {
 }
 const gates = [
   "format:check",
+  "video:check",
   "check",
   "lint",
   "schema:check",
