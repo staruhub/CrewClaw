@@ -121,10 +121,7 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
   await expect(disabledCrm).not.toBeChecked();
   await expect(disabledCrm).toBeDisabled();
 
-  // The website records intent only after checkout, Doctor, and human-reviewed trial.
-  await page
-    .getByRole("button", { name: "Confirm simulated checkout", exact: true })
-    .click();
+  // The website records intent only after Doctor and a human-reviewed real trial.
   await page.getByRole("button", { name: "Run Doctor", exact: true }).click();
   await expect(page.getByText(/Doctor passed/i)).toBeVisible();
   await page

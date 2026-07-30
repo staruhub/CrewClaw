@@ -27,8 +27,6 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(
     null
   );
-  const [command, setCommand] = useState("");
-  const [lastAction, setLastAction] = useState<string | null>(null);
   const selectedArtifact = useMemo(
     () =>
       run.artifacts.find(artifact => artifact.id === selectedArtifactId) ??
@@ -54,10 +52,6 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
           : displayState === "streaming"
             ? t("queueStreaming")
             : t("queueIdle");
-
-  function queueAction(message: string) {
-    setLastAction(message);
-  }
 
   return (
     <main className="min-h-screen bg-crew-bg px-4 pb-28 pt-8 text-crew-heading sm:px-6 lg:pt-4">
@@ -296,65 +290,11 @@ export function WorkbenchShell({ run }: { run: TaskRun }) {
             run={run}
             artifact={selectedArtifact}
             evidenceInspected={Boolean(selectedEvidenceId)}
-            onAction={queueAction}
           />
         </div>
 
         <div className="mt-5">
           <InspectPanel run={run} />
-        </div>
-      </section>
-      <section className="fixed inset-x-0 bottom-0 z-20 border-t border-white/10 bg-crew-bg/95 px-4 py-3 backdrop-blur sm:px-6">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 md:flex-row md:items-end">
-          <label className="min-w-0 flex-1">
-            <span className="font-mono text-xs uppercase tracking-[0.14em] text-crew-muted">
-              {t("input")}
-            </span>
-            <textarea
-              value={command}
-              onChange={event => setCommand(event.target.value)}
-              rows={2}
-              className="mt-1 w-full resize-none border border-white/10 bg-black/30 px-3 py-2 text-sm text-crew-heading outline-none focus:border-crew-copper/60"
-              placeholder={t("inputPlaceholder")}
-            />
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            {run.pending_actions.map(action => (
-              <button
-                key={action.key}
-                type="button"
-                onClick={() =>
-                  queueAction(`pending.run ${action.key} ${action.command}`)
-                }
-                className="border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-crew-body hover:border-crew-copper/50 hover:text-crew-heading"
-                aria-label={t("runPendingAction", {
-                  key: action.key,
-                  label: action.label,
-                })}
-              >
-                <span className="font-mono text-crew-copper">
-                  [{action.key}]
-                </span>{" "}
-                {action.label}
-              </button>
-            ))}
-            <button
-              type="button"
-              disabled={!command.trim()}
-              onClick={() => {
-                queueAction(`input.queued ${command.trim()}`);
-                setCommand("");
-              }}
-              className="border border-crew-copper/50 bg-crew-copper/10 px-3 py-2 text-sm text-crew-heading enabled:hover:border-crew-copper disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              {t("send")}
-            </button>
-          </div>
-          {lastAction ? (
-            <p className="break-all font-mono text-xs text-crew-muted md:max-w-xs">
-              {lastAction}
-            </p>
-          ) : null}
         </div>
       </section>
     </main>

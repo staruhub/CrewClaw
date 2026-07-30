@@ -17,6 +17,7 @@ const hireMessages = {
 type HireCliHandoffProps = {
   slug: string;
   capabilities?: string[];
+  hired?: boolean;
   intent?: {
     source: string;
     task: string;
@@ -25,6 +26,10 @@ type HireCliHandoffProps = {
     requested_access: string[];
   };
 };
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
 
 function grantArguments(capabilities: string[]): string {
   return [...new Set(capabilities)]
@@ -57,6 +62,7 @@ function CopyCommand({ value }: { value: string }) {
 export function HireCliHandoff({
   slug,
   capabilities = [],
+  hired = false,
   intent,
 }: HireCliHandoffProps) {
   const t = useMessages(hireMessages);
@@ -72,6 +78,9 @@ export function HireCliHandoff({
   const packageCommand = metadata
     ? `crew hire --from "${metadata.filename}" --sha256 ${metadata.sha256}${grants}`
     : null;
+  const tuiCommand = intent
+    ? `crew run ${slug} ${shellSingleQuote(intent.task)} --tui`
+    : `crew chat ${slug} --tui`;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -100,15 +109,21 @@ export function HireCliHandoff({
             {t("cliLocalHandoff")}
           </p>
           <h2 className="mt-2 text-xl font-semibold text-white">
-            {t("cliFinishTitle")}
+            {hired ? t("cliContinueTitle") : t("cliFinishTitle")}
           </h2>
         </div>
-        <span className="border border-amber-400/30 bg-amber-400/5 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-amber-300">
-          {t("cliNotHiredYet")}
+        <span
+          className={
+            hired
+              ? "border border-emerald-400/30 bg-emerald-400/5 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-emerald-300"
+              : "border border-amber-400/30 bg-amber-400/5 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-amber-300"
+          }
+        >
+          {hired ? t("cliHiredLocally") : t("cliNotHiredYet")}
         </span>
       </div>
       <p className="max-w-2xl text-sm leading-6 text-white/55">
-        {t("cliBody")}
+        {hired ? t("cliContinueBody") : t("cliBody")}
       </p>
       {intent ? (
         <dl className="mt-5 grid gap-3 border border-white/10 bg-black/20 p-4 text-xs sm:grid-cols-2">
@@ -137,6 +152,20 @@ export function HireCliHandoff({
             </dd>
           </div>
         </dl>
+      ) : null}
+
+      {hired ? (
+        <div className="mt-5">
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-300">
+            {t("cliOpenTui")}
+          </p>
+          <div className="flex items-start gap-2 border border-emerald-400/20 bg-emerald-400/5 p-2">
+            <code className="min-w-0 flex-1 overflow-x-auto px-2 py-2 font-mono text-xs leading-5 text-[#e8ddcc]">
+              {tuiCommand}
+            </code>
+            <CopyCommand value={tuiCommand} />
+          </div>
+        </div>
       ) : null}
 
       <div className="mt-5">

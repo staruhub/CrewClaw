@@ -249,7 +249,7 @@ export const hireEn = {
     "No marketplace access hint; required capabilities below remain authoritative.",
   choosePackage: "Choose a package",
   choosePackageBody:
-    "Pricing is part of the hiring preview. This checkout is simulated and will not charge a real card.",
+    "Local hiring is available on the free plan. Billing is not connected, so paid plans remain disabled and create no entitlement.",
   planFreeName: "Free",
   planFreeCadence: "demo onboarding",
   planFreeDescription:
@@ -258,19 +258,18 @@ export const hireEn = {
   planFreeBulletLocalRecord: "Local team record",
   planFreeBulletManualReview: "Manual permission review",
   planProName: "Pro",
-  planProCadence: "mock monthly seat",
-  planProDescription:
-    "Preview a paid seat flow before the employee joins your crew.",
-  planProBulletMock: "Mock checkout only",
-  planProBulletNoCard: "No card is charged",
-  planProBulletSameLocal: "Same local onboarding",
-  checkoutTitle: "Simulated checkout confirmation",
-  mockCheckout: "Mock checkout",
+  planProCadence: "billing unavailable",
+  planProDescription: "Paid seats are not implemented in the local product.",
+  planProBulletMock: "Disabled until billing is connected",
+  planProBulletNoCard: "No paid entitlement is created",
+  planProBulletSameLocal: "Use the free local onboarding path",
+  checkoutTitle: "Billing unavailable",
+  mockCheckout: "Disabled",
   checkoutBody:
-    "Confirming this step only records your selected package in the demo flow. There is no payment processor, no card form, and no real charge.",
-  checkoutSimulated: "Checkout simulated",
-  confirmCheckout: "Confirm simulated checkout",
-  checkoutConfirmedTitle: "Simulated checkout confirmed.",
+    "No payment processor is connected. Paid plans cannot be selected or confirmed.",
+  checkoutSimulated: "Billing unavailable",
+  confirmCheckout: "Unavailable",
+  checkoutConfirmedTitle: "No paid entitlement created.",
   checkoutConfirmedBody:
     "Continue reviewing permissions before preparing the local CLI handoff.",
   wantsAccess: "It wants to access",
@@ -294,6 +293,11 @@ export const hireEn = {
   cliLocalHandoff: "Local handoff",
   cliFinishTitle: "Finish hiring on your machine",
   cliNotHiredYet: "Not hired yet",
+  cliContinueTitle: "Continue in the employee workbench",
+  cliHiredLocally: "Hired locally",
+  cliContinueBody:
+    "This employee is now in the durable local roster. Start the first task in the event-driven TUI; runtime tools, permissions, evidence, approval, KPI, evaluation, and Dream remain on the same local record.",
+  cliOpenTui: "Open the real TUI workflow",
   cliBody:
     "Use these CLI paths when hiring on another machine, offline, or from a verified package tarball. On this machine, the hire page can also write .crewclaw/team.json through the local API (same trust boundary as fire).",
   cliRequiredContractOnly: "Required capability contract only",

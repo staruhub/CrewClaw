@@ -1,8 +1,7 @@
-// Task Run records — the output of the v0.3 Task Runtime (`crew run <agent> --task`).
-// The CLI writes the real objects to `.crewclaw/runs/<id>.json`; the browser can't
-// read the local filesystem, so this page is fed a faithful fixture that mirrors the
-// exact runtime shape (see packages/runtime/task-state.mjs). Wiring live data later
-// only means swapping `getTaskRun` for a fetch against a small backend endpoint.
+// Shared TaskRun projection types. Production pages obtain these records from the local
+// TaskRun API, which safely projects `.crewclaw/runs/<id>.json`. The seed at the end of this
+// module is test-only data used by component/browser fixtures; production code must not import
+// `getTaskRun` or `getLatestTaskRun` as a runtime fallback.
 
 export type TaskEvent = {
   id: string;

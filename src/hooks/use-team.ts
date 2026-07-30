@@ -137,7 +137,11 @@ export function useTeam() {
   );
 
   const hire = useCallback(
-    async (id: string, grants: string[]): Promise<TeamActionResult> => {
+    async (
+      id: string,
+      grants: string[],
+      trialTaskRunId: string
+    ): Promise<TeamActionResult> => {
       const employee = getEmployee(id);
       if (!employee) {
         return {
@@ -166,6 +170,7 @@ export function useTeam() {
           employee_id: employee.employee_id,
           version: employee.version,
           permissions_granted: validation.capabilityTokens,
+          trial_task_run_id: trialTaskRunId,
         });
         setTeam(response.team);
         setSyncState("synced");

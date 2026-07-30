@@ -301,14 +301,14 @@ export const marketplaceEn = {
     "Formal deliverable names are not projected into the browser dataset yet. The list below is taken from package example outputs, so it is labeled as expected deliverables rather than measured delivery history.",
   hiringTermsTitle: "Hiring terms",
   pricingProDescription:
-    "This employee is shown with paid-market pricing. The hire flow uses a simulated checkout for the demo and does not charge a real card.",
+    "This employee has marketplace pricing, but local billing is not connected. Use the free local hiring path; paid entitlements remain disabled.",
   pricingCustomDescription:
-    "This employee uses custom commercial terms. The demo hire flow still treats checkout as a simulation before onboarding.",
+    "This employee uses custom commercial terms. Local billing is not connected, so commercial entitlements remain unavailable.",
   pricingFreeDescription:
-    "This employee can join your local demo crew without payment. Any checkout screen in this prototype is clearly marked as simulated.",
+    "This employee can join your durable local crew without payment through the free local hiring path.",
   beforeOnboarding: "Before onboarding",
   beforeOnboardingDescription:
-    "Choose a Free or Pro mock plan during hire confirmation, then review permissions before this employee joins your crew.",
+    "Use the Free local plan, then complete permissions, Doctor, and an accepted trial before this employee joins your crew. Paid plans are disabled.",
   access: "Access",
   toolCapabilities: "Tool capabilities",
   runtimeProviderHandoff: "Runtime provider handoff",

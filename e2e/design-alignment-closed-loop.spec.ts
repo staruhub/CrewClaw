@@ -185,7 +185,7 @@ test("discovery carries a visitor from landing to marketplace comparison and a r
   await expect(page.getByText("Receipt-backed local KPI")).toBeVisible();
 });
 
-test("activation gates require checkout Doctor and accepted trial before hire intent", async ({
+test("activation gates require Doctor and accepted trial before hire intent", async ({
   page,
 }) => {
   await mockLocalApis(page);
@@ -211,10 +211,6 @@ test("activation gates require checkout Doctor and accepted trial before hire in
     page.getByRole("button", { name: "Accept trial", exact: true })
   ).toBeDisabled();
 
-  await page
-    .getByRole("button", { name: "Confirm simulated checkout" })
-    .click();
-  await expect(page.getByText("Simulated checkout confirmed.")).toBeVisible();
   await page.getByRole("button", { name: "Run Doctor" }).click();
   await expect(
     page.getByText("Doctor found activation blockers.")
@@ -283,16 +279,17 @@ test("activation gates require checkout Doctor and accepted trial before hire in
   await expect(page.getByText("Human delivery gate")).toBeVisible();
   await expect(page.getByText("Delivery is mandatory-gated")).toBeVisible();
   await expect(page.getByText("inspect before approval")).toBeVisible();
-  await page
-    .getByPlaceholder("Missing source, wrong scope, unclear claim...")
-    .fill("Evidence source needs a freshness check");
-  await page
-    .getByPlaceholder("Ask employee to revise pricing section...")
-    .fill("Refresh official source before final acceptance");
-  await page.getByRole("button", { name: "Create revision" }).click();
   await expect(
-    page.getByText(/pending\.run .*Evidence source needs a freshness check/)
+    page.getByText(
+      "This website is a read-only projection of persisted TaskRun evidence."
+    )
   ).toBeVisible();
+  await expect(
+    page.getByText(/Open the CrewClaw TUI to execute the runtime-emitted/)
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Create revision" })
+  ).toHaveCount(0);
 });
 
 test("performance KPI and Dream review keep incomplete evidence honest", async ({

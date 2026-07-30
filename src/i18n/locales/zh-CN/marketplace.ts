@@ -284,14 +284,13 @@ export const marketplaceZhCN = {
     "正式交付物名称尚未投影到浏览器数据集。下方列表来自包示例输出，因此标记为预期交付物，而不是已测量的交付历史。",
   hiringTermsTitle: "雇佣条款",
   pricingProDescription:
-    "该员工显示为付费市场价格。演示雇佣流程使用模拟结账，不会真实扣款。",
+    "该员工有市场定价，但本地计费尚未连接。请使用免费本地雇佣路径；付费权益保持禁用。",
   pricingCustomDescription:
-    "该员工使用定制商务条款。演示雇佣流程仍会先把结账作为模拟，再进入 onboarding。",
-  pricingFreeDescription:
-    "该员工可免费加入你的本地演示团队。此原型中的任何结账页面都会明确标记为模拟。",
+    "该员工使用定制商务条款。本地计费尚未连接，因此商业权益暂不可用。",
+  pricingFreeDescription: "该员工可通过免费本地雇佣路径加入持久化的本地团队。",
   beforeOnboarding: "入职前",
   beforeOnboardingDescription:
-    "在雇佣确认中选择 Free 或 Pro 模拟计划，然后在该员工加入团队前审查权限。",
+    "使用免费本地套餐，并在员工加入团队前完成权限、Doctor 和人工接受的试运行。付费套餐保持禁用。",
   access: "访问",
   toolCapabilities: "工具能力",
   runtimeProviderHandoff: "运行时提供商交接",
