@@ -42,6 +42,8 @@ function hire(root, agentId, hiredAt = "2026-01-02T03:04:05.000Z") {
   assert.equal(kpi.tasks, 0);
   assert.equal(kpi.accepted, 0);
   assert.equal(kpi.evidence_coverage, null);
+  assert.equal(kpi.state, "missing");
+  assert.equal(kpi.error, null);
 }
 
 {
@@ -73,6 +75,7 @@ function hire(root, agentId, hiredAt = "2026-01-02T03:04:05.000Z") {
     cost: 0.05,
   });
   const kpi = readKpi(root, "whale");
+  assert.equal(kpi.state, "valid");
   assert.equal(kpi.tasks, 2, "chat is excluded from formal task count");
   assert.equal(kpi.accepted, 1, "only explicit user acceptance is accepted");
   assert.equal(kpi.auto_accepted, 1, "policy acceptance is separately visible");
@@ -276,7 +279,10 @@ function hire(root, agentId, hiredAt = "2026-01-02T03:04:05.000Z") {
   const dir = path.join(root, ".crewclaw", "kpi");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "broken.json"), "{not valid json");
-  assert.equal(readKpi(root, "broken").tasks, 0);
+  const broken = readKpi(root, "broken");
+  assert.equal(broken.tasks, 0);
+  assert.equal(broken.state, "invalid");
+  assert.match(broken.error, /unreadable or invalid/);
   assert.equal(readKpiLedger(root, "broken"), null);
   assert.equal(
     recordTaskOutcome(root, "broken", { taskRunId: "must-not-overwrite" }),

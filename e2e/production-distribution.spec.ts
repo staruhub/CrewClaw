@@ -107,6 +107,10 @@ function prepareCliRoot(root: string) {
     join(repoRoot, "packages", "runtime", "import-employee-package.mjs"),
     join(root, "packages", "runtime", "import-employee-package.mjs")
   );
+  cpSync(
+    join(repoRoot, "packages", "runtime", "employee-package-validator.mjs"),
+    join(root, "packages", "runtime", "employee-package-validator.mjs")
+  );
   const bin = join(root, "bin");
   mkdirSync(bin, { recursive: true });
   const callsFile = join(root, "hermes-calls.txt");

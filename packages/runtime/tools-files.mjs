@@ -14,6 +14,7 @@ import { resolve, extname, basename, isAbsolute } from "node:path";
 import { resolvePathInsideRoot } from "./tool-gateway.mjs";
 
 const MAX_CHARS = 200 * 1024;
+const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const O_NOFOLLOW = constants.O_NOFOLLOW || 0;
 
 const TEXT_EXT = new Set([
@@ -204,13 +205,27 @@ function identityOf(info) {
   return { dev: String(info.dev), ino: String(info.ino) };
 }
 
-async function readWorkspaceBuffer(absPath) {
+function fileTooLargeError(bytes, maxBytes) {
+  const error = new Error(
+    `file exceeds read limit (${bytes} bytes > ${maxBytes} bytes)`
+  );
+  error.code = "file_too_large";
+  error.bytes = bytes;
+  error.maxBytes = maxBytes;
+  return error;
+}
+
+async function readWorkspaceBuffer(
+  absPath,
+  { maxBytes = MAX_FILE_BYTES } = {}
+) {
   const before = lstatSync(absPath);
   if (before.isSymbolicLink())
     throw new Error(
       "symbolic links are not allowed in workspace file operations"
     );
   if (!before.isFile()) throw new Error(`not a file: ${absPath}`);
+  if (before.size > maxBytes) throw fileTooLargeError(before.size, maxBytes);
   const handle = await open(absPath, constants.O_RDONLY | O_NOFOLLOW);
   try {
     const opened = await handle.stat();
@@ -219,7 +234,22 @@ async function readWorkspaceBuffer(absPath) {
     if (beforeId.dev !== openedId.dev || beforeId.ino !== openedId.ino) {
       throw new Error("file changed during validation");
     }
-    return await handle.readFile();
+    if (opened.size > maxBytes) throw fileTooLargeError(opened.size, maxBytes);
+    const buffer = await handle.readFile();
+    if (buffer.length > maxBytes)
+      throw fileTooLargeError(buffer.length, maxBytes);
+    const after = await handle.stat();
+    const afterId = identityOf(after);
+    if (
+      openedId.dev !== afterId.dev ||
+      openedId.ino !== afterId.ino ||
+      opened.size !== after.size ||
+      opened.mtimeMs !== after.mtimeMs ||
+      buffer.length !== after.size
+    ) {
+      throw new Error("file changed while reading");
+    }
+    return buffer;
   } finally {
     await handle.close();
   }
@@ -365,19 +395,21 @@ export async function readImageDataUrl(rawPath, { root } = {}) {
   if (!resolved.ok) return resolved;
   const absPath = resolved.path;
   try {
-    const buf = await readWorkspaceBuffer(absPath);
-    if (buf.length > MAX_IMG_BYTES) {
-      return {
-        ok: false,
-        error: `图片过大(${(buf.length / 1024 / 1024).toFixed(1)}MB > 4.5MB),请压缩后再发`,
-      };
-    }
+    const buf = await readWorkspaceBuffer(absPath, {
+      maxBytes: MAX_IMG_BYTES,
+    });
     return {
       ok: true,
       dataUrl: `data:${mime};base64,${buf.toString("base64")}`,
       bytes: buf.length,
     };
   } catch (e) {
+    if (e?.code === "file_too_large") {
+      return {
+        ok: false,
+        error: `图片过大(${(e.bytes / 1024 / 1024).toFixed(1)}MB > 4.5MB),请压缩后再发`,
+      };
+    }
     return { ok: false, error: e.message };
   }
 }

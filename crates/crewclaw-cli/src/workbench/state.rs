@@ -925,8 +925,17 @@ pub struct ExamEntry {
 }
 
 /// v0.17 P2 C1：跨会话真累计——与 EMPLOYEE 面板"本会话"KPI 平行的历史区数据源。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+pub enum KpiState {
+    #[default]
+    Missing,
+    Valid,
+    Invalid,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct KpiCumulative {
+    pub state: KpiState,
     pub tasks: u64,
     pub accepted: u64,
     /// Policy-provenance acceptance; never folded into explicit user acceptance.
@@ -934,6 +943,15 @@ pub struct KpiCumulative {
     pub total_cost: f64,
     /// epoch ms；None = 这个员工在本 root 下从未有过验收终态(真"新人")。
     pub first_hired_ts: Option<u64>,
+}
+
+impl KpiCumulative {
+    pub fn invalid() -> Self {
+        Self {
+            state: KpiState::Invalid,
+            ..Self::default()
+        }
+    }
 }
 
 pub const TRUST_AUTO_THRESHOLD: u64 = 3;
@@ -4030,6 +4048,11 @@ fn kpi_cumulative_field(employee: &Value) -> KpiCumulative {
         return KpiCumulative::default();
     };
     KpiCumulative {
+        state: match kpi.get("state").and_then(Value::as_str) {
+            Some("missing") => KpiState::Missing,
+            Some("invalid") => KpiState::Invalid,
+            _ => KpiState::Valid,
+        },
         tasks: kpi.get("tasks").and_then(Value::as_u64).unwrap_or(0),
         accepted: kpi.get("accepted").and_then(Value::as_u64).unwrap_or(0),
         auto_accepted: kpi
@@ -5695,6 +5718,7 @@ mod tests {
                 "kpi_cumulative":{"tasks":7,"accepted":5,"auto_accepted":2,"total_cost":12.5,"first_hired_ts":1700000000000_u64}}}),
         )]);
         let emp = state.employee.expect("employee");
+        assert_eq!(emp.kpi_cumulative.state, KpiState::Valid);
         assert_eq!(emp.kpi_cumulative.tasks, 7);
         assert_eq!(emp.kpi_cumulative.accepted, 5);
         assert_eq!(emp.kpi_cumulative.auto_accepted, 2);

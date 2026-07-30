@@ -1835,9 +1835,11 @@ function terminateChildTree(child) {
 
 // Run a shell command — prefer Git Bash on Windows (the System32 bash.exe may
 // only be a WSL installer stub), otherwise use the platform shell. 30s timeout.
+const SHELL_MAX_OUTPUT_BYTES = 256 * 1024;
 function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
   return new Promise((resolve, reject) => {
     let out = "";
+    let outputBytes = 0;
     let done = false;
     let timer;
     let activeChild = null;
@@ -1872,6 +1874,36 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
       cleanup();
       resolve(s);
     };
+    const fail = error => {
+      if (done) return;
+      done = true;
+      cleanup();
+      reject(error);
+    };
+    const commandError = (code, message, details = {}) => {
+      const error = new Error(message);
+      error.code = code;
+      Object.assign(error, details);
+      return error;
+    };
+    const captureOutput = chunk => {
+      if (done) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const remaining = Math.max(0, SHELL_MAX_OUTPUT_BYTES - outputBytes);
+      if (remaining > 0) {
+        out += buffer.subarray(0, remaining).toString("utf8");
+      }
+      outputBytes += buffer.length;
+      if (outputBytes > SHELL_MAX_OUTPUT_BYTES) {
+        const output = out.trim().slice(0, 4000);
+        const error = commandError(
+          "shell_output_too_large",
+          `命令输出超过 ${SHELL_MAX_OUTPUT_BYTES} bytes，已终止`,
+          { output, outputBytes }
+        );
+        settleAfterTermination(() => reject(error));
+      }
+    };
     const settleAfterTermination = settle => {
       if (done) return;
       done = true;
@@ -1892,8 +1924,8 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
     const attach = (child, isFallback) => {
       activeChild = child;
       children.add(child);
-      child.stdout?.on("data", d => (out += d));
-      child.stderr?.on("data", d => (out += d));
+      child.stdout?.on("data", captureOutput);
+      child.stderr?.on("data", captureOutput);
       child.once("error", e => {
         children.delete(child);
         if (done || child !== activeChild) return;
@@ -1919,10 +1951,20 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
               true
             );
           } catch (err) {
-            finish("（无法执行命令：" + err.message + "）");
+            fail(
+              commandError(
+                "shell_command_unavailable",
+                "无法执行命令：" + err.message
+              )
+            );
           }
         } else {
-          finish("（无法执行命令：" + e.message + "）");
+          fail(
+            commandError(
+              "shell_command_unavailable",
+              "无法执行命令：" + e.message
+            )
+          );
         }
       });
       child.once("close", code => {
@@ -1955,7 +1997,23 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
             }
             return;
           }
-          finish(`（无法执行命令：${out.trim()}）`);
+          fail(
+            commandError(
+              "shell_command_unavailable",
+              `无法执行命令：${out.trim()}`
+            )
+          );
+          return;
+        }
+        if (code !== 0) {
+          const output = out.trim().slice(0, 4000);
+          fail(
+            commandError(
+              "shell_command_failed",
+              `命令执行失败（退出码 ${code ?? "unknown"}）${output ? `：${output}` : ""}`,
+              { exitCode: code, output }
+            )
+          );
           return;
         }
         finish(out.trim().slice(0, 4000) || "（无输出）");
@@ -1989,8 +2047,13 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
           });
     };
     timer = setTimeout(() => {
-      const timedOut = (out.trim() || "") + "\n（命令超时 30s，已终止）";
-      settleAfterTermination(() => resolve(timedOut));
+      const output = out.trim().slice(0, 4000);
+      const error = commandError(
+        "shell_command_timeout",
+        `命令超时 30s，已终止${output ? `：${output}` : ""}`,
+        { output, timedOut: true }
+      );
+      settleAfterTermination(() => reject(error));
     }, 30000);
     try {
       const primaryIsFallback = process.platform === "win32" && !windowsBash;
@@ -2012,7 +2075,12 @@ function runShell(command, { cwd = WORKSPACE_ROOT, signal } = {}) {
       try {
         attach(spawnShellChild(true), true);
       } catch (err) {
-        finish("（无法执行命令：" + err.message + "）");
+        fail(
+          commandError(
+            "shell_command_unavailable",
+            "无法执行命令：" + err.message
+          )
+        );
       }
     }
   });
@@ -3655,7 +3723,10 @@ async function agentLoop({
             );
           } catch (error) {
             executionError = error;
-            result = `（工具执行失败：${error?.message || error}）`;
+            result =
+              error?.code === "external_effect_may_have_succeeded"
+                ? `（外部动作结果不确定，禁止重试：${error?.message || error}）`
+                : `（工具执行失败：${error?.message || error}）`;
           }
         }
         const elapsedMs = Date.now() - t0;
@@ -6226,6 +6297,12 @@ async function runTaskMode({
     taskSink?.emitRaw("debug.line", {
       line: `task report not persisted: ${error?.message || String(error)}`,
     });
+  }
+  const finalTaskState = saveTaskRun(WORKSPACE_ROOT, run);
+  if (!finalTaskState.ok) {
+    const line = `final TaskRun snapshot not persisted: ${finalTaskState.error}`;
+    if (taskSink) taskSink.emitRaw("debug.line", { line });
+    else console.error(`${GUTTER}${line}`);
   }
   if (outputValid && taskSink && actionReader) {
     const approvalId = `task-approval-${run.id}`;

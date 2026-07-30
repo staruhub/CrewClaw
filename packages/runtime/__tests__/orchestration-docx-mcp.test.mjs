@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -28,6 +29,19 @@ const allow = {
   scope: "test",
   reason: "test",
 };
+
+async function waitForProcessExit(pid, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  return false;
+}
 
 test("todo_write requires one real approval and emits live status updates", async () => {
   const todoState = { proposed: false, approved: false, todos: [] };
@@ -262,6 +276,143 @@ test("MCP client discovers a live schema lazily, calls the tool, and writes an a
     assert.equal(
       JSON.parse(readFileSync(join(logDir, logs[0]), "utf8")).status,
       "succeeded"
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("MCP completion terminates the provider process tree", async () => {
+  const root = mkdtempSync(join(tmpdir(), "crewclaw-mcp-process-tree-"));
+  const fixture = join(root, "fake-mcp.mjs");
+  const pidFile = join(root, "grandchild.pid");
+  writeFileSync(
+    fixture,
+    `import{spawn}from"node:child_process";import{writeFileSync}from"node:fs";let buffer="";process.stdin.setEncoding("utf8");process.stdin.on("data",chunk=>{buffer+=chunk;const lines=buffer.split(/\\r?\\n/);buffer=lines.pop()||"";for(const line of lines){if(!line.trim())continue;const m=JSON.parse(line);if(!Object.hasOwn(m,"id"))continue;let result={};if(m.method==="initialize")result={protocolVersion:"2024-11-05",capabilities:{tools:{}},serverInfo:{name:"fixture",version:"1"}};if(m.method==="tools/list")result={tools:[{name:"spawn_read",inputSchema:{type:"object"}}]};if(m.method==="tools/call"){const child=spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"});writeFileSync(process.argv[2],String(child.pid));result={content:[{type:"text",text:"done"}]};}process.stdout.write(JSON.stringify({jsonrpc:"2.0",id:m.id,result})+"\\n");}});`,
+    "utf8"
+  );
+  let grandchildPid = null;
+  try {
+    const mcp = parseMcpConfig(
+      {
+        mcp_servers: {
+          fixture: {
+            command: process.execPath,
+            args: [fixture, pidFile],
+            env: {},
+            tools: { include: ["spawn_read"] },
+          },
+        },
+      },
+      { env: {}, profileDir: root }
+    );
+    assert.equal(
+      await callMcpTool(
+        mcp,
+        { server: "fixture", tool: "spawn_read", arguments: {} },
+        { root, employeeId: "review", taskRunId: "task-process-tree" }
+      ),
+      "done"
+    );
+    grandchildPid = Number(readFileSync(pidFile, "utf8"));
+    assert.equal(
+      await waitForProcessExit(grandchildPid),
+      true,
+      `MCP grandchild ${grandchildPid} survived session completion`
+    );
+  } finally {
+    if (grandchildPid && !(await waitForProcessExit(grandchildPid, 50))) {
+      try {
+        process.kill(grandchildPid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("MCP intent persistence fail-closes before an external effect", async () => {
+  const root = mkdtempSync(join(tmpdir(), "crewclaw-mcp-intent-"));
+  const fixture = join(root, "fake-mcp.mjs");
+  const marker = join(root, "effect.log");
+  writeFileSync(
+    fixture,
+    `import{appendFileSync}from"node:fs";let buffer="";process.stdin.setEncoding("utf8");process.stdin.on("data",chunk=>{buffer+=chunk;const lines=buffer.split(/\\r?\\n/);buffer=lines.pop()||"";for(const line of lines){if(!line.trim())continue;const m=JSON.parse(line);if(!Object.hasOwn(m,"id"))continue;let result={};if(m.method==="initialize")result={protocolVersion:"2024-11-05",capabilities:{tools:{}},serverInfo:{name:"fixture",version:"1"}};if(m.method==="tools/list")result={tools:[{name:"mutate",inputSchema:{type:"object"}}]};if(m.method==="tools/call"){appendFileSync(process.argv[2],"effect\\n");result={content:[{type:"text",text:"done"}]};}process.stdout.write(JSON.stringify({jsonrpc:"2.0",id:m.id,result})+"\\n");}});`,
+    "utf8"
+  );
+  mkdirSync(join(root, ".crewclaw"), { recursive: true });
+  writeFileSync(join(root, ".crewclaw", "mcp"), "not a directory", "utf8");
+  try {
+    const mcp = parseMcpConfig(
+      {
+        mcp_servers: {
+          fixture: {
+            command: process.execPath,
+            args: [fixture, marker],
+            env: {},
+            tools: { include: ["mutate"] },
+          },
+        },
+      },
+      { env: {}, profileDir: root }
+    );
+    await assert.rejects(
+      callMcpTool(
+        mcp,
+        { server: "fixture", tool: "mutate", arguments: {} },
+        { root, employeeId: "review", taskRunId: "task-intent" }
+      ),
+      /not a directory|component/i
+    );
+    assert.equal(existsSync(marker), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("MCP reports a non-retryable indeterminate result if settlement fails after the effect", async () => {
+  const root = mkdtempSync(join(tmpdir(), "crewclaw-mcp-settlement-"));
+  const fixture = join(root, "fake-mcp.mjs");
+  const marker = join(root, "effect.log");
+  const auditDir = join(root, ".crewclaw", "mcp", "review");
+  const intentDir = `${auditDir}-intent`;
+  writeFileSync(
+    fixture,
+    `import{appendFileSync,renameSync,writeFileSync}from"node:fs";let buffer="";process.stdin.setEncoding("utf8");process.stdin.on("data",chunk=>{buffer+=chunk;const lines=buffer.split(/\\r?\\n/);buffer=lines.pop()||"";for(const line of lines){if(!line.trim())continue;const m=JSON.parse(line);if(!Object.hasOwn(m,"id"))continue;let result={};if(m.method==="initialize")result={protocolVersion:"2024-11-05",capabilities:{tools:{}},serverInfo:{name:"fixture",version:"1"}};if(m.method==="tools/list")result={tools:[{name:"mutate",inputSchema:{type:"object"}}]};if(m.method==="tools/call"){appendFileSync(process.argv[2],"effect\\n");renameSync(process.argv[3],process.argv[4]);writeFileSync(process.argv[3],"block settlement");result={content:[{type:"text",text:"done"}]};}process.stdout.write(JSON.stringify({jsonrpc:"2.0",id:m.id,result})+"\\n");}});`,
+    "utf8"
+  );
+  try {
+    const mcp = parseMcpConfig(
+      {
+        mcp_servers: {
+          fixture: {
+            command: process.execPath,
+            args: [fixture, marker, auditDir, intentDir],
+            env: {},
+            tools: { include: ["mutate"] },
+          },
+        },
+      },
+      { env: {}, profileDir: root }
+    );
+    await assert.rejects(
+      callMcpTool(
+        mcp,
+        { server: "fixture", tool: "mutate", arguments: {} },
+        { root, employeeId: "review", taskRunId: "task-settlement" }
+      ),
+      error =>
+        error?.code === "external_effect_may_have_succeeded" &&
+        error?.nonRetryable === true &&
+        /禁止自动重试/.test(error.message)
+    );
+    assert.equal(readFileSync(marker, "utf8"), "effect\n");
+    const intents = readdirSync(intentDir);
+    assert.equal(intents.length, 1);
+    assert.equal(
+      JSON.parse(readFileSync(join(intentDir, intents[0]), "utf8")).status,
+      "started"
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

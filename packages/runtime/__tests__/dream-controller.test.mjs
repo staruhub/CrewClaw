@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -189,6 +195,26 @@ try {
   assert.equal(laterReplay.written, false);
 } finally {
   rmSync(root, { recursive: true, force: true });
+}
+
+const corruptRoot = mkdtempSync(join(tmpdir(), "crew-dream-corrupt-kpi-"));
+try {
+  const kpiDir = join(corruptRoot, ".crewclaw", "kpi");
+  mkdirSync(kpiDir, { recursive: true });
+  writeFileSync(join(kpiDir, `${employeeId}.json`), "{not valid json");
+  const assessment = assessDreamFromWorkspace(corruptRoot, employeeId, {
+    now,
+  });
+  assert.equal(assessment.recommended, false);
+  assert.ok(assessment.curation.blockers.includes("input_state_unreadable"));
+  assert.deepEqual(assessment.input_errors, [
+    {
+      file: "kpi",
+      reason: "KPI state is unreadable or invalid.",
+    },
+  ]);
+} finally {
+  rmSync(corruptRoot, { recursive: true, force: true });
 }
 
 console.log("dream-controller.test.mjs passed");

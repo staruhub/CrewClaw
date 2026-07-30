@@ -23,7 +23,7 @@ import { submitVerifiedReview } from "./lib/local-reviews";
 type AppEnv = { Bindings: HttpBindings };
 const app = new Hono<AppEnv>();
 
-app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
+app.use(bodyLimit({ maxSize: 1024 * 1024 }));
 app.use("/api/trpc/*", async c => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

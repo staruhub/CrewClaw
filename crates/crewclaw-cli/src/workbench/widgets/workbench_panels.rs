@@ -864,7 +864,7 @@ pub(crate) fn render_task_queue(
 mod tests {
     use super::*;
     use crate::workbench::state::{
-        Employee, Evidence, KpiCumulative, Plan, Task, ToolCapabilityState,
+        Employee, Evidence, KpiCumulative, KpiState, Plan, Task, ToolCapabilityState,
     };
     use ratatui::{Terminal, backend::TestBackend};
 
@@ -886,6 +886,7 @@ mod tests {
             skills: vec!["模型选型".to_string(), "Agent 工作流".to_string()],
             avatar: Vec::new(),
             kpi_cumulative: KpiCumulative {
+                state: KpiState::Valid,
                 tasks: 9,
                 accepted: 6,
                 auto_accepted: 2,

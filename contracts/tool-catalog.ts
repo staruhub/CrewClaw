@@ -104,9 +104,16 @@ export const ToolCatalogSchema = z
     }
   });
 
-const rawCatalog = JSON.parse(
-  readFileSync(new URL("./tool-catalog.json", import.meta.url), "utf8")
-) as unknown;
+const injectedCatalog = (
+  globalThis as typeof globalThis & {
+    __CREWCLAW_STANDALONE_TOOL_CATALOG__?: unknown;
+  }
+).__CREWCLAW_STANDALONE_TOOL_CATALOG__;
+const rawCatalog =
+  injectedCatalog ??
+  (JSON.parse(
+    readFileSync(new URL("./tool-catalog.json", import.meta.url), "utf8")
+  ) as unknown);
 
 export const TOOL_CATALOG = ToolCatalogSchema.parse(rawCatalog);
 export const TOOL_CAPABILITIES = new Map(

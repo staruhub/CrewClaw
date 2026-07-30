@@ -118,6 +118,70 @@ function jsonRpcError(value) {
   return error;
 }
 
+function waitForMcpChildExit(child, timeoutMs = 3000) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = error => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.removeListener("close", onClose);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onClose = () => finish();
+    const timer = setTimeout(() => {
+      const error = new Error("MCP 进程树在 3s 内未确认终止");
+      error.code = "mcp_process_tree_termination_failed";
+      finish(error);
+    }, timeoutMs);
+    child.once("close", onClose);
+    if (child.exitCode !== null || child.signalCode) finish();
+  });
+}
+
+async function terminateMcpProcessTree(child) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode) return;
+  if (process.platform === "win32") {
+    await new Promise((resolve, reject) => {
+      const killer = spawn(
+        "taskkill",
+        ["/PID", String(child.pid), "/T", "/F"],
+        { windowsHide: true, shell: false, stdio: "ignore" }
+      );
+      killer.once("error", error => reject(error));
+      killer.once("close", code => {
+        if (code === 0 || child.exitCode !== null || child.signalCode)
+          resolve();
+        else reject(new Error(`taskkill 退出码 ${code}`));
+      });
+    }).catch(error => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The child may already have exited between taskkill and the fallback.
+      }
+      const wrapped = new Error(`无法终止 MCP 进程树：${error.message}`);
+      wrapped.code = "mcp_process_tree_termination_failed";
+      throw wrapped;
+    });
+  } else {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The process group may already be gone.
+      }
+    }
+  }
+  await waitForMcpChildExit(child);
+}
+
 async function withMcpSession(
   server,
   operation,
@@ -135,6 +199,7 @@ async function withMcpSession(
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       shell: false,
+      detached: process.platform !== "win32",
     });
     let nextId = 0;
     let stdout = "";
@@ -149,9 +214,20 @@ async function withMcpSession(
       for (const waiter of pending.values())
         waiter.reject(error || new Error("MCP closed"));
       pending.clear();
-      if (!child.killed) child.kill();
-      if (error) reject(error);
-      else resolve(value);
+      void terminateMcpProcessTree(child)
+        .then(() => {
+          if (error) reject(error);
+          else resolve(value);
+        })
+        .catch(terminationError => {
+          if (!error) {
+            terminationError.code = "external_effect_may_have_succeeded";
+            terminationError.nonRetryable = true;
+          } else {
+            terminationError.cause = error;
+          }
+          reject(terminationError);
+        });
     };
     const request = (method, params = {}) =>
       new Promise((requestResolve, requestReject) => {
@@ -237,7 +313,45 @@ export async function callMcpTool(
     throw new Error(`MCP 工具不在 allowlist: ${serverName}.${toolName}`);
   }
   const startedAt = new Date().toISOString();
+  const audit =
+    root && employeeId
+      ? {
+          path: resolveStatePath(
+            join(
+              root,
+              ".crewclaw",
+              "mcp",
+              String(employeeId).replace(/[^a-zA-Z0-9_-]/g, "_"),
+              `${Date.now()}-${randomUUID()}.json`
+            ),
+            root
+          ),
+          base: {
+            contract: "crewclaw.mcp-call/v1",
+            employee_id: employeeId,
+            task_run_id: taskRunId || null,
+            server: serverName,
+            tool: toolName,
+            started_at: startedAt,
+          },
+        }
+      : null;
+  if (audit) {
+    // Persist intent before crossing the external-effect boundary. If this fails, the provider is
+    // never called, so callers can safely retry after repairing local state.
+    writeJsonAtomic(
+      audit.path,
+      {
+        ...audit.base,
+        status: "started",
+        completed_at: null,
+      },
+      { root }
+    );
+  }
   let status = "failed";
+  let output = "";
+  let operationError = null;
   try {
     const result = await withMcpSession(
       server,
@@ -260,37 +374,42 @@ export async function callMcpTool(
           "MCP tool returned isError"
       );
     }
-    return (result?.content || [])
+    output = (result?.content || [])
       .map(item => item?.text || (item ? JSON.stringify(item) : ""))
       .filter(Boolean)
       .join("\n")
       .slice(0, 50000);
-  } finally {
-    if (root && employeeId) {
-      const path = resolveStatePath(
-        join(
-          root,
-          ".crewclaw",
-          "mcp",
-          String(employeeId).replace(/[^a-zA-Z0-9_-]/g, "_"),
-          `${Date.now()}-${randomUUID()}.json`
-        ),
-        root
-      );
+  } catch (error) {
+    operationError = error;
+    if (error?.code === "external_effect_may_have_succeeded") {
+      status = "indeterminate";
+    }
+  }
+  let auditError = null;
+  if (audit) {
+    try {
       writeJsonAtomic(
-        path,
+        audit.path,
         {
-          contract: "crewclaw.mcp-call/v1",
-          employee_id: employeeId,
-          task_run_id: taskRunId || null,
-          server: serverName,
-          tool: toolName,
+          ...audit.base,
           status,
-          started_at: startedAt,
           completed_at: new Date().toISOString(),
         },
         { root }
       );
+    } catch (error) {
+      auditError = error;
     }
   }
+  if (auditError && status === "succeeded") {
+    const error = new Error(
+      "MCP 外部动作可能已成功，但本地结算审计失败；禁止自动重试"
+    );
+    error.code = "external_effect_may_have_succeeded";
+    error.nonRetryable = true;
+    error.cause = auditError;
+    throw error;
+  }
+  if (operationError) throw operationError;
+  return output;
 }
