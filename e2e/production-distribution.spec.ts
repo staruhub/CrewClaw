@@ -214,7 +214,9 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
     )
   ).toBeVisible();
 
-  await page.goto("/hire/ai-adoption-whale");
+  await page.goto(
+    `/hire/ai-adoption-whale?task=${encodeURIComponent(adoptionEmployee.first_task)}`
+  );
   await expect(
     page.getByRole("button", { name: "Pass Doctor and accept trial first" })
   ).toBeDisabled();
