@@ -376,7 +376,7 @@ function validateStagedEmployee(stagedEmployee) {
   // Windows temp roots can contain a short-name or case variant even when the staged directory is
   // otherwise safe. The validator deliberately rejects non-canonical roots, so normalize the
   // cross-process argument after all files have been written and before validation begins.
-  const canonicalStagedEmployee = realpathSync(stagedEmployee);
+  const canonicalStagedEmployee = realpathSync.native(stagedEmployee);
   const validator = join(
     INSTALL_ROOT,
     "packages",
