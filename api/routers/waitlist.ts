@@ -10,6 +10,16 @@ export const waitlistInputSchema = z.object({
   plan: z.string().trim().min(1).max(50).optional(),
 });
 
+export function waitlistDuplicateUpdate(
+  input: z.infer<typeof waitlistInputSchema>
+) {
+  return {
+    email: input.email,
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.plan !== undefined ? { plan: input.plan } : {}),
+  };
+}
+
 export const waitlistRouter = createRouter({
   subscribe: publicQuery
     .input(waitlistInputSchema)
@@ -24,10 +34,8 @@ export const waitlistRouter = createRouter({
           plan: input.plan || null,
         })
         .onDuplicateKeyUpdate({
-          set: {
-            name: input.name || null,
-            plan: input.plan || null,
-          },
+          // Keep previously captured optional fields when a retry only supplies the unique email.
+          set: waitlistDuplicateUpdate(input),
         });
       return { success: true };
     }),

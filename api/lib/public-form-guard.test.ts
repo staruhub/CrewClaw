@@ -2,7 +2,10 @@ import { TRPCError } from "@trpc/server";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TrpcContext } from "../context";
 import { contactInputSchema } from "../routers/contact";
-import { waitlistInputSchema } from "../routers/waitlist";
+import {
+  waitlistDuplicateUpdate,
+  waitlistInputSchema,
+} from "../routers/waitlist";
 import {
   assertPublicFormAllowed,
   resetPublicFormRateLimitsForTest,
@@ -62,5 +65,22 @@ describe("public form boundaries", () => {
     expect(() =>
       assertPublicFormAllowed(first, "contact", 61_001)
     ).not.toThrow();
+  });
+
+  it("does not erase optional waitlist data on an email-only retry", () => {
+    expect(waitlistDuplicateUpdate({ email: "person@example.com" })).toEqual({
+      email: "person@example.com",
+    });
+    expect(
+      waitlistDuplicateUpdate({
+        email: "person@example.com",
+        name: "Pong",
+        plan: "team",
+      })
+    ).toEqual({
+      email: "person@example.com",
+      name: "Pong",
+      plan: "team",
+    });
   });
 });

@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 import { buildEmployeePackage } from "./pack-employee";
 
 const repoRoot = path.resolve(__dirname, "../..");
+const packageJson = JSON.parse(
+  fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")
+);
 const importer = path.join(
   repoRoot,
   "packages",
@@ -52,6 +55,11 @@ function buildIncompletePackage() {
 }
 
 describe("employee package importer", () => {
+  it("ships the TypeScript validator loader in production dependencies", () => {
+    expect(packageJson.dependencies?.tsx).toBeTruthy();
+    expect(packageJson.devDependencies?.tsx).toBeUndefined();
+  });
+
   it("requires a trusted SHA-256 before it touches the experts directory", () => {
     const root = createRoot("crewclaw-import-destination-");
     try {
