@@ -98,7 +98,7 @@ describe("employee package importer", () => {
         pkg.sha256
       );
 
-      expect(result.status).toBe(0);
+      expect(result.status, result.stderr).toBe(0);
       expect(JSON.parse(result.stdout)).toMatchObject({
         slug,
         version: pkg.version,
