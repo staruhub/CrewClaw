@@ -11,7 +11,8 @@ use ratatui::{
 
 use super::super::config;
 use super::super::state::{
-    AppState, DreamSnapshot, EvalReport, GrowthCard, KpiCumulative, MonthlyMetric, UiState,
+    AppState, DreamSnapshot, EvalReport, GrowthCard, KpiCumulative, KpiState, MonthlyMetric,
+    UiState,
 };
 use super::{bar, pad_left, screen_block, section};
 
@@ -103,7 +104,8 @@ fn render_main(
             Constraint::Min(3),
         ])
         .split(area);
-    let kpi_unverified = errors.iter().any(|error| error.starts_with("kpi:"));
+    let kpi_unverified =
+        cum.state == KpiState::Invalid || errors.iter().any(|error| error.starts_with("kpi:"));
     let runs_unverified = errors.iter().any(|error| error.starts_with("runs:"));
     let kpi_label = if kpi_unverified {
         " 累计 KPI · 状态不可验证"

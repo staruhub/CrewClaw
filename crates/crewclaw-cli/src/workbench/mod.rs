@@ -970,36 +970,19 @@ fn handle_mouse_scroll(ui_state: &mut UiState, kind: MouseEventKind) {
 }
 
 /// v0.17 P2 C1：读取某员工的跨会话真累计 KPI(引擎 kpi.mjs 写的 `.crewclaw/kpi/<agentId>.json`)。
-/// 缺文件/解析失败 → 全零默认值(新员工/从未跑过的诚实起点)，不 panic。
+/// 缺文件是新员工的诚实起点；读取或验证失败则显式标记 Invalid，绝不伪装成零历史。
 fn read_kpi_cumulative(root: &Path, agent_id: &str) -> state::KpiCumulative {
     let relative = PathBuf::from("kpi").join(format!("{agent_id}.json"));
-    let Ok(Some(raw)) = crate::state_store::read_string(root, &relative) else {
-        return state::KpiCumulative::default();
+    let raw = match crate::state_store::read_string(root, &relative) {
+        Ok(Some(raw)) => raw,
+        Ok(None) => return state::KpiCumulative::default(),
+        Err(_) => return state::KpiCumulative::invalid(),
     };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return state::KpiCumulative::default();
+    let value = match serde_json::from_str::<serde_json::Value>(&raw) {
+        Ok(value) => value,
+        Err(_) => return state::KpiCumulative::invalid(),
     };
-    state::KpiCumulative {
-        tasks: value
-            .get("tasks")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0),
-        accepted: value
-            .get("accepted")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0),
-        auto_accepted: value
-            .get("auto_accepted")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0),
-        total_cost: value
-            .get("total_cost")
-            .and_then(serde_json::Value::as_f64)
-            .unwrap_or(0.0),
-        first_hired_ts: value
-            .get("first_hired_ts")
-            .and_then(serde_json::Value::as_u64),
-    }
+    insights::parse_kpi(&value).unwrap_or_else(|_| state::KpiCumulative::invalid())
 }
 
 fn refresh_persisted_insights(
@@ -2912,20 +2895,31 @@ mod tests {
         std::fs::create_dir_all(&kpi_dir).expect("mkdir");
         std::fs::write(
             kpi_dir.join("whale.json"),
-            r#"{"tasks":9,"accepted":6,"auto_accepted":2,"total_cost":3.5,"first_hired_ts":1700000000000}"#,
+            r#"{"contract":"crewclaw.kpi/v2","employee_id":"whale","first_hired_ts":1700000000000,"legacy":{"unclassified_tasks":0,"accepted_claims":0,"total_cost":0},"outcomes":[
+                {"task_kind":"formal","outcome":"accepted","cost_usd":1.5},
+                {"task_kind":"formal","outcome":"auto_accepted","cost_usd":2.0},
+                {"task_kind":"chat","outcome":"completed","cost_usd":0.25}
+            ]}"#,
         )
         .expect("write kpi file");
 
         let cum = read_kpi_cumulative(&tmp, "whale");
-        assert_eq!(cum.tasks, 9);
-        assert_eq!(cum.accepted, 6);
-        assert_eq!(cum.auto_accepted, 2);
-        assert_eq!(cum.total_cost, 3.5);
+        assert_eq!(cum.state, state::KpiState::Valid);
+        assert_eq!(cum.tasks, 2);
+        assert_eq!(cum.accepted, 1);
+        assert_eq!(cum.auto_accepted, 1);
+        assert_eq!(cum.total_cost, 3.75);
         assert_eq!(cum.first_hired_ts, Some(1_700_000_000_000));
 
         // 没这个员工的文件 → 全零默认值，不 panic。
         let missing = read_kpi_cumulative(&tmp, "nobody");
         assert_eq!(missing, state::KpiCumulative::default());
+
+        std::fs::write(kpi_dir.join("broken.json"), "{not valid json")
+            .expect("write corrupt kpi file");
+        let broken = read_kpi_cumulative(&tmp, "broken");
+        assert_eq!(broken.state, state::KpiState::Invalid);
+        assert_eq!(broken.tasks, 0);
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

@@ -356,12 +356,28 @@ function summarizeSkillPerformance(outcomes) {
     .sort((left, right) => left.skill_id.localeCompare(right.skill_id, "en"));
 }
 
-/** Missing/invalid state stays untouched; a valid v1 document is migrated once and summarized. */
+/** Missing state is distinct from unreadable state; a valid v1 document is migrated once. */
 export function readKpi(root, agentId) {
   try {
-    return summarize(migrateKpiV1(root, agentId).document);
+    const file = kpiPath(root, agentId);
+    if (!existsSync(file)) {
+      return {
+        ...summarize(emptyDocument(String(agentId || "unknown"))),
+        state: "missing",
+        error: null,
+      };
+    }
+    return {
+      ...summarize(migrateKpiV1(root, agentId).document),
+      state: "valid",
+      error: null,
+    };
   } catch {
-    return summarize(emptyDocument(String(agentId || "unknown")));
+    return {
+      ...summarize(emptyDocument(String(agentId || "unknown"))),
+      state: "invalid",
+      error: "KPI state is unreadable or invalid.",
+    };
   }
 }
 

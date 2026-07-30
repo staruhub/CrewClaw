@@ -7,8 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 
 use super::state::{
-    DreamSnapshot, EvalReport, ExamEntry, KpiCumulative, MonthlyMetric, PersistedInsights,
-    PersistedMemory, ReputationEntry,
+    DreamSnapshot, EvalReport, ExamEntry, KpiCumulative, KpiState, MonthlyMetric,
+    PersistedInsights, PersistedMemory, ReputationEntry,
 };
 
 const MAX_RUN_FILES: usize = 64;
@@ -225,10 +225,58 @@ fn parse_eval(value: &Value, employee_id: &str) -> Result<EvalReport, String> {
     })
 }
 
-fn parse_kpi(value: &Value) -> Result<KpiCumulative, String> {
+pub(super) fn parse_kpi(value: &Value) -> Result<KpiCumulative, String> {
     let object = value
         .as_object()
         .ok_or_else(|| "document is not an object".to_string())?;
+    if object.get("contract").and_then(Value::as_str) == Some("crewclaw.kpi/v2") {
+        let outcomes = object
+            .get("outcomes")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "v2 outcomes are missing".to_string())?;
+        let mut tasks = 0_u64;
+        let mut accepted = 0_u64;
+        let mut auto_accepted = 0_u64;
+        let mut total_cost = 0.0_f64;
+        for outcome in outcomes {
+            let row = outcome
+                .as_object()
+                .ok_or_else(|| "v2 outcome is not an object".to_string())?;
+            let task_kind = row
+                .get("task_kind")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "v2 outcome task_kind is invalid".to_string())?;
+            let result = row
+                .get("outcome")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "v2 outcome result is invalid".to_string())?;
+            let cost = row
+                .get("cost_usd")
+                .and_then(Value::as_f64)
+                .filter(|cost| cost.is_finite() && *cost >= 0.0)
+                .ok_or_else(|| "v2 outcome cost is invalid".to_string())?;
+            total_cost += cost;
+            if task_kind == "formal" {
+                tasks = tasks.saturating_add(1);
+                if result == "accepted" {
+                    accepted = accepted.saturating_add(1);
+                } else if result == "auto_accepted" {
+                    auto_accepted = auto_accepted.saturating_add(1);
+                }
+            }
+        }
+        if !total_cost.is_finite() {
+            return Err("total_cost is invalid".to_string());
+        }
+        return Ok(KpiCumulative {
+            state: KpiState::Valid,
+            tasks,
+            accepted,
+            auto_accepted,
+            total_cost,
+            first_hired_ts: object.get("first_hired_ts").and_then(Value::as_u64),
+        });
+    }
     let tasks = object.get("tasks").and_then(Value::as_u64).unwrap_or(0);
     let accepted = object.get("accepted").and_then(Value::as_u64).unwrap_or(0);
     let auto_accepted = object
@@ -246,6 +294,7 @@ fn parse_kpi(value: &Value) -> Result<KpiCumulative, String> {
         return Err("total_cost is invalid".to_string());
     }
     Ok(KpiCumulative {
+        state: KpiState::Valid,
         tasks,
         accepted,
         auto_accepted,

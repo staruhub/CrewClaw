@@ -374,9 +374,7 @@ fn show_help(root: &Path) {
     println!();
     println!("Options");
     println!("  --from <package.tar.gz>  Verify and hire a downloaded employee package");
-    println!(
-        "  --sha256 <digest>        Required with --from; trusted published SHA-256 checksum"
-    );
+    println!("  --sha256 <digest>        Required with --from; trusted published SHA-256 checksum");
     println!("  --name <profile>  Install with a custom Hermes profile name");
     println!(
         "  --grant-capability <id>  Explicitly enable one declared conditional or non_default capability (repeatable)"

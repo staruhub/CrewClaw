@@ -342,7 +342,20 @@ fn render_profile(frame: &mut Frame<'_>, e: &MarketEntry, area: Rect) {
     // v0.17 P2 C1：累计 KPI——启动时从 `.crewclaw/kpi/<name>.json` 真读盘(不等 session.ready，
     // MARKET 要列出所有员工，不只是当前上岗的那个)；从未跑过的员工如实说"尚无历史"。
     let cum = &e.kpi_cumulative;
-    let kpi_line = if cum.tasks == 0 {
+    let kpi_line = if cum.state == super::super::state::KpiState::Invalid {
+        Line::from(vec![
+            Span::styled(
+                "累计 ",
+                Style::default()
+                    .fg(config::dim())
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "状态不可验证（文件损坏或不安全）",
+                Style::default().fg(config::red()),
+            ),
+        ])
+    } else if cum.tasks == 0 {
         Line::from(vec![
             Span::styled(
                 "累计 ",

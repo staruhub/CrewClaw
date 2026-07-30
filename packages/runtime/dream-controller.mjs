@@ -450,7 +450,8 @@ export function assessDreamFromWorkspace(root, employeeId, options = {}) {
   const pool = loadReflectionPool(root, employeeId);
   const candidatePool = loadMemoryCandidates(root, employeeId);
   const memory = loadMemory(root, employeeId);
-  const skillPerformance = readKpi(root, employeeId).skills;
+  const kpi = readKpi(root, employeeId);
+  const skillPerformance = kpi.state === "valid" ? kpi.skills : [];
   const assessment = assessDream({
     employeeId,
     reflections: pool.records,
@@ -462,6 +463,8 @@ export function assessDreamFromWorkspace(root, employeeId, options = {}) {
   const inputErrors = [...pool.errors, ...candidatePool.errors];
   if (memory.error)
     inputErrors.push({ file: "active-memory", reason: memory.error });
+  if (kpi.state === "invalid")
+    inputErrors.push({ file: "kpi", reason: kpi.error });
   if (inputErrors.length > 0) {
     assessment.curation.eligible = false;
     assessment.curation.blockers = [

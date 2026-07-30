@@ -3278,6 +3278,7 @@ mod tests {
                 display_name: "AI落地鲸".into(),
                 status: "available".into(),
                 kpi_cumulative: KpiCumulative {
+                    state: super::super::state::KpiState::Valid,
                     tasks: 12,
                     accepted: 9,
                     auto_accepted: 3,
@@ -3290,6 +3291,13 @@ mod tests {
                 name: "rookie".into(),
                 display_name: "新秀".into(),
                 status: "available".into(),
+                ..Default::default()
+            },
+            MarketEntry {
+                name: "broken".into(),
+                display_name: "损坏状态".into(),
+                status: "available".into(),
+                kpi_cumulative: KpiCumulative::invalid(),
                 ..Default::default()
             },
         ];
@@ -3319,6 +3327,15 @@ mod tests {
         assert!(
             out1.contains("成长见习"),
             "a never-run employee starts as apprentice without fabricating review history"
+        );
+
+        ui.market_cursor = 2;
+        let mut t2 = Terminal::new(TestBackend::new(84, 34)).expect("term");
+        t2.draw(|f| render(f, &state, &ui, "")).expect("draw");
+        let out2 = screen(&t2).replace(' ', "");
+        assert!(
+            out2.contains("状态不可验证"),
+            "corrupt KPI state must never be presented as a new employee"
         );
     }
 
