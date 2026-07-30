@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -16,7 +17,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+
+const INSTALL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const LIMITS = Object.freeze({
   maxEntries: 4_096,
@@ -368,6 +372,35 @@ function sameFiles(left, right) {
   return true;
 }
 
+function validateStagedEmployee(stagedEmployee) {
+  const validator = join(
+    INSTALL_ROOT,
+    "packages",
+    "validator",
+    "src",
+    "bin.ts"
+  );
+  const result = spawnSync(
+    process.execPath,
+    ["--import", "tsx", validator, stagedEmployee],
+    {
+      cwd: INSTALL_ROOT,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+      timeout: 30_000,
+      maxBuffer: 1024 * 1024,
+    }
+  );
+  if (result.error) {
+    fail(`unable to launch package validator: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const detail = `${result.stderr || ""}${result.stdout || ""}`.trim();
+    fail(`full package validation failed${detail ? `:\n${detail}` : ""}`);
+  }
+}
+
 function installFiles(root, slug, files) {
   const expertsRoot = join(root, "experts");
   mkdirSync(expertsRoot, { recursive: true });
@@ -398,6 +431,7 @@ function installFiles(root, slug, files) {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       writeFileSync(path, content, { flag: "wx", mode: 0o600 });
     }
+    validateStagedEmployee(stagedEmployee);
     renameSync(stagedEmployee, destination);
     return true;
   } finally {
@@ -407,11 +441,11 @@ function installFiles(root, slug, files) {
 
 function main() {
   const [rootArg, archiveArg, expectedArg] = process.argv.slice(2);
-  if (!rootArg || !archiveArg)
-    fail("usage: import-employee-package.mjs <root> <archive> [sha256]");
+  if (!rootArg || !archiveArg || !expectedArg || expectedArg === "-") {
+    fail("usage: import-employee-package.mjs <root> <archive> <sha256>");
+  }
   const root = realpathSync(resolve(rootArg));
-  const expectedSha256 =
-    expectedArg && expectedArg !== "-" ? expectedArg : undefined;
+  const expectedSha256 = expectedArg;
   const { tar, sha256 } = readArchive(
     isAbsolute(archiveArg) ? archiveArg : resolve(root, archiveArg),
     expectedSha256

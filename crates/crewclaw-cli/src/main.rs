@@ -374,7 +374,9 @@ fn show_help(root: &Path) {
     println!();
     println!("Options");
     println!("  --from <package.tar.gz>  Verify and hire a downloaded employee package");
-    println!("  --sha256 <digest>        Require the published package SHA-256 checksum");
+    println!(
+        "  --sha256 <digest>        Required with --from; trusted published SHA-256 checksum"
+    );
     println!("  --name <profile>  Install with a custom Hermes profile name");
     println!(
         "  --grant-capability <id>  Explicitly enable one declared conditional or non_default capability (repeatable)"
@@ -649,9 +651,12 @@ fn run_package_hire(
     args: &[String],
     archive: &Path,
 ) -> Result<i32, String> {
-    let expected_sha256 = option_value(args, "--sha256");
+    let expected_sha256 = option_value(args, "--sha256").ok_or_else(|| {
+        "Downloaded employee packages require --sha256 with the trusted published digest"
+            .to_string()
+    })?;
     let imported =
-        package_import::import_employee_package(root, archive, expected_sha256.as_deref())?;
+        package_import::import_employee_package(root, archive, Some(expected_sha256.as_str()))?;
     let expert = find_expert(registry, &imported.slug).ok_or_else(|| {
         format!(
             "Employee package {} is not present in the trusted registry",
