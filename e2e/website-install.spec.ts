@@ -124,15 +124,19 @@ test("Landing v4 exposes the real employee loop and a copyable CLI handoff", asy
 });
 
 test("the Landing hire command maps to a real CLI hire and atomic team record", async ({
+  context,
   page,
 }) => {
   test.setTimeout(90_000);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/");
   await expect(page.getByText(landingCommand, { exact: true })).toBeVisible({
     timeout: 10_000,
   });
+  await page.getByRole("button", { name: "Copy CrewClaw command" }).click();
+  const copiedCommand = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copiedCommand).toBe(landingCommand);
 
-  const profileName = `crewclaw-e2e-${Date.now()}`;
   const root = realpathSync.native(
     mkdtempSync(join(tmpdir(), "crewclaw-web-install-"))
   );
@@ -167,17 +171,16 @@ test("the Landing hire command maps to a real CLI hire and atomic team record", 
         "pnpm did not expose npm_execpath to the source-command E2E"
       );
     }
-    const args = [
-      "hire",
-      "ai-adoption-whale",
-      "--name",
-      profileName,
-      "--yes",
-      "--live",
-    ];
+    const commandParts = copiedCommand.split(/\s+/);
+    expect(commandParts.slice(0, 4)).toEqual([
+      "pnpm",
+      "run",
+      "crewclaw",
+      "--",
+    ]);
     const install = await run(
       process.execPath,
-      [pnpmCli, "run", "crewclaw", "--", ...args],
+      [pnpmCli, ...commandParts.slice(1)],
       {
         cwd: repoRoot,
         timeoutMs: 60_000,
@@ -194,7 +197,7 @@ test("the Landing hire command maps to a real CLI hire and atomic team record", 
     );
     const calls = normalizeRecordedCommand(readFileSync(callsFile, "utf8"));
     expect(calls).toContain(
-      `profile install ${root.replaceAll("\\", "/")}/experts/ai-adoption-whale --name ${profileName} --alias --yes`
+      `profile install ${root.replaceAll("\\", "/")}/experts/ai-adoption-whale --name ai-adoption-whale --alias --yes`
     );
     const team = JSON.parse(
       readFileSync(join(root, ".crewclaw", "team.json"), "utf8")
