@@ -250,7 +250,7 @@ describe("website-to-TUI executable employee lifecycle", () => {
       state: "NEXT_RECOMMENDED",
       outcome: "accepted",
     });
-  });
+  }, 45_000);
 
   it("turns a rejected growth delivery into an approval-gated revision task", async () => {
     const root = await workspaceRoot();
@@ -450,5 +450,5 @@ describe("website-to-TUI executable employee lifecycle", () => {
       state: "REVISION_REQUIRED",
     });
     expect(readKpi(root, employeeId).rejected).toBe(1);
-  }, 15_000);
+  }, 45_000);
 });

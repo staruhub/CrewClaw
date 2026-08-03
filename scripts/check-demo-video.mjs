@@ -10,7 +10,7 @@ const poster = resolve("docs/assets/crewclaw-demo-cover.jpg");
 const readmePath = resolve("README.md");
 const playbackUrl = "https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4";
 const approvedSha256 =
-  "2f52f92590b9f380a63c315cd2f0ef658cf3ae9c44df9b0c179c4b145b75e2d1";
+  "aa20533f8361cee10106cab00a75e0cd448d90ec93f6af8cbd721a24d1bab645";
 
 function readMovieDuration(buffer) {
   const marker = buffer.indexOf(Buffer.from("mvhd"));
@@ -54,8 +54,8 @@ assert.equal(
 
 const duration = readMovieDuration(video);
 assert.ok(
-  duration >= 179 && duration <= 181,
-  `Release demo duration must remain about 180 seconds; received ${duration.toFixed(3)}`
+  duration >= 55 && duration <= 58,
+  `Release demo duration must remain about 57 seconds; received ${duration.toFixed(3)}`
 );
 
 const playbackLinkCount = readme.split(playbackUrl).length - 1;
@@ -65,5 +65,5 @@ assert.ok(
 );
 
 console.log(
-  `Pixel-art demo verified (${duration.toFixed(3)}s, ${videoType.ext}, ${sha256.slice(0, 12)}…)`
+  `Concept demo verified (${duration.toFixed(3)}s, ${videoType.ext}, ${sha256.slice(0, 12)}…)`
 );

@@ -74,13 +74,13 @@ export function HireCliHandoff({
   const metadata = packageState.slug === slug ? packageState.metadata : null;
   const error = packageState.slug === slug ? packageState.error : null;
   const grants = useMemo(() => grantArguments(capabilities), [capabilities]);
-  const registryCommand = `crew hire ${slug}${grants}`;
+  const registryCommand = `pnpm run crewclaw -- hire ${slug}${grants}`;
   const packageCommand = metadata
-    ? `crew hire --from "${metadata.filename}" --sha256 ${metadata.sha256}${grants}`
+    ? `pnpm run crewclaw -- hire --from "${metadata.filename}" --sha256 ${metadata.sha256}${grants}`
     : null;
   const tuiCommand = intent
-    ? `crew run ${slug} ${shellSingleQuote(intent.task)} --tui`
-    : `crew chat ${slug} --tui`;
+    ? `pnpm run crewclaw -- run ${slug} ${shellSingleQuote(intent.task)} --tui`
+    : `pnpm run crewclaw -- chat ${slug} --tui`;
 
   useEffect(() => {
     const controller = new AbortController();

@@ -40,11 +40,11 @@ The final clean landing handoff is recorded at `artifacts/design-qa/implementati
 
 ## Comparison history
 
-| Iteration      | Score | Outcome | Changes made                                                                                                                                                                                 |
-| -------------- | ----: | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Baseline       |    72 | Failed  | Landing was split, marketplace was card-first, and workbench was a low-density web detail page.                                                                                              |
-| Alignment pass |    84 | Failed  | Centered the landing hero, added terminal marketplace/workbench surfaces, and increased operational density.                                                                                 |
-| Final pass     |    91 | Passed  | Made the marketplace console primary and functional, used honest concrete demo/pricing/runtime fields, and compressed workbench chrome so the complete supervisory frame fits at 1265 × 720. |
+| Iteration      | Score | Outcome | Changes made                                                                                                                                                                             |
+| -------------- | ----: | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Baseline       |    72 | Failed  | Landing was split, marketplace was card-first, and workbench was a low-density web detail page.                                                                                          |
+| Alignment pass |    84 | Failed  | Centered the landing hero, added terminal marketplace/workbench surfaces, and increased operational density.                                                                             |
+| Final pass     |    91 | Passed  | Made the marketplace console primary and functional, used concrete example/license/runtime fields, and compressed workbench chrome so the complete supervisory frame fits at 1265 × 720. |
 
 Final combined comparisons:
 
@@ -58,7 +58,7 @@ Verified with the in-app browser and Computer Use:
 
 1. Clicked the landing primary CTA with Computer Use and reached Marketplace.
 2. Compared employees, searched for Macao, opened the real profile, and carried task/budget/runtime/access intent into hiring.
-3. Confirmed checkout, ran Doctor, resolved the `places.search` blocker, ran and accepted the bounded trial, activated local hire, and wrote the durable local roster record.
+3. Reviewed the open-source access boundary, ran Doctor, resolved the `places.search` blocker, ran and accepted the bounded trial, activated local hire, and wrote the durable local roster record.
 4. Inspected TaskRun evidence, selected timeline rows by mouse and keyboard, created a revision payload, and exercised the human approval boundary.
 5. Verified Performance KPI honesty, Metrics, and Crew Mode Dream staged review.
 6. Offboarded the temporary validation employee through the product UI with an exported memory pack; no active validation hire remains.

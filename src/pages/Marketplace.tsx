@@ -190,9 +190,7 @@ function MarketplaceConsoleRow({
         {hasLocalPerformance ? acceptanceText(performance, t) : t("noLedger")}
       </span>
       <span>
-        {hasLocalPerformance
-          ? averageCostText(performance, t)
-          : employee.pricing}
+        {hasLocalPerformance ? averageCostText(performance, t) : "Apache-2.0"}
       </span>
       <span className="flex items-center justify-between gap-2">
         <span>{runtime.label}</span>
@@ -635,7 +633,7 @@ export default function Marketplace() {
             <span>{t("role")}</span>
             <span>{t("tasksDemos")}</span>
             <span>{t("fieldKpi")}</span>
-            <span>{t("pricing")}</span>
+            <span>{t("license")}</span>
             <span>{t("runtime")}</span>
           </div>
           {sortedEmployees.slice(0, 5).map(employee => (

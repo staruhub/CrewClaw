@@ -38,8 +38,8 @@ export const hireZhCN = {
   areaNetwork: "网络",
   areaBudget: "预算",
   areaApproval: "人工审批",
-  budgetPackageSelected:
-    "已选择 {planName} 套餐（{planPrice}）；原型 checkout 只记录意图。",
+  openSourceLicense:
+    "Apache-2.0 源码分发；运行时用量由你自己的服务商账户承担。",
   approvalRequired:
     "激活前必须通过所有 Doctor 检查，并由人工接受一次有边界的试运行。",
   limitCallsPerTask: "每任务 {count} 次调用",
@@ -78,8 +78,8 @@ export const hireZhCN = {
   bePlural: "",
   doctorBudgetName: "预算与时长上限",
   doctorBudgetDetail:
-    "已选择 {planName}；试运行时长上限为 {trialPeriod}。浏览器 checkout 是带标签的演示，不会收费。",
-  doctorBudgetFailAction: "运行 Doctor 前请选择套餐。",
+    "试运行时长上限为 {trialPeriod}；所选工具继续遵守各自声明的任务范围。",
+  doctorBudgetFailAction: "运行 Doctor 前请至少选择一项必需或可选能力。",
   doctorApprovalName: "人工审批接线",
   doctorApprovalPass: "有风险的已选能力为只读、可预览，或通过人工授权路由。",
   doctorApprovalFail: "{capabilities} 激活前需要审批标记。",
@@ -93,7 +93,7 @@ export const hireZhCN = {
   trialEvidenceDeclared: "{capability}: 已声明试运行证据",
   trialEvidenceDemo: "演示证据摘要：此浏览器中没有可用的实时运行事件。",
   trialArtifactDeclared: "{capability}: 有边界的试运行产物",
-  trialCost: "{planName} {planPrice}；此原型中的试运行预览记录收费为 $0。",
+  trialResourcePolicy: "软件采用开源分发；模型与服务商用量留在你的账户中。",
   trialDuration:
     "受 {trialPeriod} 限制；此页面不会启动长时间运行的 OpenWork 任务。",
   trialApprovalAccepted: "此浏览器会话中已由人工审核人接受。",
@@ -141,7 +141,7 @@ export const hireZhCN = {
   expectations: "预期",
   expectationRole: "角色：{role}",
   expectationRuntimePackage: "运行时包：{employeeId}@{version}",
-  expectationCost: "预期成本：{planName} {planPrice}；此原型不会真实付款。",
+  expectationLicense: "分发：Apache-2.0；运行时凭证和服务商用量均由你掌控。",
   expectationTrial: "激活前试运行：{trialPeriod}",
   expectationProof: "绩效证明：{proof}",
   evidenceCertified: "{certification} 认证评估，来源：{source}",
@@ -179,7 +179,7 @@ export const hireZhCN = {
   hiredBody:
     "此浏览器已通过本地 CrewClaw API 写入持久本地名册。你仍可在另一台机器上使用下方 CLI 命令。",
   readyBody:
-    "此浏览器已保存你对 {employeeName} 和 {planName} 套餐的选择。在本机可通过本地 API 雇佣，也可复制 CLI 命令到另一台机器。",
+    "此浏览器已保存你对 {employeeName} 的选择。在本机可通过本地 API 雇佣，也可复制 CLI 命令到另一台机器。",
   optionThisMachine: "选项 0 / 本机",
   thisMachineBody:
     "当本地 CrewClaw 网站连接到此工作区时，hire 会像 fire 一样写入 .crewclaw/team.json，无需剪贴板步骤。",
@@ -191,7 +191,7 @@ export const hireZhCN = {
   hireConfirmation: "雇佣确认",
   reviewTitle: "雇佣 {employeeName} 前检查能力",
   reviewBody:
-    "选择套餐并授权声明能力后，该员工可加入你的持久本地名册。当本地 CrewClaw API 可用时，网站可在本机写入名册；否则 CLI handoff 会执行相同验证。此原型不会处理真实付款。",
+    "授权声明能力后，该员工可加入你的持久本地名册。当本地 CrewClaw API 可用时，网站可在本机写入名册；否则 CLI handoff 会执行相同验证。",
   websiteStoresTitle: "网站会存储什么",
   websiteStoresSelection:
     "浏览器只存储这次雇佣选择。它不是员工记录，也不会授予运行时访问。",
@@ -203,28 +203,13 @@ export const hireZhCN = {
   budgetRuntime: "预算 / 运行时",
   requestedAccess: "请求访问",
   noMarketplaceAccess: "市场未提供访问提示；下方必需能力仍是权威来源。",
-  choosePackage: "选择套餐",
-  choosePackageBody:
-    "本地雇佣仅开放免费套餐。尚未连接计费，因此付费套餐保持禁用且不会创建任何权益。",
-  planFreeName: "免费",
-  planFreeCadence: "演示入职",
-  planFreeDescription: "无需付款，将该 AI 员工雇佣到你的本地演示团队。",
-  planFreeBulletNoPayment: "无真实付款",
-  planFreeBulletLocalRecord: "本地团队记录",
-  planFreeBulletManualReview: "手动权限审核",
-  planProName: "Pro",
-  planProCadence: "计费尚不可用",
-  planProDescription: "本地产品尚未实现付费席位。",
-  planProBulletMock: "连接计费前保持禁用",
-  planProBulletNoCard: "不会创建付费权益",
-  planProBulletSameLocal: "请使用免费的本地入职路径",
-  checkoutTitle: "计费尚不可用",
-  mockCheckout: "已禁用",
-  checkoutBody: "尚未连接支付处理器。付费套餐无法选择或确认。",
-  checkoutSimulated: "计费尚不可用",
-  confirmCheckout: "不可用",
-  checkoutConfirmedTitle: "未创建付费权益。",
-  checkoutConfirmedBody: "准备本地 CLI handoff 前，请继续检查权限。",
+  openSourceAccessTitle: "开源访问",
+  openSourceAccessBody:
+    "CrewClaw 与 OpenWork 均采用 Apache-2.0 许可证。此入职流程只授予你明确批准的本地能力。",
+  openSourceAccessBulletCode: "可以检查、修改并自行托管源码。",
+  openSourceAccessBulletLocal: "员工清单、凭证和回执保留在本机。",
+  openSourceAccessBulletProviders: "运行时使用你自己的模型与服务商账户。",
+  viewSource: "查看源码",
   wantsAccess: "它想访问",
   canDo: "它可以执行",
   mainRisk: "主要风险",

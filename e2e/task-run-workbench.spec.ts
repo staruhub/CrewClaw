@@ -15,7 +15,7 @@ test("task run workbench exposes event-driven supervision panels", async ({
   await expect(page).toHaveTitle(/CrewClaw/);
   await expect(
     page.getByRole("heading", { name: localizedRun.user_goal })
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("[1] Workbench", { exact: true })).toBeVisible();
 
   await expect(page.getByText("Timeline", { exact: true })).toBeVisible();

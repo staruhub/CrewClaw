@@ -36,7 +36,6 @@ import {
   taskCountText,
 } from "@/i18n/marketplace-format";
 import { marketplaceMessages } from "@/i18n/locales/marketplace";
-import { formatPricingLabel } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 import { useEmployeePerformance } from "./useEmployeePerformance";
 
@@ -175,7 +174,7 @@ export function EmployeeCard({
             <Tag className="size-3.5 text-crew-copper" />v{employee.version}
           </span>
           <span className="min-w-0 truncate text-right text-crew-heading">
-            {formatPricingLabel(employee.pricing, locale)}
+            {t("openSource")}
           </span>
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">

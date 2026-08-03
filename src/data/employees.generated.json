@@ -35,7 +35,7 @@
         "field_status": "insufficient"
       },
       "certified_evaluation": null,
-      "pricing": "free-preview",
+      "pricing": "open-source",
       "repo": "github.com/ChaoGeek/hermes-code-review-shrimp",
       "local_source": "experts/code-review-shrimp",
       "install_command": "pnpm dlx @chaogeek/hermes hire code-review-shrimp",
@@ -502,7 +502,7 @@
         "field_status": "insufficient"
       },
       "certified_evaluation": null,
-      "pricing": "free-preview",
+      "pricing": "open-source",
       "repo": "github.com/ChaoGeek/hermes-product-prd-crab",
       "local_source": "experts/product-prd-crab",
       "install_command": "pnpm dlx @chaogeek/hermes hire product-prd-crab",
@@ -881,7 +881,7 @@
         "field_status": "insufficient"
       },
       "certified_evaluation": null,
-      "pricing": "free-preview",
+      "pricing": "open-source",
       "repo": null,
       "local_source": "experts/ai-adoption-whale",
       "install_command": "pnpm dlx @chaogeek/hermes hire ai-adoption-whale",
@@ -1346,7 +1346,7 @@
         "field_status": "insufficient"
       },
       "certified_evaluation": null,
-      "pricing": "free-preview",
+      "pricing": "open-source",
       "repo": null,
       "local_source": "experts/zeneth",
       "install_command": "pnpm dlx @chaogeek/hermes hire zeneth",
@@ -1802,7 +1802,7 @@
         "field_status": "insufficient"
       },
       "certified_evaluation": null,
-      "pricing": "free-preview",
+      "pricing": "open-source",
       "repo": null,
       "local_source": "experts/macao-networking-agent",
       "install_command": "pnpm dlx @chaogeek/hermes hire macao-networking-agent",

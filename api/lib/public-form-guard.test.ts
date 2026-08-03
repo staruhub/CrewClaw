@@ -3,10 +3,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { TrpcContext } from "../context";
 import { contactInputSchema } from "../routers/contact";
 import {
-  waitlistDuplicateUpdate,
-  waitlistInputSchema,
-} from "../routers/waitlist";
-import {
   assertPublicFormAllowed,
   resetPublicFormRateLimitsForTest,
 } from "./public-form-guard";
@@ -38,12 +34,6 @@ describe("public form boundaries", () => {
         message: "m".repeat(2001),
       }).success
     ).toBe(false);
-    expect(
-      waitlistInputSchema.safeParse({
-        email: "person@example.com",
-        plan: "p".repeat(51),
-      }).success
-    ).toBe(false);
   });
 
   it("rate-limits each public form and client independently", () => {
@@ -57,30 +47,10 @@ describe("public form boundaries", () => {
       TRPCError
     );
     expect(() =>
-      assertPublicFormAllowed(first, "waitlist", 1000)
-    ).not.toThrow();
-    expect(() =>
       assertPublicFormAllowed(context("203.0.113.11"), "contact", 1000)
     ).not.toThrow();
     expect(() =>
       assertPublicFormAllowed(first, "contact", 61_001)
     ).not.toThrow();
-  });
-
-  it("does not erase optional waitlist data on an email-only retry", () => {
-    expect(waitlistDuplicateUpdate({ email: "person@example.com" })).toEqual({
-      email: "person@example.com",
-    });
-    expect(
-      waitlistDuplicateUpdate({
-        email: "person@example.com",
-        name: "Pong",
-        plan: "team",
-      })
-    ).toEqual({
-      email: "person@example.com",
-      name: "Pong",
-      plan: "team",
-    });
   });
 });

@@ -1,9 +1,10 @@
 //! v0.15 P1-4：PUBLISH 员工发布浮层（对齐 handoff 设计稿 PUBLISH EMPLOYEE）。
 //!
-//! 数据真值（用户标准:有真用真,无真明示 MOCK）：
+//! 数据真值（用户标准:有真用真,无真明示 UNAVAILABLE）：
 //!   - 步骤 1「Manifest 校验」= **真**：从选中 MarketEntry(registry 真值) + HireHealth(doctor 真体检)
 //!     派生逐行校验结论。
-//!   - 步骤 2-4（上岗考试/认证签名/发布上架）引擎无真源 → **每行 `MOCK` 标注** + 完成 banner 标「演示」。
+//!   - 步骤 2-4（上岗考试/认证签名/发布上架）引擎无真源 → **每行 `UNAVAILABLE` 标注**，
+//!     不生成分数、签名、费用或成功终态。
 //!
 //! 4 步:Manifest→考试→签名→上架;Enter 推进,末步 Enter 关;Esc/q 关。
 
@@ -82,27 +83,23 @@ fn manifest_rows(
     rows
 }
 
-/// 步骤 2-4 的设计稿 **MOCK** 行（明示,不谎称真实执行）。
-fn mock_rows(step: usize) -> Vec<(&'static str, &'static str)> {
+/// 步骤 2-4 的不可用边界（不生成任何演示数值或成功状态）。
+fn unavailable_rows(step: usize) -> Vec<(&'static str, &'static str)> {
     match step {
         1 => vec![
-            ("research", "查模型发布 · 92/100"),
-            ("analysis", "做选型 · 89/100"),
-            ("evidence", "引用核验 · 96/100"),
-            ("safety", "越权探测 0 · 拒绝注入 3/3"),
-            ("verdict", "92.8 · PASS（阈值 85）"),
+            ("exam engine", "未配置真实考试执行器"),
+            ("evaluation", "未生成分数或通过结论"),
+            ("evidence", "等待 provider-verified 评测证据"),
         ],
         2 => vec![
-            ("authority", "ChaoGeek Certification ◆"),
-            ("exam ref", "exam #13 · 2026-07-08"),
-            ("signature", "ed25519 · sha256:9f2a…c41d"),
-            ("validity", "2026-07 → 2027-07 · 年审续期"),
+            ("issuer", "未配置认证签发方"),
+            ("signature", "未生成签名或证书"),
+            ("validity", "无可验证有效期"),
         ],
         3 => vec![
-            ("version", "v2.4.0 · changelog 3 items"),
-            ("compat", "OpenWork L4 · Hermes L3 · TRAE L2"),
-            ("pricing", "metered · est $0.82/task"),
-            ("listing", "主页生成 · KPI 历史已挂接"),
+            ("registry", "未配置 Marketplace 发布端点"),
+            ("listing", "未创建公开条目"),
+            ("status", "仅完成本地 manifest 校验"),
         ],
         _ => vec![],
     }
@@ -192,22 +189,25 @@ pub(crate) fn render_publish(frame: &mut Frame<'_>, ui_state: &UiState) {
             rows.push(check_row(&k, &v, ok, None, width));
         }
     } else {
-        rows.push(section_line("演示数据 · 引擎暂无真实执行", config::dim()));
-        for (k, v) in mock_rows(step) {
-            rows.push(check_row(k, v, true, Some("MOCK"), width));
+        rows.push(section_line(
+            "UNAVAILABLE · 外部发布链路未配置",
+            config::orange(),
+        ));
+        for (k, v) in unavailable_rows(step) {
+            rows.push(check_row(k, v, false, Some("UNAVAILABLE"), width));
         }
     }
     // 末步完成 banner。
     if step == STEP_COUNT - 1 {
         rows.push(Line::from(""));
         rows.push(Line::from(Span::styled(
-            "✓ 已上架 Marketplace（演示）",
+            "! 未发布 · Marketplace 端点未配置",
             Style::default()
-                .fg(config::green())
+                .fg(config::orange())
                 .add_modifier(Modifier::BOLD),
         )));
         rows.push(Line::from(Span::styled(
-            "认证/签名/上架为演示流程,非真实注册。",
+            "当前只验证本地 manifest；未生成认证、签名或公开条目。",
             Style::default().fg(config::dim()),
         )));
     }

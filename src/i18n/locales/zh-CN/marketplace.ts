@@ -24,9 +24,10 @@ export const marketplaceZhCN = {
   employee: "员工",
   role: "角色",
   tasks: "任务",
-  tasksDemos: "任务 / 演示",
+  tasksDemos: "任务 / 示例",
   fieldKpi: "现场 KPI",
-  pricing: "价格",
+  license: "许可证",
+  openSource: "开源",
   runtime: "运行时",
   acceptance: "接受率",
   avgCost: "平均成本",
@@ -95,7 +96,7 @@ export const marketplaceZhCN = {
   browseEyebrow: "浏览",
   browseTitle: "员工人才库",
   browseDescription:
-    "每个已发布员工都包含角色、注册表背书的证据状态、版本和价格。",
+    "每个已发布员工都包含角色、注册表背书的证据状态、版本、源码和许可证。",
   filterMatchOne:
     "{count} 名员工匹配当前市场筛选。选择 2-3 个比较按钮，可在页面内生成决策表。",
   filterMatchMany:
@@ -120,7 +121,7 @@ export const marketplaceZhCN = {
   compare: "比较",
   compared: "已比较",
   noLedger: "无台账",
-  demos: "演示",
+  demos: "示例",
   localKpiUnavailable: "本地 KPI 不可用",
   localKpiInvalid: "本地 KPI 无效",
   noLocalKpiLedger: "无本地 KPI 台账",
@@ -232,7 +233,7 @@ export const marketplaceZhCN = {
   resumeSnapshot: "简历快照",
   creator: "创建者",
   creatorName: "ChaoGeek",
-  hiringTerms: "{tone} 雇佣条款",
+  openSourceDistribution: "Apache-2.0 开源分发",
   reportsTo: "汇报对象",
   teamOwner: "团队负责人",
   location: "位置",
@@ -282,15 +283,14 @@ export const marketplaceZhCN = {
   supportedDeliverables: "支持的交付物",
   deliverablesDescription:
     "正式交付物名称尚未投影到浏览器数据集。下方列表来自包示例输出，因此标记为预期交付物，而不是已测量的交付历史。",
-  hiringTermsTitle: "雇佣条款",
-  pricingProDescription:
-    "该员工有市场定价，但本地计费尚未连接。请使用免费本地雇佣路径；付费权益保持禁用。",
-  pricingCustomDescription:
-    "该员工使用定制商务条款。本地计费尚未连接，因此商业权益暂不可用。",
-  pricingFreeDescription: "该员工可通过免费本地雇佣路径加入持久化的本地团队。",
+  distribution: "分发方式",
+  openSourceDistributionTitle: "开源访问",
+  openSourceDistributionDescription:
+    "CrewClaw 及其已发布员工包均采用 Apache-2.0 许可证。你可以从源码安装、检查包契约，并让运行时凭证始终留在本机。",
+  viewSource: "查看源码",
   beforeOnboarding: "入职前",
   beforeOnboardingDescription:
-    "使用免费本地套餐，并在员工加入团队前完成权限、Doctor 和人工接受的试运行。付费套餐保持禁用。",
+    "员工加入本地团队前，请先检查权限、运行 Doctor，并人工接受一次有边界的试运行。模型与服务商用量由你自己的账户承担。",
   access: "访问",
   toolCapabilities: "工具能力",
   runtimeProviderHandoff: "运行时提供商交接",

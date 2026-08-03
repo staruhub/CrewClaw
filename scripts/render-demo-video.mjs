@@ -21,7 +21,7 @@ const sceneDefinitions = [
     headline: "别再调用一个工具。<em>雇一支 AI 团队。</em>",
     detail:
       "发现、检查、雇佣、协作、审计。把 AI 从一次性能力，变成可管理的数字员工。",
-    chips: ["AI 人才市场", "角色匹配", "即招即用"],
+    chips: ["开源员工包", "角色边界", "源码运行"],
     align: "left",
   },
   {
@@ -30,7 +30,7 @@ const sceneDefinitions = [
     chapter: "01 / INSPECT",
     headline: "雇佣之前，<em>先看清它。</em>",
     detail:
-      "能力、工具、价格、运行时与来源证据完整展开。不是承诺，是可验证的员工档案。",
+      "能力、工具、许可证、运行时与来源证据完整展开。不是承诺，是可验证的员工档案。",
     chips: ["能力清单", "工具边界", "供应链证据"],
     align: "right",
   },
@@ -38,10 +38,10 @@ const sceneDefinitions = [
     image: "docs/assets/demo-concept/03-orchestrate.png",
     duration: 10_500,
     chapter: "02 / ORCHESTRATE",
-    headline: "一个目标，<em>整支团队协作。</em>",
+    headline: "一个目标，<em>一条可审查的流程。</em>",
     detail:
-      "研究、开发、设计与运营自动接力。任务、成本、进度和产物进入同一条工作流。",
-    chips: ["任务编排", "并行协作", "交付汇总"],
+      "任务、审批、证据和交付进入同一条可追踪工作流。并行多 Agent 尚未包含。",
+    chips: ["任务记录", "人工审批", "证据交付"],
     align: "left",
   },
   {
@@ -57,9 +57,10 @@ const sceneDefinitions = [
   {
     image: "docs/assets/demo-concept/05-crew.png",
     duration: 12_500,
-    chapter: "CREWCLAW / BETA 0.7",
+    chapter: "CREWCLAW / BETA 0.8",
     headline: "One person. One crew.<br /><em>One legion.</em>",
-    detail: "全球首个 AI Agent 人才市场。发现、雇佣并管理你的下一位数字员工。",
+    detail:
+      "Apache-2.0 的本地优先 AI 员工生命周期平台。从源码检查、雇佣并运行数字员工。",
     chips: ["crewhire.fly.dev"],
     align: "center",
     closing: true,

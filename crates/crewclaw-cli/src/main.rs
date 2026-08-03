@@ -393,9 +393,7 @@ fn show_help(root: &Path) {
     );
     println!("  --ascii           verify: plain output with no emoji or color");
     println!("  --plain           chat/run --task: use legacy plain output instead of Workbench");
-    println!(
-        "  --tui/--ratatui   chat: request Ratatui Workbench explicitly (chat defaults on TTY)"
-    );
+    println!("  --tui/--ratatui   open chat or a free-form run task in Ratatui Workbench");
     println!();
     println!("Agent instruction");
     println!("  Invoke every command as:  crew <command>");
@@ -1451,11 +1449,16 @@ fn run_agent_live(args: &[String], root: &Path) -> Result<i32, String> {
         return Ok(2);
     }
     if should_use_ratatui_workbench(args, io::stdout().is_tty()) {
-        let Some(agent) = forward.first() else {
+        let launch = workbench_launch_spec(args);
+        let Some(agent) = launch.runtime_args.first() else {
             eprintln!("Error: Missing agent name.");
             return Ok(1);
         };
-        let code = workbench::run_workbench_live(&forward, root)?;
+        let code = workbench::run_workbench_live(
+            &launch.runtime_args,
+            launch.initial_message.as_deref(),
+            root,
+        )?;
         if code == 0 {
             append_activity(root, "run", agent)?;
         }
@@ -1491,8 +1494,64 @@ fn should_use_ratatui_workbench(args: &[String], stdout_is_tty: bool) -> bool {
     let positionals = positionals(args);
     match positionals.first().map(String::as_str) {
         Some("chat") => true,
-        Some("run") => has_flag(args, "--task"),
+        Some("run") => {
+            has_flag(args, "--task") || has_flag(args, "--tui") || has_flag(args, "--ratatui")
+        }
         _ => false,
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct WorkbenchLaunchSpec {
+    runtime_args: Vec<String>,
+    initial_message: Option<String>,
+}
+
+fn workbench_launch_spec(args: &[String]) -> WorkbenchLaunchSpec {
+    let forward = node_runtime_forward_args(args);
+    let is_explicit_freeform_run =
+        matches!(positionals(args).first().map(String::as_str), Some("run"))
+            && !has_flag(args, "--task")
+            && (has_flag(args, "--tui") || has_flag(args, "--ratatui"));
+
+    if !is_explicit_freeform_run {
+        return WorkbenchLaunchSpec {
+            runtime_args: forward,
+            initial_message: None,
+        };
+    }
+
+    let mut runtime_args = Vec::new();
+    let mut task_parts = Vec::new();
+    let mut saw_employee = false;
+    let mut index = 0;
+    while index < forward.len() {
+        let arg = &forward[index];
+        if matches!(arg.as_str(), "--input" | "--task") {
+            runtime_args.push(arg.clone());
+            if let Some(value) = forward.get(index + 1) {
+                runtime_args.push(value.clone());
+            }
+            index += 2;
+            continue;
+        }
+        if matches!(arg.as_str(), "--json" | "--resume" | "--mock" | "--ascii") {
+            runtime_args.push(arg.clone());
+            index += 1;
+            continue;
+        }
+        if !saw_employee {
+            runtime_args.push(arg.clone());
+            saw_employee = true;
+        } else {
+            task_parts.push(arg.clone());
+        }
+        index += 1;
+    }
+
+    WorkbenchLaunchSpec {
+        runtime_args,
+        initial_message: (!task_parts.is_empty()).then(|| task_parts.join(" ")),
     }
 }
 
@@ -2324,12 +2383,34 @@ mod tests {
             &strings(&["run", "ai-adoption-whale", "write a report"]),
             true
         ));
+        assert!(should_use_ratatui_workbench(
+            &strings(&["run", "ai-adoption-whale", "write a report", "--tui"]),
+            true
+        ));
+        assert!(should_use_ratatui_workbench(
+            &strings(&["run", "ai-adoption-whale", "write a report", "--ratatui"]),
+            true
+        ));
+        assert!(!should_use_ratatui_workbench(
+            &strings(&[
+                "run",
+                "ai-adoption-whale",
+                "write a report",
+                "--tui",
+                "--plain"
+            ]),
+            true
+        ));
         assert!(!should_use_ratatui_workbench(
             &strings(&["run", "ai-adoption-whale", "--task", "roi-demo", "--plain"]),
             true
         ));
         assert!(!should_use_ratatui_workbench(
             &strings(&["run", "ai-adoption-whale", "--task", "roi-demo"]),
+            false
+        ));
+        assert!(!should_use_ratatui_workbench(
+            &strings(&["run", "ai-adoption-whale", "write a report", "--tui"]),
             false
         ));
     }
@@ -2346,6 +2427,10 @@ mod tests {
         ));
         assert!(needs_graceful_cancel_handler(
             &strings(&["run", "ai-adoption-whale", "--task", "roi-demo"]),
+            true
+        ));
+        assert!(needs_graceful_cancel_handler(
+            &strings(&["run", "ai-adoption-whale", "write a report", "--tui"]),
             true
         ));
 
@@ -2376,6 +2461,40 @@ mod tests {
             ])),
             vec!["ai-adoption-whale".to_string(), "--resume".to_string()]
         );
+    }
+
+    #[test]
+    fn explicit_run_tui_moves_the_positional_task_into_the_first_user_action() {
+        let launch = workbench_launch_spec(&strings(&[
+            "run",
+            "ai-adoption-whale",
+            "write",
+            "a",
+            "report",
+            "--resume",
+            "--tui",
+        ]));
+        assert_eq!(
+            launch.runtime_args,
+            vec!["ai-adoption-whale".to_string(), "--resume".to_string()]
+        );
+        assert_eq!(launch.initial_message.as_deref(), Some("write a report"));
+
+        let task_mode = workbench_launch_spec(&strings(&[
+            "run",
+            "ai-adoption-whale",
+            "--task",
+            "roi-demo",
+        ]));
+        assert_eq!(
+            task_mode.runtime_args,
+            vec![
+                "ai-adoption-whale".to_string(),
+                "--task".to_string(),
+                "roi-demo".to_string()
+            ]
+        );
+        assert_eq!(task_mode.initial_message, None);
     }
 
     fn expert_with_version(name: &str, version: &str) -> Expert {

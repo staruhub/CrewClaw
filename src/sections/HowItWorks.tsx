@@ -42,7 +42,7 @@ const steps = isLocalDevelopment
       {
         step: "03",
         title: "Run Repeated Work",
-        desc: "Once the local checkout is ready, reuse the same expert whenever recurring work needs another pass.",
+        desc: "Once the local source tree is ready, reuse the same expert whenever recurring work needs another pass.",
         preview: "launch",
       },
     ];
@@ -84,7 +84,7 @@ const cliDocs = isLocalDevelopment
       {
         label: "Setup",
         title: "Local setup",
-        command: "Follow README.md from a local checkout",
+        command: "Follow README.md from a local clone",
         desc: "Install pinned dependencies and run CrewClaw from the checked-out repository.",
       },
       {

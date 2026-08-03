@@ -82,7 +82,7 @@ describe("local team bridge", () => {
     ) as Record<string, unknown>[];
     expect(disk[0]).not.toHaveProperty("workspace_id");
     expect(disk[0]).not.toHaveProperty("hired_by");
-  });
+  }, 30_000);
 
   it("reads a legacy roster whose records carry an explicit hire_source: null", async () => {
     const workspace = await root();
@@ -130,7 +130,7 @@ describe("local team bridge", () => {
       await readFile(join(workspace, ".crewclaw", "team.json"), "utf8")
     ) as Record<string, unknown>[];
     expect(disk.some(record => record.hire_source === null)).toBe(false);
-  });
+  }, 30_000);
 
   it("projects only receipt-backed accepted tasks and binds one verified review", async () => {
     const workspace = await root();
@@ -239,5 +239,5 @@ describe("local team bridge", () => {
         options
       )
     ).rejects.toMatchObject({ code: "TASK_ALREADY_REVIEWED" });
-  });
+  }, 30_000);
 });

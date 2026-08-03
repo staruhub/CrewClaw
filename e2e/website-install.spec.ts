@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import {
   chmodSync,
   cpSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -21,26 +20,9 @@ type CommandResult = {
 };
 
 const repoRoot = process.cwd();
-const landingCommand = "crew hire ai-adoption-whale --live --yes";
+const landingCommand = "pnpm run crewclaw -- hire ai-adoption-whale --yes";
 
 test.use({ locale: "en-US" });
-
-function cliExecutable() {
-  const filename =
-    process.platform === "win32" ? "crewclaw-cli.exe" : "crewclaw-cli";
-  const candidates = [
-    process.env.CREWCLAW_E2E_CLI,
-    join(repoRoot, "crates", "crewclaw-cli", "target", "release", filename),
-    join(repoRoot, "crates", "crewclaw-cli", "target", "debug", filename),
-  ].filter((candidate): candidate is string => Boolean(candidate));
-  const executable = candidates.find(candidate => existsSync(candidate));
-  if (!executable) {
-    throw new Error(
-      "CrewClaw CLI binary is missing; run cargo build before browser E2E"
-    );
-  }
-  return executable;
-}
 
 function normalizeRecordedCommand(value: string) {
   return value.replaceAll("\\", "/").replaceAll(/\/\/\?\/(?=[A-Za-z]:\/)/g, "");
@@ -142,15 +124,21 @@ test("Landing v4 exposes the real employee loop and a copyable CLI handoff", asy
 });
 
 test("the Landing hire command maps to a real CLI hire and atomic team record", async ({
+  context,
   page,
 }) => {
   test.setTimeout(90_000);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/");
   await expect(page.getByText(landingCommand, { exact: true })).toBeVisible({
     timeout: 10_000,
   });
+  await page.getByRole("button", { name: "Copy CrewClaw command" }).click();
+  const copiedCommand = await page.evaluate(() =>
+    navigator.clipboard.readText()
+  );
+  expect(copiedCommand).toBe(landingCommand);
 
-  const profileName = `crewclaw-e2e-${Date.now()}`;
   const root = realpathSync.native(
     mkdtempSync(join(tmpdir(), "crewclaw-web-install-"))
   );
@@ -179,22 +167,26 @@ test("the Landing hire command maps to a real CLI hire and atomic team record", 
   if (process.platform !== "win32") chmodSync(hermesPath, 0o755);
 
   try {
-    const args = [
-      "hire",
-      "ai-adoption-whale",
-      "--name",
-      profileName,
-      "--yes",
-      "--live",
-    ];
-    const install = await run(cliExecutable(), args, {
-      cwd: repoRoot,
-      timeoutMs: 60_000,
-      env: {
-        CREWCLAW_ROOT: root,
-        PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-      },
-    });
+    const pnpmCli = process.env.npm_execpath;
+    if (!pnpmCli) {
+      throw new Error(
+        "pnpm did not expose npm_execpath to the source-command E2E"
+      );
+    }
+    const commandParts = copiedCommand.split(/\s+/);
+    expect(commandParts.slice(0, 4)).toEqual(["pnpm", "run", "crewclaw", "--"]);
+    const install = await run(
+      process.execPath,
+      [pnpmCli, ...commandParts.slice(1)],
+      {
+        cwd: repoRoot,
+        timeoutMs: 60_000,
+        env: {
+          CREWCLAW_ROOT: root,
+          PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+        },
+      }
+    );
 
     expect(install.code, install.stderr || install.stdout).toBe(0);
     expect(`${install.stdout}\n${install.stderr}`).toContain(
@@ -202,7 +194,7 @@ test("the Landing hire command maps to a real CLI hire and atomic team record", 
     );
     const calls = normalizeRecordedCommand(readFileSync(callsFile, "utf8"));
     expect(calls).toContain(
-      `profile install ${root.replaceAll("\\", "/")}/experts/ai-adoption-whale --name ${profileName} --alias --yes`
+      `profile install ${root.replaceAll("\\", "/")}/experts/ai-adoption-whale --name ai-adoption-whale --alias --yes`
     );
     const team = JSON.parse(
       readFileSync(join(root, ".crewclaw", "team.json"), "utf8")

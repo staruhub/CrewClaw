@@ -1,4 +1,5 @@
 import registry from "../../registry/experts.json";
+import { CREWCLAW_SOURCE_URL } from "@/lib/product-links";
 
 export type WebExpert = (typeof registry.experts)[number];
 
@@ -8,7 +9,7 @@ export const availableExperts = experts.filter(
   expert => expert.status === "available"
 );
 
-export const CREWCLAW_SOURCE_URL = "https://github.com/staruhub/CrewClaw";
+export { CREWCLAW_SOURCE_URL };
 export const isLocalDevelopment = import.meta.env.DEV;
 
 // vite.config.ts injects VITE_CREWCLAW_ROOT_COMMAND from the serving machine's real repo root,

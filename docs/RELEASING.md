@@ -4,8 +4,7 @@ This checklist complements the evidence gates in `docs/prd_v0.20.md`.
 
 ## 1. Legal and Privacy
 
-- Select and publish the repository license.
-- Define whether `experts/**` remains under a separate commercial license.
+- Confirm the repository and `experts/**` remain covered by Apache-2.0.
 - Complete a third-party license and notice review.
 - Scan the full reachable Git history for credentials and private user/session data.
 - Rewrite history only with an approved backup, coordination plan, and force-push window.

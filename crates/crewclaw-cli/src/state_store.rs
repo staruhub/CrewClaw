@@ -23,6 +23,10 @@ const DEFAULT_STALE_AFTER: Duration = Duration::from_secs(30);
 const LOCK_POLL: Duration = Duration::from_millis(10);
 const LOCK_RELEASE_TIMEOUT: Duration = Duration::from_secs(1);
 const LOCK_RELEASE_POLL: Duration = Duration::from_millis(1);
+#[cfg(windows)]
+const ATOMIC_REPLACE_TIMEOUT: Duration = Duration::from_secs(1);
+#[cfg(windows)]
+const ATOMIC_REPLACE_POLL: Duration = Duration::from_millis(2);
 
 #[cfg(test)]
 static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -234,13 +238,7 @@ pub(crate) fn write_atomic(
         if after.identity != owned.identity || after.len != contents.len() as u64 {
             return Err(invalid_data("temporary state file changed while writing"));
         }
-        // Re-check the destination and its components immediately before the atomic replacement.
-        let resolved_again = resolve_existing_state_target(root, relative.as_ref())?;
-        if resolved_again != path {
-            return Err(invalid_data("state destination changed before replacement"));
-        }
-        validate_existing_target(&path)?;
-        atomic_replace(&temp, &path)?;
+        replace_state_file(root, relative.as_ref(), &temp, &path)?;
         sync_parent_best_effort(parent);
 
         let replacement = open_regular_nofollow(&path)?;
@@ -258,6 +256,59 @@ pub(crate) fn write_atomic(
         let _ = remove_file_if_identity(&temp, &owned.identity);
     }
     result
+}
+
+fn replace_state_file(
+    root: &Path,
+    relative: &Path,
+    temp: &Path,
+    destination: &Path,
+) -> io::Result<()> {
+    #[cfg(not(windows))]
+    {
+        let resolved_again = resolve_existing_state_target(root, relative)?;
+        if resolved_again != destination {
+            return Err(invalid_data("state destination changed before replacement"));
+        }
+        validate_existing_target(destination)?;
+        atomic_replace(temp, destination)
+    }
+
+    #[cfg(windows)]
+    {
+        let started = Instant::now();
+        loop {
+            // Re-check the destination and its components before every attempt. Windows can
+            // transiently deny replacement while an indexer or reader holds the old file, but a
+            // retry must never skip the link/identity boundary checks.
+            let resolved_again = resolve_existing_state_target(root, relative)?;
+            if resolved_again != destination {
+                return Err(invalid_data("state destination changed before replacement"));
+            }
+            validate_existing_target(destination)?;
+            match atomic_replace(temp, destination) {
+                Ok(()) => return Ok(()),
+                Err(error)
+                    if is_atomic_replace_contention(&error)
+                        && started.elapsed() < ATOMIC_REPLACE_TIMEOUT =>
+                {
+                    thread::sleep(
+                        ATOMIC_REPLACE_POLL
+                            .min(ATOMIC_REPLACE_TIMEOUT.saturating_sub(started.elapsed())),
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn is_atomic_replace_contention(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::PermissionDenied | io::ErrorKind::WouldBlock
+    )
 }
 
 pub(crate) fn acquire_owner_lock(root: &Path, relative: impl AsRef<Path>) -> io::Result<OwnerLock> {
@@ -866,6 +917,35 @@ mod tests {
                 .expect_err("caller limit rejects before an oversized allocation")
                 .kind(),
             io::ErrorKind::InvalidData
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn atomic_write_retries_a_transient_windows_destination_lock() {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+
+        let root = root("replace-contention");
+        write_atomic(&root, "team.json", b"old").expect("write old");
+        let destination = root.join(".crewclaw").join("team.json");
+        let locked = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(&destination)
+            .expect("hold destination without delete sharing");
+        let release = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(40));
+            drop(locked);
+        });
+
+        write_atomic(&root, "team.json", b"new")
+            .expect("replace after the transient destination lock clears");
+        release.join().expect("release lock");
+        assert_eq!(
+            read(&root, "team.json").expect("read"),
+            Some(b"new".to_vec())
         );
         let _ = fs::remove_dir_all(root);
     }

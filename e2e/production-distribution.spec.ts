@@ -194,13 +194,15 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
   await page.goto("/");
 
   await expect(
-    page.getByText("crew hire ai-adoption-whale --live --yes", { exact: true })
+    page.getByText("pnpm run crewclaw -- hire ai-adoption-whale --yes", {
+      exact: true,
+    })
   ).toBeVisible({ timeout: 10_000 });
 
   const body = await page.locator("body").innerText();
   expect(body).not.toContain("pnpm dlx @chaogeek/hermes");
   expect(body).not.toContain("pnpm --silent -C");
-  expect(body).toContain("crew hire ai-adoption-whale --live --yes");
+  expect(body).toContain("pnpm run crewclaw -- hire ai-adoption-whale --yes");
   await expect(
     page.getByRole("heading", { name: "Hire AI like you hire people." })
   ).toBeVisible();
@@ -232,7 +234,9 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
   await expect(
     page.getByRole("heading", { name: "Finish hiring on this machine." })
   ).toBeVisible();
-  expect(await page.locator("body").innerText()).toContain("crew hire --from");
+  expect(await page.locator("body").innerText()).toContain(
+    "pnpm run crewclaw -- hire --from"
+  );
   await page
     .getByRole("button", { name: "Hire on this machine", exact: true })
     .click();
@@ -249,7 +253,7 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
   await expect(page.getByText("Hired locally", { exact: true })).toBeVisible();
   await expect(
     page.getByText(
-      `crew run ai-adoption-whale '${adoptionEmployee.first_task}' --tui`,
+      `pnpm run crewclaw -- run ai-adoption-whale '${adoptionEmployee.first_task}' --tui`,
       { exact: true }
     )
   ).toBeVisible();

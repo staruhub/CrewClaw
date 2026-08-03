@@ -7,7 +7,9 @@ import {
   Cpu,
   FileSearch,
   GitBranch,
+  Github,
   LockKeyhole,
+  PackageOpen,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
@@ -20,10 +22,14 @@ import {
 } from "@/data/employees";
 import { useI18n, useMessages, type MessageValues } from "@/i18n";
 import { localizeEmployees } from "@/i18n/employee-content";
-import type { Locale } from "@/i18n/locale";
 import { homeEn } from "@/i18n/locales/en/home";
 import { homeZhCN } from "@/i18n/locales/zh-CN/home";
-import { formatPricingLabel } from "@/lib/pricing";
+import {
+  CREWCLAW_RELEASES_URL,
+  CREWCLAW_SOURCE_URL,
+  OPENWORK_RELEASES_URL,
+  OPENWORK_SOURCE_URL,
+} from "@/lib/product-links";
 
 const homeMessages = {
   en: homeEn,
@@ -33,12 +39,18 @@ const homeMessages = {
 type HomeMessageKey = keyof typeof homeEn;
 type HomeT = (key: HomeMessageKey, values?: MessageValues) => string;
 
-const landingCommand = "crew hire ai-adoption-whale --live --yes";
+const landingCommand = "pnpm run crewclaw -- hire ai-adoption-whale --yes";
 
 const liveSession = [
-  { line: "$ crew hire ai-adoption-whale --live --yes", tone: "cmd" },
+  {
+    line: "$ pnpm run crewclaw -- hire ai-adoption-whale --yes",
+    tone: "cmd",
+  },
   { key: "live.line.contract", tone: "muted" },
-  { line: "$ crewclaw doctor --runtime openwork", tone: "cmd" },
+  {
+    line: "$ pnpm run crewclaw -- doctor ai-adoption-whale",
+    tone: "cmd",
+  },
   { key: "live.line.doctor", tone: "ok" },
   { key: "live.line.task", tone: "cmd" },
   { key: "live.line.plan", tone: "muted" },
@@ -49,10 +61,10 @@ const liveSession = [
 ] as const;
 
 const stats = [
-  { value: "05", label: "stats.published" },
-  { value: "8/8", label: "stats.doctor" },
-  { value: "100%", label: "stats.approval" },
-  { value: "L4", label: "stats.openwork" },
+  { value: String(employees.length), label: "stats.published" },
+  { value: "GATED", label: "stats.doctor" },
+  { value: "HUMAN", label: "stats.approval" },
+  { value: "2/2", label: "stats.openSource" },
 ] as const;
 
 const comparison = [
@@ -83,6 +95,8 @@ const boundary = [
       "boundary.crew.row.contract",
       "boundary.crew.row.kpi",
     ],
+    sourceUrl: CREWCLAW_SOURCE_URL,
+    releasesUrl: CREWCLAW_RELEASES_URL,
   },
   {
     name: "OpenWork",
@@ -94,6 +108,8 @@ const boundary = [
       "boundary.openwork.row.browser",
       "boundary.openwork.row.execution",
     ],
+    sourceUrl: OPENWORK_SOURCE_URL,
+    releasesUrl: OPENWORK_RELEASES_URL,
   },
 ] as const;
 
@@ -140,16 +156,22 @@ const mascotArt: Record<string, string> = {
   ),
 };
 
-function runtimeLevel(employee: Employee) {
+function runtimeLevel(employee: Employee, t: HomeT) {
   if (
     employee.tool_capabilities.some(
       tool => tool.availability === "runtime_implementation"
     )
   ) {
-    return "OpenWork L4";
+    return t("employee.runtime.wired");
   }
-  if (employee.tools.length > 0) return "OpenWork L3";
-  return "OpenWork L2";
+  if (
+    employee.tool_capabilities.some(
+      tool => tool.availability === "adapter_required"
+    )
+  ) {
+    return t("employee.runtime.adapter");
+  }
+  return t("employee.runtime.contract");
 }
 
 function approvalSummary(employee: Employee, t: HomeT) {
@@ -230,9 +252,21 @@ export default function Home() {
                 </Link>
                 <a
                   className="inline-flex items-center justify-center gap-2 rounded-[3px] border border-white/15 bg-white/[0.025] px-6 py-3.5 font-mono text-xs text-[#d5cfc6] transition-colors hover:border-[#ec9552]/50 hover:text-[#ec9552]"
-                  href="#session"
+                  href={CREWCLAW_SOURCE_URL}
+                  rel="noreferrer"
+                  target="_blank"
                 >
-                  {t("hero.secondary")}
+                  <Github className="size-4" />
+                  {t("hero.source")}
+                </a>
+                <a
+                  className="inline-flex items-center justify-center gap-2 rounded-[3px] border border-white/15 bg-white/[0.025] px-6 py-3.5 font-mono text-xs text-[#d5cfc6] transition-colors hover:border-[#ec9552]/50 hover:text-[#ec9552]"
+                  href={OPENWORK_SOURCE_URL}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <PackageOpen className="size-4" />
+                  {t("hero.openwork")}
                 </a>
               </div>
               <LanguageSwitcher className="mt-5 sm:hidden" />
@@ -349,6 +383,26 @@ export default function Home() {
                       </span>
                     ))}
                   </div>
+                  <div className="mt-8 flex flex-wrap gap-3 font-mono text-[11px]">
+                    <a
+                      className="inline-flex items-center gap-2 text-[#ec9552]"
+                      href={item.sourceUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <Github className="size-3.5" />
+                      {t("boundary.source")}
+                    </a>
+                    <a
+                      className="inline-flex items-center gap-2 text-[#b5aca1] hover:text-[#ec9552]"
+                      href={item.releasesUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <PackageOpen className="size-3.5" />
+                      {t("boundary.releases")}
+                    </a>
+                  </div>
                 </article>
               ))}
             </div>
@@ -369,7 +423,6 @@ export default function Home() {
                 <EmployeePreviewCard
                   employee={employee}
                   key={employee.employee_id}
-                  locale={locale}
                   t={t}
                 />
               ))}
@@ -381,7 +434,7 @@ export default function Home() {
                   <span>{t("market.column.certification")}</span>
                   <span>{t("market.column.completed")}</span>
                   <span>{t("market.column.acceptance")}</span>
-                  <span>{t("market.column.cost")}</span>
+                  <span>{t("market.column.source")}</span>
                 </div>
                 {featured.map(employee => (
                   <Link
@@ -401,7 +454,7 @@ export default function Home() {
                         ? t("market.status.seeKpi")
                         : t("market.status.fieldPending")}
                     </span>
-                    <span>{formatPricingLabel(employee.pricing, locale)}</span>
+                    <span>{t("market.status.openSource")}</span>
                   </Link>
                 ))}
               </div>
@@ -490,6 +543,12 @@ export default function Home() {
         <div className="mx-auto flex max-w-[1180px] flex-col gap-4 font-mono text-[10px] uppercase tracking-[0.15em] text-[#716b63] sm:flex-row sm:items-center sm:justify-between">
           <p>{t("footer.brand")}</p>
           <div className="flex gap-5">
+            <a href={CREWCLAW_SOURCE_URL} rel="noreferrer" target="_blank">
+              {t("footer.source")}
+            </a>
+            <a href={CREWCLAW_RELEASES_URL} rel="noreferrer" target="_blank">
+              {t("footer.releases")}
+            </a>
             <Link to="/marketplace">{t("footer.marketplace")}</Link>
             <Link to="/team">{t("footer.team")}</Link>
             <Link to="/metrics">{t("footer.metrics")}</Link>
@@ -552,11 +611,9 @@ function LiveSessionPanel({ t }: { t: HomeT }) {
 
 function EmployeePreviewCard({
   employee,
-  locale,
   t,
 }: {
   employee: Employee;
-  locale: Locale;
   t: HomeT;
 }) {
   const art = mascotArt[employee.mascot ?? ""] ?? mascotArt.crab;
@@ -585,14 +642,17 @@ function EmployeePreviewCard({
           label={t("employee.evidence")}
           value={employeeEvidenceBadge(employee)}
         />
-        <Metric label={t("employee.runtime")} value={runtimeLevel(employee)} />
+        <Metric
+          label={t("employee.runtime")}
+          value={runtimeLevel(employee, t)}
+        />
         <Metric
           label={t("employee.permission")}
           value={approvalSummary(employee, t)}
         />
         <Metric
-          label={t("employee.cost")}
-          value={formatPricingLabel(employee.pricing, locale)}
+          label={t("employee.license")}
+          value={t("employee.license.value")}
         />
       </dl>
       <Link
