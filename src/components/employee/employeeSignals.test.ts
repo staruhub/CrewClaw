@@ -102,7 +102,7 @@ describe("employee marketplace signals", () => {
     const url = hireHandoffUrl(employee!, "test");
     expect(url).toMatch(/^\/hire\/macao-networking-agent\?/);
     expect(url).toContain("task=");
-    expect(url).toContain("budget=free-preview");
+    expect(url).toContain("budget=task-scoped");
     expect(url).toContain("runtime=crewclaw.runtime");
   });
 

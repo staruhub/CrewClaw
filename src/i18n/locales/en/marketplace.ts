@@ -22,9 +22,10 @@ export const marketplaceEn = {
   employee: "Employee",
   role: "Role",
   tasks: "Tasks",
-  tasksDemos: "Tasks / demos",
+  tasksDemos: "Tasks / examples",
   fieldKpi: "Field KPI",
-  pricing: "Pricing",
+  license: "License",
+  openSource: "Open source",
   runtime: "Runtime",
   acceptance: "Acceptance",
   avgCost: "Avg cost",
@@ -98,7 +99,7 @@ export const marketplaceEn = {
   browseEyebrow: "Browse",
   browseTitle: "Employee bench",
   browseDescription:
-    "Every published employee includes a role, registry-backed evidence status, version, and pricing.",
+    "Every published employee includes a role, registry-backed evidence status, version, source, and license.",
   filterMatchOne:
     "{count} employee matches the current marketplace filters. Select 2-3 Compare buttons for an in-page decision table.",
   filterMatchMany:
@@ -123,7 +124,7 @@ export const marketplaceEn = {
   compare: "Compare",
   compared: "Compared",
   noLedger: "no ledger",
-  demos: "demos",
+  demos: "examples",
   localKpiUnavailable: "Local KPI unavailable",
   localKpiInvalid: "Local KPI invalid",
   noLocalKpiLedger: "No local KPI ledger",
@@ -247,7 +248,7 @@ export const marketplaceEn = {
   resumeSnapshot: "Resume snapshot",
   creator: "Creator",
   creatorName: "ChaoGeek",
-  hiringTerms: "{tone} hiring terms",
+  openSourceDistribution: "Apache-2.0 open-source distribution",
   reportsTo: "Reports to",
   teamOwner: "Team owner",
   location: "Location",
@@ -299,16 +300,14 @@ export const marketplaceEn = {
   supportedDeliverables: "Supported deliverables",
   deliverablesDescription:
     "Formal deliverable names are not projected into the browser dataset yet. The list below is taken from package example outputs, so it is labeled as expected deliverables rather than measured delivery history.",
-  hiringTermsTitle: "Hiring terms",
-  pricingProDescription:
-    "This employee has marketplace pricing, but local billing is not connected. Use the free local hiring path; paid entitlements remain disabled.",
-  pricingCustomDescription:
-    "This employee uses custom commercial terms. Local billing is not connected, so commercial entitlements remain unavailable.",
-  pricingFreeDescription:
-    "This employee can join your durable local crew without payment through the free local hiring path.",
+  distribution: "Distribution",
+  openSourceDistributionTitle: "Open-source access",
+  openSourceDistributionDescription:
+    "CrewClaw and its published employee packages are available under Apache-2.0. Install from source, inspect the package contract, and keep runtime credentials on your machine.",
+  viewSource: "View source",
   beforeOnboarding: "Before onboarding",
   beforeOnboardingDescription:
-    "Use the Free local plan, then complete permissions, Doctor, and an accepted trial before this employee joins your crew. Paid plans are disabled.",
+    "Review permissions, run Doctor, and accept a bounded trial before this employee joins your local crew. Model and provider usage stays in your own account.",
   access: "Access",
   toolCapabilities: "Tool capabilities",
   runtimeProviderHandoff: "Runtime provider handoff",

@@ -30,7 +30,7 @@ function prune(now: number) {
 
 export function assertPublicFormAllowed(
   ctx: TrpcContext,
-  form: "contact" | "waitlist",
+  form: "contact",
   now = Date.now()
 ) {
   prune(now);

@@ -26,6 +26,15 @@ test("marketplace lists real registry employees and shows no stale absolute path
   await page.goto("/");
   const body = await page.locator("body").innerText();
   expect(body).not.toContain("/Volumes/Ventoy");
+  expect(body).not.toMatch(
+    /\$19|free plan|pro plan|billing|checkout|waitlist|payment processor/i
+  );
+  await expect(
+    page.getByRole("link", { name: "CrewClaw source", exact: true })
+  ).toHaveAttribute("href", "https://github.com/staruhub/CrewClaw");
+  await expect(
+    page.getByRole("link", { name: "OpenWork source", exact: true })
+  ).toHaveAttribute("href", "https://github.com/staruhub/openWork");
 
   expect(consoleErrors).toEqual([]);
 });
@@ -145,7 +154,7 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
   });
 
   const stored = await page.evaluate(() =>
-    localStorage.getItem("crewclaw.hire-intent.v1")
+    localStorage.getItem("crewclaw.hire-intent.v2")
   );
   expect(stored).toBeTruthy();
   const intent = JSON.parse(stored ?? "{}") as {

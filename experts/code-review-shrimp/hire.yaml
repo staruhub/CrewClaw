@@ -64,7 +64,7 @@ lifecycle:
   fireable: true
   trial_period: 7d
 
-pricing: free-preview
+pricing: open-source
 categories:
   - engineering
 tags:

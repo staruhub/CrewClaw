@@ -58,7 +58,7 @@ const validManifest: EmployeeManifest = {
     fireable: true,
     trial_period: "7d",
   },
-  pricing: "Free",
+  pricing: "open-source",
   categories: ["Local Expert", "Sales"],
   tags: ["Macao", "Networking"],
   demo_tasks: ["Find Macao AI startup institutions."],

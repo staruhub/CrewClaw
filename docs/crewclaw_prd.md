@@ -401,7 +401,7 @@ Manifest 是 AI 员工的说明书，也是 CrewClaw 和普通 Agent 市场拉�
 
 | 字段              | 含义                 |
 | ----------------- | -------------------- |
-| pricing           | 价格策略             |
+| license           | 开源许可证           |
 | categories        | 市场分类             |
 | tags              | 搜索标签             |
 | screenshots       | 展示图               |

@@ -60,7 +60,7 @@ export const workbenchEn = {
   rejectionReason: "Rejection reason",
   rejectionPlaceholder: "Missing source, wrong scope, unclear claim...",
   revisionTask: "Revision task",
-  revisionPlaceholder: "Ask employee to revise pricing section...",
+  revisionPlaceholder: "Ask employee to revise the risk section...",
   createRevision: "Create revision",
   evidenceHeading: "Pre-approval evidence",
   itemCount: "{count} items",

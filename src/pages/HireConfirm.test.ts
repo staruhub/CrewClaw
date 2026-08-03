@@ -24,12 +24,7 @@ describe("HireConfirm safety gate helpers", () => {
       .filter(isToolCapabilityEnabledByDefault)
       .map(capability => capability.capability);
 
-    const areas = buildPermissionAreas(
-      employee.tool_capabilities,
-      defaults,
-      "Free",
-      "$0"
-    );
+    const areas = buildPermissionAreas(employee.tool_capabilities, defaults);
 
     const tools = areas.find(area => area.key === "tools");
     const budget = areas.find(area => area.key === "budget");
@@ -39,7 +34,7 @@ describe("HireConfirm safety gate helpers", () => {
     expect(tools?.optional.join("\n")).toContain("Enabled: places.search");
     expect(tools?.optional.join("\n")).toContain("Off: contacts.read");
     expect(tools?.unavailable.join("\n")).toContain("crm.write");
-    expect(budget?.required.join("\n")).toContain("Free");
+    expect(budget?.required.join("\n")).toContain("Apache-2.0");
     expect(approval?.required.join("\n")).toContain("Doctor checks");
   });
 
@@ -53,7 +48,6 @@ describe("HireConfirm safety gate helpers", () => {
       employee,
       selectedCapabilityIds: defaults,
       doctorStarted: true,
-      planName: "Free",
     });
 
     expect(doctorPassed(checks)).toBe(false);
@@ -72,7 +66,6 @@ describe("HireConfirm safety gate helpers", () => {
       employee,
       selectedCapabilityIds: selected,
       doctorStarted: true,
-      planName: "Free",
     });
 
     expect(doctorPassed(checks)).toBe(true);
@@ -87,14 +80,12 @@ describe("HireConfirm safety gate helpers", () => {
     const summary = buildTrialSummary({
       employee,
       selectedCapabilityIds: selected,
-      planName: "Free",
-      planPrice: "$0",
       accepted: true,
     });
 
     expect(summary.evidence.join("\n")).toContain("source.verify");
     expect(summary.artifacts.join("\n")).toContain("artifact.report");
-    expect(summary.cost).toContain("$0");
+    expect(summary.cost).toContain("Open-source");
     expect(summary.duration).toContain(employee.lifecycle.trial_period);
     expect(summary.approval).toContain("Accepted");
   });

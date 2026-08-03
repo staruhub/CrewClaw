@@ -23,10 +23,9 @@ presenting them as successful actions.
 | Evaluation and learning  | `/performance`, TUI EVAL/DREAM                          | Persisted evaluation, reflection, KPI and evidence are projected. Invalid or absent records remain visibly unverified                                                                                                       | Dream recommendation                                                  | Executable                                  |
 | Dream and next task      | TUI DREAM                                               | A persisted growth cycle carries KPI/evaluation/evidence/history context through human approval into the same TaskRun/runtime pipeline                                                                                      | Next delivery or revision; accepted work can recommend the next cycle | Executable and recoverable                  |
 
-The paid plans are intentionally disabled. No billing provider or entitlement
-backend exists in this repository, so the website does not simulate checkout
-or claim that a paid entitlement was created. The local free lifecycle is the
-only executable website path.
+CrewClaw and OpenWork are distributed under Apache-2.0. The website does not
+offer product plans, subscriptions, or a purchase flow. Model and external
+provider usage remains under each user's own account.
 
 ## Dream growth state machine
 
@@ -126,10 +125,13 @@ non-idempotent action before it can be marked ready.
 - The website does not execute model tasks or approve deliveries. It creates
   the local contract/trial/hire records, hands the task to the real TUI, and
   reads the resulting records back.
-- OpenWork/runtime remains responsible for browser, files, model execution,
-  long-running work and MCP transport. CrewClaw owns discovery, contract,
-  grants, approval, evidence, KPI, evaluation and growth state.
+- OpenWork owns the desktop execution boundary. Its current release provides
+  approved Hermes one-shot execution, task history, package import, workspace
+  selection, memory and read-only skills. Browser automation, editing,
+  scheduling and multi-agent orchestration remain future work rather than
+  shipped capabilities. CrewClaw owns discovery, contract, grants, approval,
+  evidence, KPI, evaluation and growth state.
 - Live search, browser rendering and adapter/MCP capabilities need their
   declared provider, credentials and host support. Doctor reports a blocking
   or degraded reason when those external prerequisites are absent.
-- Paid billing is not implemented and is visibly disabled.
+- The product is Apache-2.0 and has no product plan or purchase flow.

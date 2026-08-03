@@ -10,6 +10,7 @@ import {
   Download,
   FileText,
   Gauge,
+  Github,
   Heart,
   KeyRound,
   MessageSquare,
@@ -21,8 +22,6 @@ import {
 } from "lucide-react";
 import { PermissionLevelList } from "@/components/employee/PermissionLevel";
 import { ToolCapabilityList } from "@/components/employee/ToolCapabilityList";
-import { PricingBadge } from "@/components/PricingInfo";
-import { formatPricingLabel, pricingTone } from "@/lib/pricing";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,6 +56,7 @@ import {
   type MarketplaceT,
 } from "@/i18n/marketplace-format";
 import { marketplaceMessages } from "@/i18n/locales/marketplace";
+import { CREWCLAW_SOURCE_URL } from "@/lib/product-links";
 
 type ResumeSectionProps = {
   title: string;
@@ -272,20 +272,6 @@ function onboardingRequirements(employee: Employee, t: MarketplaceT) {
   return requirements;
 }
 
-function pricingDescription(pricing: string, t: MarketplaceT) {
-  const tone = pricingTone(pricing);
-
-  if (tone === "Pro") {
-    return t("pricingProDescription");
-  }
-
-  if (tone === "Custom") {
-    return t("pricingCustomDescription");
-  }
-
-  return t("pricingFreeDescription");
-}
-
 function NotFound() {
   const t = useMessages(marketplaceMessages);
 
@@ -432,12 +418,8 @@ export default function EmployeeDetail() {
                     <span>{localizedEmployeeEvidenceLevel(employee, t)}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <PricingBadge pricing={employee.pricing} />
-                    <span>
-                      {t("hiringTerms", {
-                        tone: pricingTone(employee.pricing),
-                      })}
-                    </span>
+                    <Github className="size-4 text-crew-copper" />
+                    <span>{t("openSourceDistribution")}</span>
                   </div>
                 </dl>
               </div>
@@ -530,10 +512,7 @@ export default function EmployeeDetail() {
                   label={t("location")}
                   value={employee.identity.location ?? t("remote")}
                 />
-                <DetailRow
-                  label={t("pricing")}
-                  value={<PricingBadge pricing={employee.pricing} />}
-                />
+                <DetailRow label={t("license")} value="Apache-2.0" />
                 <DetailRow
                   label={t("trialPeriod")}
                   value={employee.lifecycle.trial_period}
@@ -760,16 +739,31 @@ export default function EmployeeDetail() {
             </div>
           </ResumeSection>
 
-          <ResumeSection eyebrow={t("pricing")} title={t("hiringTermsTitle")}>
+          <ResumeSection
+            eyebrow={t("distribution")}
+            title={t("openSourceDistributionTitle")}
+          >
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-3">
-                <PricingBadge pricing={employee.pricing} />
-                <span className="text-sm text-crew-body">
-                  {formatPricingLabel(employee.pricing, locale)}
-                </span>
+                <Badge
+                  className="border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                  variant="outline"
+                >
+                  Apache-2.0
+                </Badge>
+                <Button asChild size="sm" variant="outline">
+                  <a
+                    href={CREWCLAW_SOURCE_URL}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <Github className="size-4" />
+                    {t("viewSource")}
+                  </a>
+                </Button>
               </div>
               <p className="text-sm leading-6 text-crew-body">
-                {pricingDescription(employee.pricing, t)}
+                {t("openSourceDistributionDescription")}
               </p>
               <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-4">
                 <h3 className="text-sm font-medium text-crew-heading">

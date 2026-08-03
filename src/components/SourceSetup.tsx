@@ -17,7 +17,7 @@ export function SourceSetup({ className = "" }: SourceSetupProps) {
       </p>
       <p className="mt-3 text-sm leading-6 text-crew-body">
         Public package distribution is not available yet. Use the repository
-        setup guide to run CrewClaw from a local source checkout.
+        setup guide to run CrewClaw from a local source clone.
       </p>
       <a
         className="mt-4 inline-flex items-center gap-2 font-mono text-xs font-semibold text-crew-heading transition-colors hover:text-crew-copper"

@@ -4709,9 +4709,9 @@ mod tests {
         assert!(c2.contains("Ctrl+U清行"), "clear-line keycap");
     }
 
-    /// v0.15 P1-4：PUBLISH 浮层——步骤 1 真校验(registry+doctor),步骤 2 起 MOCK 明示。
+    /// PUBLISH 浮层——步骤 1 真校验，后续外部链路必须明确 UNAVAILABLE。
     #[test]
-    fn publish_overlay_step1_real_step2_marked_mock() {
+    fn publish_overlay_step1_real_step2_unavailable_without_fake_values() {
         use crate::workbench::state::{HireHealth, MarketEntry};
         let mut ui = UiState::default();
         ui.mode = InputMode::Normal;
@@ -4744,14 +4744,22 @@ mod tests {
         );
         assert!(c0.contains("ChaoGeek"), "real registry cert shown");
         assert!(c0.contains("healthy"), "real doctor status shown");
-        assert!(!s0.contains("MOCK"), "step 1 has no MOCK tag (it is real)");
+        assert!(
+            !s0.contains("UNAVAILABLE"),
+            "step 1 has no unavailable tag because it is real"
+        );
 
-        // 步骤 1：MOCK 明示。
+        // 步骤 1：缺少外部执行器时明确不可用，不生成演示数据。
         ui.set_publish_step(Some(1));
         let mut t2 = Terminal::new(TestBackend::new(160, 44)).expect("term");
         t2.draw(|f| render(f, &state, &ui, "")).expect("draw");
         let s1 = screen(&t2);
-        assert!(s1.contains("MOCK"), "step 2+ rows carry MOCK tag (honest)");
+        assert!(
+            s1.contains("UNAVAILABLE"),
+            "step 2+ rows carry an unavailable tag"
+        );
+        assert!(!s1.contains("92.8"), "no fabricated score");
+        assert!(!s1.contains("PASS"), "no fabricated verdict");
     }
 
     /// v0.16 W3.2：TASK QUEUE running 行头在 busy 时用 braille 旋转帧(而非静态 →)——

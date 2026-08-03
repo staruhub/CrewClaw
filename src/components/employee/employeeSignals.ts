@@ -157,7 +157,6 @@ export function employeeSearchText(employee: Employee) {
     employee.identity.description,
     employee.identity.location ?? "",
     employee.certification,
-    employee.pricing,
     employee.first_task,
     ...employee.categories,
     ...employee.tags,
@@ -205,7 +204,7 @@ export function hireHandoffUrl(employee: Employee, source: string) {
   const params = new URLSearchParams({
     source,
     task: employee.first_task,
-    budget: employee.pricing,
+    budget: "task-scoped",
     runtime: runtimeHandoffParam(employee),
   });
   const access = accessHandoffParam(employee);

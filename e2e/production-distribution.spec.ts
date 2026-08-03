@@ -194,13 +194,13 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
   await page.goto("/");
 
   await expect(
-    page.getByText("crew hire ai-adoption-whale --live --yes", { exact: true })
+    page.getByText("crew hire ai-adoption-whale --yes", { exact: true })
   ).toBeVisible({ timeout: 10_000 });
 
   const body = await page.locator("body").innerText();
   expect(body).not.toContain("pnpm dlx @chaogeek/hermes");
   expect(body).not.toContain("pnpm --silent -C");
-  expect(body).toContain("crew hire ai-adoption-whale --live --yes");
+  expect(body).toContain("crew hire ai-adoption-whale --yes");
   await expect(
     page.getByRole("heading", { name: "Hire AI like you hire people." })
   ).toBeVisible();

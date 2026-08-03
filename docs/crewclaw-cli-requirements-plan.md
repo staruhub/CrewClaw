@@ -1,10 +1,14 @@
 # CrewClaw CLI And Website E2E Requirements Plan
 
+> Historical plan. The waitlist and commerce-era website requirements below
+> were retired when CrewClaw and OpenWork became fully open source. Current
+> product positioning lives in the repository README and release notes.
+
 ## Complete Requirement
 
 CrewClaw must behave like a real ChaoGeek agent hiring surface, not like a repo-only script. A user or agent should be able to start from any terminal directory, open a CrewClaw-branded command-line interface, choose a Hermes expert employee, install that expert through official Hermes profile commands, and then either run or receive an exact first-run Hermes test command.
 
-The website must explain this flow clearly. Expert cards and terminal previews should copy a command that works outside the repository, not `pnpm run crewclaw ...` from the current shell directory. Main website buttons, waitlist/contact modals, FAQ toggles, copied commands, and coming-soon states must all respond visibly.
+The website must explain this flow clearly. Expert cards and terminal previews should copy a command that works outside the repository, not `pnpm run crewclaw ...` from the current shell directory. Main website buttons, source/release links, contact forms, FAQ toggles, copied commands, and coming-soon states must all respond visibly.
 
 ## Functional Requirements
 
@@ -42,7 +46,7 @@ The website must explain this flow clearly. Expert cards and terminal previews s
    - The homepage includes a CrewClaw CLI docs section.
    - The docs explain: open CrewClaw, choose an employee, install, first-run test, and help/doctor.
    - Available expert cards copy the CrewClaw launcher.
-   - Coming-soon cards open waitlist, not install.
+   - Coming-soon cards link to source and release notes, not install.
 
 ## Implementation Plan
 
@@ -58,7 +62,7 @@ The website must explain this flow clearly. Expert cards and terminal previews s
 6. Expand tests:
    - Rust CLI tests for help, list, direct hire, interactive hire, coming-soon blocking, import fallback, and first-run behavior.
    - Registry tests for the launcher command.
-   - Website E2E for clickable controls, copy behavior, CLI docs visibility, waitlist/contact modals, FAQ, and Hermes profile install smoke test.
+   - Website E2E for clickable controls, copy behavior, CLI docs visibility, source/release links, contact forms, FAQ, and Hermes profile install smoke test.
 7. Verify:
    - `pnpm run check`
    - `pnpm run lint`

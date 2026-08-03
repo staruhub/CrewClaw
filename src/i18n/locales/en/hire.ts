@@ -48,8 +48,8 @@ export const hireEn = {
   areaNetwork: "Network",
   areaBudget: "Budget",
   areaApproval: "Human approval",
-  budgetPackageSelected:
-    "{planName} package selected ({planPrice}); prototype checkout records intent only.",
+  openSourceLicense:
+    "Apache-2.0 source distribution; runtime usage stays under your own provider account.",
   approvalRequired:
     "Activation requires all Doctor checks to pass and a human-accepted bounded trial.",
   limitCallsPerTask: "{count} calls/task",
@@ -97,8 +97,9 @@ export const hireEn = {
   bePlural: "are",
   doctorBudgetName: "Budget and duration ceiling",
   doctorBudgetDetail:
-    "{planName} is selected; trial duration is capped at {trialPeriod}. Browser checkout is a labeled demo and charges nothing.",
-  doctorBudgetFailAction: "Select a package before running the Doctor.",
+    "Trial duration is capped at {trialPeriod}; selected tools keep their declared task scopes.",
+  doctorBudgetFailAction:
+    "Select at least one required or optional capability before running Doctor.",
   doctorApprovalName: "Human approval wiring",
   doctorApprovalPass:
     "Risky selected capabilities are read-only, previewable, or routed through human authorization.",
@@ -119,8 +120,8 @@ export const hireEn = {
   trialEvidenceDemo:
     "Demo evidence summary: no live runtime event is available in this browser.",
   trialArtifactDeclared: "{capability}: bounded trial artifact",
-  trialCost:
-    "{planName} {planPrice}; trial preview records $0 charged in this prototype.",
+  trialResourcePolicy:
+    "Open-source software; model and provider usage stays in your account.",
   trialDuration:
     "Bounded by {trialPeriod}; no long-running OpenWork task starts from this page.",
   trialApprovalAccepted: "Accepted by human reviewer in this browser session.",
@@ -179,8 +180,8 @@ export const hireEn = {
   expectations: "Expectations",
   expectationRole: "Role: {role}",
   expectationRuntimePackage: "Runtime package: {employeeId}@{version}",
-  expectationCost:
-    "Expected cost: {planName} {planPrice}; no real payment in this prototype.",
+  expectationLicense:
+    "Distribution: Apache-2.0; runtime credentials and provider usage remain yours.",
   expectationTrial: "Trial before activation: {trialPeriod}",
   expectationProof: "Performance proof: {proof}",
   evidenceCertified: "{certification} certified evaluation from {source}",
@@ -221,7 +222,7 @@ export const hireEn = {
   hiredBody:
     "This browser wrote the durable local roster through the local CrewClaw API. You can still use the CLI commands below on another machine.",
   readyBody:
-    "This browser saved your {employeeName} selection and the {planName} package. On this machine you can hire through the local API, or copy a CLI command for another machine.",
+    "This browser saved your {employeeName} selection. On this machine you can hire through the local API, or copy a CLI command for another machine.",
   optionThisMachine: "Option 0 / this machine",
   thisMachineBody:
     "When the local CrewClaw site is running against this workspace, hire writes .crewclaw/team.json the same way fire does - no clipboard step required.",
@@ -233,7 +234,7 @@ export const hireEn = {
   hireConfirmation: "Hire Confirmation",
   reviewTitle: "Review capabilities before hiring {employeeName}",
   reviewBody:
-    "This employee can join your durable local roster after you choose a package and authorize the declared capabilities. When the local CrewClaw API is available the site can write that roster on this machine; otherwise the CLI handoff performs the same validation. No real payment is processed in this prototype.",
+    "This employee can join your durable local roster after you authorize the declared capabilities. When the local CrewClaw API is available the site can write that roster on this machine; otherwise the CLI handoff performs the same validation.",
   websiteStoresTitle: "What the website stores",
   websiteStoresSelection:
     "Only this hiring selection is stored in the browser. It is not an employee record and does not grant runtime access.",
@@ -247,31 +248,15 @@ export const hireEn = {
   requestedAccess: "Requested access",
   noMarketplaceAccess:
     "No marketplace access hint; required capabilities below remain authoritative.",
-  choosePackage: "Choose a package",
-  choosePackageBody:
-    "Local hiring is available on the free plan. Billing is not connected, so paid plans remain disabled and create no entitlement.",
-  planFreeName: "Free",
-  planFreeCadence: "demo onboarding",
-  planFreeDescription:
-    "Hire this AI employee into your local demo crew with no payment.",
-  planFreeBulletNoPayment: "No real payment",
-  planFreeBulletLocalRecord: "Local team record",
-  planFreeBulletManualReview: "Manual permission review",
-  planProName: "Pro",
-  planProCadence: "billing unavailable",
-  planProDescription: "Paid seats are not implemented in the local product.",
-  planProBulletMock: "Disabled until billing is connected",
-  planProBulletNoCard: "No paid entitlement is created",
-  planProBulletSameLocal: "Use the free local onboarding path",
-  checkoutTitle: "Billing unavailable",
-  mockCheckout: "Disabled",
-  checkoutBody:
-    "No payment processor is connected. Paid plans cannot be selected or confirmed.",
-  checkoutSimulated: "Billing unavailable",
-  confirmCheckout: "Unavailable",
-  checkoutConfirmedTitle: "No paid entitlement created.",
-  checkoutConfirmedBody:
-    "Continue reviewing permissions before preparing the local CLI handoff.",
+  openSourceAccessTitle: "Open-source access",
+  openSourceAccessBody:
+    "CrewClaw and OpenWork are available under Apache-2.0. This onboarding flow grants only the local capabilities you approve.",
+  openSourceAccessBulletCode: "Inspect, modify, and self-host the source.",
+  openSourceAccessBulletLocal:
+    "Employee manifests, credentials, and receipts remain local.",
+  openSourceAccessBulletProviders:
+    "Bring your own model and provider accounts for runtime usage.",
+  viewSource: "View source",
   wantsAccess: "It wants to access",
   canDo: "It can do",
   mainRisk: "Main risk",

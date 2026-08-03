@@ -10,6 +10,7 @@ import {
   Clock3,
   FileText,
   Globe2,
+  Github,
   Hourglass,
   KeyRound,
   Network,
@@ -24,21 +25,14 @@ import {
 } from "lucide-react";
 import { ToolCapabilityList } from "@/components/employee/ToolCapabilityList";
 import {
-  PricingBadge,
-  PricingBulletList,
-  PricingPlanIcon,
-} from "@/components/PricingInfo";
-import {
   getPermissionLevel,
   permissionLabel,
   type PermissionRiskLevel,
 } from "@/lib/permissions";
-import { CHECKOUT_PLANS, type CheckoutPlanId } from "@/lib/pricing";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import {
@@ -70,8 +64,9 @@ import {
 import { localizeEmployeeContent } from "@/i18n/employee-content";
 import { hireEn, type HireMessageKey } from "@/i18n/locales/en/hire";
 import { hireZhCN } from "@/i18n/locales/zh-CN/hire";
+import { CREWCLAW_SOURCE_URL } from "@/lib/product-links";
 
-const HIRE_INTENT_STORAGE_KEY = "crewclaw.hire-intent.v1";
+const HIRE_INTENT_STORAGE_KEY = "crewclaw.hire-intent.v2";
 
 const hireMessages = {
   en: hireEn,
@@ -255,8 +250,6 @@ function addAreaItem(
 export function buildPermissionAreas(
   capabilities: EmployeeToolCapability[],
   selectedCapabilityIds: string[],
-  planName: string,
-  planPrice: string,
   t: HireTranslator = defaultHireT
 ): PermissionArea[] {
   const selected = new Set(selectedCapabilityIds);
@@ -292,7 +285,7 @@ export function buildPermissionAreas(
     budget: {
       key: "budget",
       label: t("areaBudget"),
-      required: [t("budgetPackageSelected", { planName, planPrice })],
+      required: [t("openSourceLicense")],
       optional: [],
       unavailable: [],
     },
@@ -387,13 +380,11 @@ export function buildDoctorChecks({
   employee,
   selectedCapabilityIds,
   doctorStarted,
-  planName,
   t = defaultHireT,
 }: {
   employee: NonNullable<ReturnType<typeof getEmployee>>;
   selectedCapabilityIds: string[];
   doctorStarted: boolean;
-  planName: string;
   t?: HireTranslator;
 }): DoctorCheck[] {
   const selected = selectedCapabilities(
@@ -429,7 +420,7 @@ export function buildDoctorChecks({
     ) || employee.examples.outputs.length > 0;
   const packageValid = employee.evidence_state.package_status !== "invalid";
   const runtimeKnown = employee.lifecycle.hireable && Boolean(employee.version);
-  const budgetBounded = Boolean(planName) && selected.length > 0;
+  const budgetBounded = selected.length > 0;
 
   const checks: DoctorCheck[] = [
     {
@@ -528,7 +519,6 @@ export function buildDoctorChecks({
       name: t("doctorBudgetName"),
       status: checkStatus(doctorStarted, budgetBounded),
       detail: t("doctorBudgetDetail", {
-        planName,
         trialPeriod: employee.lifecycle.trial_period,
       }),
       action: budgetBounded
@@ -581,15 +571,11 @@ export function doctorPassed(checks: DoctorCheck[]) {
 export function buildTrialSummary({
   employee,
   selectedCapabilityIds,
-  planName,
-  planPrice,
   accepted,
   t = defaultHireT,
 }: {
   employee: NonNullable<ReturnType<typeof getEmployee>>;
   selectedCapabilityIds: string[];
-  planName: string;
-  planPrice: string;
   accepted: boolean;
   t?: HireTranslator;
 }): TrialSummary {
@@ -625,7 +611,7 @@ export function buildTrialSummary({
             })
           )
         : employee.examples.outputs.slice(0, 2),
-    cost: t("trialCost", { planName, planPrice }),
+    cost: t("trialResourcePolicy"),
     duration: t("trialDuration", {
       trialPeriod: employee.lifecycle.trial_period,
     }),
@@ -866,13 +852,9 @@ const DOCTOR_STATUS_COPY: Record<
 
 function ContractSection({
   employee,
-  planName,
-  planPrice,
   t,
 }: {
   employee: NonNullable<ReturnType<typeof getEmployee>>;
-  planName: string;
-  planPrice: string;
   t: HireTranslator;
 }) {
   const expectations = [
@@ -881,7 +863,7 @@ function ContractSection({
       employeeId: employee.employee_id,
       version: employee.version,
     }),
-    t("expectationCost", { planName, planPrice }),
+    t("expectationLicense"),
     t("expectationTrial", { trialPeriod: employee.lifecycle.trial_period }),
     t("expectationProof", { proof: employeeEvidenceText(employee, t) }),
   ];
@@ -1133,6 +1115,7 @@ function TrialSection({
   doctorSuccess,
   trialStarted,
   trialAccepted,
+  trialLoading,
   onRunTrial,
   onAcceptTrial,
   t,
@@ -1141,6 +1124,7 @@ function TrialSection({
   doctorSuccess: boolean;
   trialStarted: boolean;
   trialAccepted: boolean;
+  trialLoading: boolean;
   onRunTrial: () => void;
   onAcceptTrial: () => void;
   t: HireTranslator;
@@ -1160,7 +1144,7 @@ function TrialSection({
           <div className="flex flex-wrap gap-2">
             <Button
               className="rounded-[8px] bg-crew-copper text-white hover:bg-crew-bronze"
-              disabled={!doctorSuccess || trialStarted}
+              disabled={trialLoading || !doctorSuccess || trialStarted}
               onClick={onRunTrial}
               type="button"
             >
@@ -1168,7 +1152,7 @@ function TrialSection({
             </Button>
             <Button
               className="rounded-[8px] border-white/15 text-crew-muted hover:text-crew-heading"
-              disabled={!trialStarted || trialAccepted}
+              disabled={trialLoading || !trialStarted || trialAccepted}
               onClick={onAcceptTrial}
               type="button"
               variant="outline"
@@ -1264,7 +1248,6 @@ export default function HireConfirm() {
   const [toolCapabilities, setToolCapabilities] = useState<string[]>(
     defaultToolCapabilities
   );
-  const [selectedPlan, setSelectedPlan] = useState<CheckoutPlanId>("free");
   const [handoffPrepared, setHandoffPrepared] = useState(false);
   const [doctorStarted, setDoctorStarted] = useState(false);
   const [doctorResult, setDoctorResult] = useState<LocalDoctorResult | null>(
@@ -1286,7 +1269,6 @@ export default function HireConfirm() {
   if (employee?.employee_id !== prevEmployeeId) {
     setPrevEmployeeId(employee?.employee_id);
     setToolCapabilities(defaultToolCapabilities);
-    setSelectedPlan("free");
     setHandoffPrepared(false);
     setDoctorStarted(false);
     setDoctorResult(null);
@@ -1314,35 +1296,13 @@ export default function HireConfirm() {
   const handoffIntent = {
     source: searchParams.get("source") ?? "direct",
     task: searchParams.get("task") ?? employee.first_task,
-    budget: searchParams.get("budget") ?? employee.pricing,
+    budget: searchParams.get("budget") ?? "task-scoped",
     runtime: searchParams.get("runtime") ?? "crewclaw.runtime",
     requested_access: (searchParams.get("access") ?? "")
       .split(",")
       .map(item => item.trim())
       .filter(Boolean),
   };
-  const localizedCheckoutPlans = CHECKOUT_PLANS.map(plan => ({
-    ...plan,
-    name: plan.id === "pro" ? t("planProName") : t("planFreeName"),
-    cadence: plan.id === "pro" ? t("planProCadence") : t("planFreeCadence"),
-    description:
-      plan.id === "pro" ? t("planProDescription") : t("planFreeDescription"),
-    bullets:
-      plan.id === "pro"
-        ? [
-            t("planProBulletMock"),
-            t("planProBulletNoCard"),
-            t("planProBulletSameLocal"),
-          ]
-        : [
-            t("planFreeBulletNoPayment"),
-            t("planFreeBulletLocalRecord"),
-            t("planFreeBulletManualReview"),
-          ],
-  }));
-  const localizedCheckoutPlan =
-    localizedCheckoutPlans.find(plan => plan.id === selectedPlan) ??
-    localizedCheckoutPlans[0];
   const toolContractOverview = summarizeToolContract(
     employee.tool_capabilities,
     toolCapabilities,
@@ -1353,15 +1313,12 @@ export default function HireConfirm() {
   const permissionAreas = buildPermissionAreas(
     employee.tool_capabilities,
     toolCapabilities,
-    localizedCheckoutPlan.name,
-    localizedCheckoutPlan.price,
     t
   );
   const doctorChecks = buildDoctorChecks({
     employee,
     selectedCapabilityIds: toolCapabilities,
     doctorStarted,
-    planName: localizedCheckoutPlan.name,
     t,
   });
   const displayedDoctorChecks: DoctorCheck[] = doctorResult
@@ -1384,8 +1341,6 @@ export default function HireConfirm() {
   const baseTrialSummary = buildTrialSummary({
     employee,
     selectedCapabilityIds: toolCapabilities,
-    planName: localizedCheckoutPlan.name,
-    planPrice: localizedCheckoutPlan.price,
     accepted: trialAccepted,
     t,
   });
@@ -1455,7 +1410,6 @@ export default function HireConfirm() {
               ? t("hiredBody")
               : t("readyBody", {
                   employeeName: employee.name,
-                  planName: localizedCheckoutPlan.name,
                 })}
           </p>
           {!localHired && (
@@ -1662,92 +1616,36 @@ export default function HireConfirm() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-base font-semibold">
-                  {t("choosePackage")}
+                  {t("openSourceAccessTitle")}
                 </CardTitle>
                 <p className="mt-2 text-sm leading-6 text-crew-body">
-                  {t("choosePackageBody")}
+                  {t("openSourceAccessBody")}
                 </p>
               </div>
-              <PricingBadge pricing={employee.pricing} />
+              <Badge
+                className="border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                variant="outline"
+              >
+                Apache-2.0
+              </Badge>
             </div>
           </CardHeader>
-          <CardContent>
-            <RadioGroup
-              className="grid gap-4 md:grid-cols-2"
-              onValueChange={plan => {
-                const nextPlan = plan as CheckoutPlanId;
-                setSelectedPlan(nextPlan);
-                setDoctorStarted(false);
-                setDoctorResult(null);
-                setTrialResult(null);
-                setLifecycleError(null);
-                track("hire_clicked", {
-                  employee_id: employee.employee_id,
-                  employee_name: employee.name,
-                  source: "pricing_plan_selected",
-                  checkout_plan: nextPlan,
-                });
-              }}
-              value={selectedPlan}
-            >
-              {localizedCheckoutPlans.map(plan => (
-                <label
-                  className={cn(
-                    "block cursor-pointer rounded-[8px] border p-4 transition-colors",
-                    plan.id === "pro" && "cursor-not-allowed opacity-55",
-                    selectedPlan === plan.id
-                      ? "border-crew-copper/45 bg-crew-copper/10"
-                      : "border-white/10 bg-white/[0.025] hover:border-white/20"
-                  )}
-                  key={plan.id}
-                >
-                  <div className="flex items-start gap-3">
-                    <RadioGroupItem
-                      className="mt-1 border-white/25 text-crew-copper"
-                      disabled={plan.id === "pro"}
-                      value={plan.id}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <PricingPlanIcon plan={plan.id} />
-                        <h2 className="text-base font-semibold text-crew-heading">
-                          {plan.name}
-                        </h2>
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-baseline gap-2">
-                        <span className="text-2xl font-semibold text-crew-heading">
-                          {plan.price}
-                        </span>
-                        <span className="text-sm text-crew-muted">
-                          {plan.cadence}
-                        </span>
-                      </div>
-                      <p className="mt-3 text-sm leading-6 text-crew-body">
-                        {plan.description}
-                      </p>
-                      {plan.id === "pro" ? (
-                        <p className="mt-2 text-xs font-medium text-amber-200">
-                          Billing is not connected in the local product. This
-                          plan is disabled; no paid entitlement is created.
-                        </p>
-                      ) : null}
-                      <div className="mt-4">
-                        <PricingBulletList bullets={plan.bullets} />
-                      </div>
-                    </div>
-                  </div>
-                </label>
-              ))}
-            </RadioGroup>
+          <CardContent className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
+            <ul className="space-y-2 text-sm leading-6 text-crew-body">
+              <li>{t("openSourceAccessBulletCode")}</li>
+              <li>{t("openSourceAccessBulletLocal")}</li>
+              <li>{t("openSourceAccessBulletProviders")}</li>
+            </ul>
+            <Button asChild variant="outline">
+              <a href={CREWCLAW_SOURCE_URL} rel="noreferrer" target="_blank">
+                <Github className="size-4" />
+                {t("viewSource")}
+              </a>
+            </Button>
           </CardContent>
         </Card>
 
-        <ContractSection
-          employee={employee}
-          planName={localizedCheckoutPlan.name}
-          planPrice={localizedCheckoutPlan.price}
-          t={t}
-        />
+        <ContractSection employee={employee} t={t} />
 
         <section className="mt-8 grid gap-5 md:grid-cols-3">
           <Card className="rounded-[8px] border-white/10 bg-white/[0.03] text-crew-heading">
@@ -1876,7 +1774,7 @@ export default function HireConfirm() {
             track("hire_confirmed", {
               employee_id: employee.employee_id,
               employee_name: employee.name,
-              checkout_plan: selectedPlan,
+              distribution: "open_source",
               step: "doctor_run",
             });
             try {
@@ -1922,7 +1820,7 @@ export default function HireConfirm() {
             track("hire_confirmed", {
               employee_id: employee.employee_id,
               employee_name: employee.name,
-              checkout_plan: selectedPlan,
+              distribution: "open_source",
               step: "trial_accepted",
             });
           }}
@@ -1934,7 +1832,7 @@ export default function HireConfirm() {
             track("hire_confirmed", {
               employee_id: employee.employee_id,
               employee_name: employee.name,
-              checkout_plan: selectedPlan,
+              distribution: "open_source",
               step: "trial_run",
             });
             try {
@@ -1960,6 +1858,7 @@ export default function HireConfirm() {
           summary={trialSummary}
           t={t}
           trialAccepted={trialAccepted}
+          trialLoading={trialLoading}
           trialStarted={trialStarted}
         />
         {lifecycleError ? (
@@ -1989,15 +1888,15 @@ export default function HireConfirm() {
                 tool_capability_count: grantedToolCapabilities.length,
                 tool_capabilities: grantedToolCapabilities,
                 legacy_context_count: employee.permissions.length,
-                checkout_plan: selectedPlan,
-                billing_mode: "local_free_only",
+                distribution: "open_source",
+                license: "Apache-2.0",
               });
               window.localStorage.setItem(
                 HIRE_INTENT_STORAGE_KEY,
                 JSON.stringify({
-                  schema_version: "hire-intent/v1",
+                  schema_version: "hire-intent/v2",
                   employee_id: employee.employee_id,
-                  checkout_plan: selectedPlan,
+                  license: "Apache-2.0",
                   capabilities: grantedToolCapabilities,
                   handoff: handoffIntent,
                   doctor: doctorResult,
@@ -2013,7 +1912,7 @@ export default function HireConfirm() {
                 employee_id: employee.employee_id,
                 employee_name: employee.name,
                 tool_capability_count: grantedToolCapabilities.length,
-                checkout_plan: selectedPlan,
+                distribution: "open_source",
               });
               setHandoffPrepared(true);
             }}

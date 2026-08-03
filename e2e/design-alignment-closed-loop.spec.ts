@@ -338,7 +338,7 @@ test("activation gates require Doctor and accepted trial before hire intent", as
     })
   ).toBeVisible();
   const intent = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("crewclaw.hire-intent.v1") ?? "{}")
+    JSON.parse(localStorage.getItem("crewclaw.hire-intent.v2") ?? "{}")
   );
   expect(intent.employee_id).toBe(employeeId);
   expect(intent.doctor_checks).toEqual(

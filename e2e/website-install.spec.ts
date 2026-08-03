@@ -21,7 +21,7 @@ type CommandResult = {
 };
 
 const repoRoot = process.cwd();
-const landingCommand = "crew hire ai-adoption-whale --live --yes";
+const landingCommand = "crew hire ai-adoption-whale --yes";
 
 test.use({ locale: "en-US" });
 

@@ -119,7 +119,9 @@ test("localizes registry display content while preserving employee IDs", async (
   await expect(
     page.getByText("Permission", { exact: true }).first()
   ).toBeVisible();
-  await expect(page.getByText("Cost", { exact: true }).first()).toBeVisible();
+  await expect(
+    page.getByText("License", { exact: true }).first()
+  ).toBeVisible();
 
   await switchToChinese(page);
 
@@ -131,7 +133,7 @@ test("localizes registry display content while preserving employee IDs", async (
   await expect(page.getByText("证据", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("运行时", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("权限", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("成本", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("许可证", { exact: true }).first()).toBeVisible();
 });
 
 test("keeps employee detail and hire confirmation in the selected language", async ({
@@ -158,7 +160,7 @@ test("keeps employee detail and hire confirmation in the selected language", asy
   await expect(page.getByText("证据不足", { exact: true })).toBeVisible();
   await expect(page.getByText("已发布", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("免费预览", { exact: true }).first()
+    page.getByText("Apache-2.0", { exact: true }).first()
   ).toBeVisible();
 });
 
