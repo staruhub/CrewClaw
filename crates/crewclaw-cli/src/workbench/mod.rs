@@ -83,6 +83,7 @@ impl LiveLoopExit {
 struct EngineBootState {
     seed_events: Vec<TaskEvent>,
     client_ready_sent: bool,
+    initial_message: Option<String>,
 }
 
 /// 生成态提频到 ~30fps，降低首 token 与工具状态的可见延迟；空闲仍降频省 CPU。
@@ -252,7 +253,11 @@ pub fn run_workbench(demo: bool) -> Result<i32, String> {
     Ok(exit.requested_exit_code().unwrap_or(0))
 }
 
-pub fn run_workbench_live(runtime_args: &[String], root: &Path) -> Result<i32, String> {
+pub fn run_workbench_live(
+    runtime_args: &[String],
+    initial_message: Option<&str>,
+    root: &Path,
+) -> Result<i32, String> {
     if !io::stdout().is_tty() {
         return Err("Ratatui live workbench requires an interactive terminal.".to_string());
     }
@@ -312,6 +317,7 @@ pub fn run_workbench_live(runtime_args: &[String], root: &Path) -> Result<i32, S
         } => EngineBootState {
             seed_events,
             client_ready_sent,
+            initial_message: initial_message.map(ToOwned::to_owned),
         },
         BootOutcome::Failed { diagnostics } => {
             drop(child_stdin);
@@ -684,6 +690,7 @@ fn run_live_loop(
     let EngineBootState {
         seed_events,
         client_ready_sent,
+        initial_message,
     } = boot;
     let mut state = AppState::default();
     let mut ui_state = UiState::default();
@@ -707,6 +714,16 @@ fn run_live_loop(
     for event in &seed_events {
         flow_state::reduce_dream_event(event);
         state.reduce(event);
+    }
+    // The positional task from `crew run <employee> "<task>" --tui` must enter through
+    // the same user-action bridge as typed input. Boot has already observed session.ready,
+    // so the engine cannot mistake this for one-shot CLI input or receive it before setup.
+    if let Some(message) = initial_message
+        .as_deref()
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+    {
+        send_plain_user_message(child_stdin, &mut state, &mut ui_state, message.to_string())?;
     }
     refresh_persisted_insights(root, employee_id, &mut state, &mut ui_state);
     let mut next_persisted_refresh = Instant::now() + Duration::from_secs(2);
@@ -822,17 +839,18 @@ fn run_live_loop(
                     if submitted.trim().is_empty() && parts.is_empty() {
                         continue;
                     }
-                    let refs = resolve_references(&state, &submitted);
-                    // 无附件走原 user_message（线上形状不变）；有附件才带 parts。
-                    let action = if parts.is_empty() {
-                        UserAction::user_message(submitted.clone(), refs)
+                    if parts.is_empty() {
+                        send_plain_user_message(child_stdin, &mut state, &mut ui_state, submitted)?;
                     } else {
-                        UserAction::user_message_with_parts(submitted.clone(), refs, parts)
-                    };
-                    write_user_action(child_stdin, &action)?;
-                    state.push_user_message(submitted.clone());
-                    ui_state.follow = true;
-                    state.debug.push(format!("user input sent: {submitted}"));
+                        let refs = resolve_references(&state, &submitted);
+                        write_user_action(
+                            child_stdin,
+                            &UserAction::user_message_with_parts(submitted.clone(), refs, parts),
+                        )?;
+                        state.push_user_message(submitted.clone());
+                        ui_state.follow = true;
+                        state.debug.push(format!("user input sent: {submitted}"));
+                    }
                 }
                 TerminalAction::SendAction(action) => {
                     write_user_action(child_stdin, &action)?;
@@ -910,6 +928,23 @@ fn run_live_loop(
             return Ok(LiveLoopExit::ChildEof);
         }
     }
+}
+
+fn send_plain_user_message<W: Write + ?Sized>(
+    child_stdin: &mut W,
+    state: &mut AppState,
+    ui_state: &mut UiState,
+    message: String,
+) -> Result<(), String> {
+    let refs = resolve_references(state, &message);
+    write_user_action(
+        child_stdin,
+        &UserAction::user_message(message.clone(), refs),
+    )?;
+    state.push_user_message(message.clone());
+    ui_state.follow = true;
+    state.debug.push(format!("user input sent: {message}"));
+    Ok(())
 }
 
 fn handle_terminal_event(
@@ -2594,6 +2629,32 @@ mod tests {
             written.contains("client.ready"),
             "client.ready must be written to engine stdin, got: {written}"
         );
+    }
+
+    #[test]
+    fn initial_run_task_is_sent_as_a_visible_user_message() {
+        let mut state = AppState::default();
+        let mut ui = UiState::default();
+        let mut sink = Vec::new();
+
+        send_plain_user_message(
+            &mut sink,
+            &mut state,
+            &mut ui,
+            "write a launch report".to_string(),
+        )
+        .expect("send initial task");
+
+        let written = String::from_utf8(sink).expect("utf8 stdin");
+        let action: UserAction =
+            serde_json::from_str(written.trim()).expect("serialized user action");
+        assert_eq!(action.action_type, "user.message");
+        assert_eq!(action.data["text"], "write a launch report");
+        assert!(matches!(
+            state.conversation.last(),
+            Some(state::ConversationItem::User(text)) if text == "write a launch report"
+        ));
+        assert!(ui.follow, "the injected task should stay in view");
     }
 
     #[test]
