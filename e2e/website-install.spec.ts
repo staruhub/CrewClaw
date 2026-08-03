@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import {
   chmodSync,
   cpSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -21,26 +20,9 @@ type CommandResult = {
 };
 
 const repoRoot = process.cwd();
-const landingCommand = "crew hire ai-adoption-whale --yes";
+const landingCommand = "pnpm run crewclaw -- hire ai-adoption-whale --yes";
 
 test.use({ locale: "en-US" });
-
-function cliExecutable() {
-  const filename =
-    process.platform === "win32" ? "crewclaw-cli.exe" : "crewclaw-cli";
-  const candidates = [
-    process.env.CREWCLAW_E2E_CLI,
-    join(repoRoot, "crates", "crewclaw-cli", "target", "release", filename),
-    join(repoRoot, "crates", "crewclaw-cli", "target", "debug", filename),
-  ].filter((candidate): candidate is string => Boolean(candidate));
-  const executable = candidates.find(candidate => existsSync(candidate));
-  if (!executable) {
-    throw new Error(
-      "CrewClaw CLI binary is missing; run cargo build before browser E2E"
-    );
-  }
-  return executable;
-}
 
 function normalizeRecordedCommand(value: string) {
   return value.replaceAll("\\", "/").replaceAll(/\/\/\?\/(?=[A-Za-z]:\/)/g, "");
@@ -179,6 +161,12 @@ test("the Landing hire command maps to a real CLI hire and atomic team record", 
   if (process.platform !== "win32") chmodSync(hermesPath, 0o755);
 
   try {
+    const pnpmCli = process.env.npm_execpath;
+    if (!pnpmCli) {
+      throw new Error(
+        "pnpm did not expose npm_execpath to the source-command E2E"
+      );
+    }
     const args = [
       "hire",
       "ai-adoption-whale",
@@ -187,14 +175,18 @@ test("the Landing hire command maps to a real CLI hire and atomic team record", 
       "--yes",
       "--live",
     ];
-    const install = await run(cliExecutable(), args, {
-      cwd: repoRoot,
-      timeoutMs: 60_000,
-      env: {
-        CREWCLAW_ROOT: root,
-        PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-      },
-    });
+    const install = await run(
+      process.execPath,
+      [pnpmCli, "run", "crewclaw", "--", ...args],
+      {
+        cwd: repoRoot,
+        timeoutMs: 60_000,
+        env: {
+          CREWCLAW_ROOT: root,
+          PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+        },
+      }
+    );
 
     expect(install.code, install.stderr || install.stdout).toBe(0);
     expect(`${install.stdout}\n${install.stderr}`).toContain(

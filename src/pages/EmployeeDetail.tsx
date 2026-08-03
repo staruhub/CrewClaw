@@ -173,7 +173,7 @@ function ratingStars(value: number) {
 }
 
 function demoCommand(employeeId: string, task: string) {
-  return `crew run ${employeeId} "${task.replaceAll('"', '\\"')}"`;
+  return `pnpm run crewclaw -- run ${employeeId} "${task.replaceAll('"', '\\"')}"`;
 }
 
 function onboardingRequirements(employee: Employee, t: MarketplaceT) {

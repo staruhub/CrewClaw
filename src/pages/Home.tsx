@@ -39,12 +39,18 @@ const homeMessages = {
 type HomeMessageKey = keyof typeof homeEn;
 type HomeT = (key: HomeMessageKey, values?: MessageValues) => string;
 
-const landingCommand = "crew hire ai-adoption-whale --yes";
+const landingCommand = "pnpm run crewclaw -- hire ai-adoption-whale --yes";
 
 const liveSession = [
-  { line: "$ crew hire ai-adoption-whale --yes", tone: "cmd" },
+  {
+    line: "$ pnpm run crewclaw -- hire ai-adoption-whale --yes",
+    tone: "cmd",
+  },
   { key: "live.line.contract", tone: "muted" },
-  { line: "$ crew doctor ai-adoption-whale", tone: "cmd" },
+  {
+    line: "$ pnpm run crewclaw -- doctor ai-adoption-whale",
+    tone: "cmd",
+  },
   { key: "live.line.doctor", tone: "ok" },
   { key: "live.line.task", tone: "cmd" },
   { key: "live.line.plan", tone: "muted" },

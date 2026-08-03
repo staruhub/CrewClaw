@@ -151,7 +151,7 @@ export default function CrewMode() {
       ),
     [brief, selectedEmployees, t]
   );
-  const cliCommand = `crew standup "${commandBrief(brief, t)}"`;
+  const cliCommand = `pnpm run crewclaw -- standup "${commandBrief(brief, t)}"`;
   const canGenerate = selectedEmployees.length > 0 && brief.trim().length > 0;
   const learningProposal = useMemo(
     () => buildLearningProposal(brief, contributions, t),

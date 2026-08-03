@@ -10,7 +10,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // The server always names packages `<slug>-<version>.tar.gz` (api/lib/pack-employee.ts),
 // so a legitimate filename is a bare lowercase basename. Callers paste this value into a
-// shell command (`crew hire --from "<filename>"`), so anything a shell or a path resolver
+// source command (`pnpm run crewclaw -- hire --from "<filename>"`), so anything a shell or a path resolver
 // could reinterpret — separators, `..`, quotes, spaces, metacharacters, a leading dot or
 // dash — must never reach them.
 const PACKAGE_FILENAME = /^[a-z0-9][a-z0-9._-]*\.tar\.gz$/;

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hireEn } from "./locales/en/hire";
 import { homeEn } from "./locales/en/home";
@@ -24,6 +26,19 @@ describe("open-source product positioning", () => {
       for (const [key, value] of Object.entries(catalog)) {
         expect(String(value), key).not.toMatch(retiredCommerceCopy);
       }
+    }
+  });
+
+  it("keeps retired pricing language out of the public concept video", () => {
+    const publicDemoSources = [
+      join(process.cwd(), "scripts", "render-demo-video.mjs"),
+      join(process.cwd(), "docs", "assets", "crewclaw-demo.zh-CN.srt"),
+    ];
+
+    for (const source of publicDemoSources) {
+      expect(readFileSync(source, "utf8"), source).not.toMatch(
+        /\b(?:price|pricing)\b|价格/i
+      );
     }
   });
 });

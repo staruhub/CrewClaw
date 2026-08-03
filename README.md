@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://crewhire.fly.dev/"><strong>在线体验</strong></a>
   ·
-  <a href="https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4"><strong>像素风概念片</strong></a>
+  <a href="https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4"><strong>开源概念片</strong></a>
   ·
   <a href="docs/releases/beta-0.8.md"><strong>Beta 0.8</strong></a>
   ·
@@ -29,15 +29,15 @@ CrewClaw 是一个本地优先的 AI 员工平台：从市场发现候选人，�
 
 > CrewClaw 负责判断一位 AI 员工是否安全、可靠、值得雇佣；OpenWork 当前提供本地桌面任务、审批、历史、记忆与技能管理，并通过 Hermes 执行已批准工作。
 
-## 先看 3 分钟像素风概念片
+## 先看 57 秒开源概念片
 
 <p align="center">
   <a href="https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4">
-    <img src="docs/assets/crewclaw-demo-cover.jpg" alt="观看 CrewClaw 3 分钟像素风中文概念片" width="100%" />
+    <img src="docs/assets/crewclaw-demo-cover.jpg" alt="观看 CrewClaw 57 秒中文概念片" width="100%" />
   </a>
 </p>
 
-概念片沿用 CrewClaw 最初的深色像素电影语言，以画面内嵌中文字幕突出产品理念与功能：**从工具货架走向 AI 人才市场 → 雇佣数字员工 → 组织一支可管理的 AI 团队**。
+概念片介绍开源员工包、人工审批与证据交付。它表达产品方向，不是当前能力证明；实际实现与限制以 Beta 0.8 发布说明为准。
 
 - 视频：[点击直接播放](https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4)
 - 影片规格与发布说明：[`docs/demo-video-script.md`](docs/demo-video-script.md)
@@ -231,5 +231,5 @@ The platform combines:
 CrewClaw does not replace OpenWork. OpenWork currently provides local desktop tasks, approval, history, memory, skills, and approved Hermes execution. Browser automation, Office editing, scheduling, and multi-agent orchestration are not part of the current OpenWork release. CrewClaw decides whether an AI employee is safe, useful, auditable, and worth hiring.
 
 - Live demo: <https://crewhire.fly.dev/>
-- 3-minute pixel-art concept film with on-screen Chinese captions: [watch in your browser](https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4)
+- 57-second concept film with on-screen Chinese copy: [watch in your browser](https://crewhire.fly.dev/crewclaw-demo.zh-CN.mp4)
 - Release notes: [`docs/releases/beta-0.8.md`](docs/releases/beta-0.8.md)

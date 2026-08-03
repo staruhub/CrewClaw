@@ -112,7 +112,8 @@ export const homeZhCN = {
   "live.copied": "已复制",
   "live.line.contract": "-> 安装 Hermes profile 前先验证注册表员工包",
   "live.line.doctor": "-> 检查员工包和已配置运行时；失败原因保持可见",
-  "live.line.task": '$ crew run ai-adoption-whale "审查本次迁移" --tui',
+  "live.line.task":
+    '$ pnpm run crewclaw -- run ai-adoption-whale "审查本次迁移" --tui',
   "live.line.plan": "-> 只有真实本地运行存在时才显示运行时事件",
   "live.line.approval": "! 写入与外部动作会暂停等待人工审批",
   "live.line.report": "-> 产物和证据只来自持久化运行时记录",

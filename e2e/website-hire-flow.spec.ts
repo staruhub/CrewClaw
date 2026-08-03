@@ -149,7 +149,7 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
   await expect(
     page.getByRole("button", { name: /hire on this machine/i })
   ).toBeVisible();
-  await expect(page.getByText(/crew hire --from/)).toBeVisible({
+  await expect(page.getByText(/pnpm run crewclaw -- hire --from/)).toBeVisible({
     timeout: 30_000,
   });
 

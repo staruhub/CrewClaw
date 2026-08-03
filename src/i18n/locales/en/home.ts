@@ -126,7 +126,7 @@ export const homeEn = {
   "live.line.doctor":
     "-> checks package and configured runtime; failures stay visible",
   "live.line.task":
-    '$ crew run ai-adoption-whale "review this migration" --tui',
+    '$ pnpm run crewclaw -- run ai-adoption-whale "review this migration" --tui',
   "live.line.plan":
     "-> runtime events appear only when a real local run exists",
   "live.line.approval":

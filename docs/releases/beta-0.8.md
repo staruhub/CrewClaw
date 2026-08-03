@@ -44,6 +44,7 @@ user's own account.
 
 - The website prepares local hire intent; it does not execute model tasks.
 - Registry validation (`C1`) is not a signed lab certification.
-- OpenWork v0.1.0 is an unsigned Windows prerelease. Windows may show a publisher
-  warning, and macOS/Linux installers are not included in that release.
+- [OpenWork v0.1.1](https://github.com/staruhub/openWork/releases/tag/v0.1.1)
+  is an unsigned Windows prerelease. Windows may show a publisher warning, and
+  macOS/Linux installers are not included in that release.
 - Interfaces and local state formats may still change during Beta.
