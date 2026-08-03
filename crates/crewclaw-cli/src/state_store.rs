@@ -264,30 +264,41 @@ fn replace_state_file(
     temp: &Path,
     destination: &Path,
 ) -> io::Result<()> {
-    #[cfg(windows)]
-    let started = Instant::now();
-    loop {
-        // Re-check the destination and its components before every attempt. Windows can
-        // transiently deny replacement while an indexer or reader holds the old file, but a
-        // retry must never skip the link/identity boundary checks.
+    #[cfg(not(windows))]
+    {
         let resolved_again = resolve_existing_state_target(root, relative)?;
         if resolved_again != destination {
             return Err(invalid_data("state destination changed before replacement"));
         }
         validate_existing_target(destination)?;
-        match atomic_replace(temp, destination) {
-            Ok(()) => return Ok(()),
-            #[cfg(windows)]
-            Err(error)
-                if is_atomic_replace_contention(&error)
-                    && started.elapsed() < ATOMIC_REPLACE_TIMEOUT =>
-            {
-                thread::sleep(
-                    ATOMIC_REPLACE_POLL
-                        .min(ATOMIC_REPLACE_TIMEOUT.saturating_sub(started.elapsed())),
-                );
+        atomic_replace(temp, destination)
+    }
+
+    #[cfg(windows)]
+    {
+        let started = Instant::now();
+        loop {
+            // Re-check the destination and its components before every attempt. Windows can
+            // transiently deny replacement while an indexer or reader holds the old file, but a
+            // retry must never skip the link/identity boundary checks.
+            let resolved_again = resolve_existing_state_target(root, relative)?;
+            if resolved_again != destination {
+                return Err(invalid_data("state destination changed before replacement"));
             }
-            Err(error) => return Err(error),
+            validate_existing_target(destination)?;
+            match atomic_replace(temp, destination) {
+                Ok(()) => return Ok(()),
+                Err(error)
+                    if is_atomic_replace_contention(&error)
+                        && started.elapsed() < ATOMIC_REPLACE_TIMEOUT =>
+                {
+                    thread::sleep(
+                        ATOMIC_REPLACE_POLL
+                            .min(ATOMIC_REPLACE_TIMEOUT.saturating_sub(started.elapsed())),
+                    );
+                }
+                Err(error) => return Err(error),
+            }
         }
     }
 }
