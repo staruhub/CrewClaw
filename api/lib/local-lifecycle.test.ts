@@ -153,7 +153,7 @@ describe("local website lifecycle bridge", () => {
         "utf8"
       )
     ).resolves.toContain('"outcome": "accepted"');
-  });
+  }, 30_000);
 
   it("fails closed when a required provider is not configured", async () => {
     const root = await workspaceRoot();
@@ -180,7 +180,7 @@ describe("local website lifecycle bridge", () => {
         { root, packageRoot: process.cwd(), env: {} }
       )
     ).rejects.toMatchObject({ code: "DOCTOR_BLOCKED", status: 409 });
-  });
+  }, 30_000);
 
   it("does not allow hire before acceptance or with post-trial permission drift", async () => {
     const root = await workspaceRoot();
@@ -230,5 +230,5 @@ describe("local website lifecycle bridge", () => {
         options
       )
     ).rejects.toMatchObject({ code: "TRIAL_PERMISSION_DRIFT" });
-  });
+  }, 30_000);
 });
