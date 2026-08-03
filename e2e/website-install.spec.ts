@@ -134,7 +134,9 @@ test("the Landing hire command maps to a real CLI hire and atomic team record", 
     timeout: 10_000,
   });
   await page.getByRole("button", { name: "Copy CrewClaw command" }).click();
-  const copiedCommand = await page.evaluate(() => navigator.clipboard.readText());
+  const copiedCommand = await page.evaluate(() =>
+    navigator.clipboard.readText()
+  );
   expect(copiedCommand).toBe(landingCommand);
 
   const root = realpathSync.native(
@@ -172,12 +174,7 @@ test("the Landing hire command maps to a real CLI hire and atomic team record", 
       );
     }
     const commandParts = copiedCommand.split(/\s+/);
-    expect(commandParts.slice(0, 4)).toEqual([
-      "pnpm",
-      "run",
-      "crewclaw",
-      "--",
-    ]);
+    expect(commandParts.slice(0, 4)).toEqual(["pnpm", "run", "crewclaw", "--"]);
     const install = await run(
       process.execPath,
       [pnpmCli, ...commandParts.slice(1)],
