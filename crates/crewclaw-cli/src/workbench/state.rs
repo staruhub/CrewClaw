@@ -127,6 +127,9 @@ pub struct AppState {
     viewed_task_session_id: Option<String>,
     /// 用户提交发生在 task.started 之前；暂存并在新 taskRunId 建立时迁入目标会话。
     pending_user_message: Option<String>,
+    /// `user.message` 已成功写入运行时，但 task.started/generation.started 尚未到达。
+    /// 这段握手窗口也必须视为 busy，否则首次 Esc/Ctrl+C 会误判为空闲并直接退出。
+    submission_pending: bool,
 }
 
 /// v0.15 P1-2：一条通知（真事件派生）。
@@ -1560,6 +1563,7 @@ impl Default for AppState {
             active_task_session_id: None,
             viewed_task_session_id: None,
             pending_user_message: None,
+            submission_pending: false,
         }
     }
 }
@@ -2465,6 +2469,7 @@ impl AppState {
             }
             TaskEvent::CommandOutput { .. } => {
                 self.reduce_command_output(data);
+                self.clear_submission_pending();
             }
             TaskEvent::TokenDelta { .. } => {
                 let text = string_field(data, "text").unwrap_or_default();
@@ -2793,6 +2798,7 @@ impl AppState {
                     source: string_field(data, "source"),
                     status: string_field(data, "status"),
                 });
+                self.clear_submission_pending();
             }
             TaskEvent::MemoryState { .. } => {
                 if let Some(memory) = data.get("memory") {
@@ -2925,8 +2931,18 @@ impl AppState {
         self.save_viewed_task_session();
     }
 
+    /// 在 user.message 成功写入后立即进入可取消态，直到运行时发出开始或终态事件。
+    pub fn mark_submission_pending(&mut self) {
+        self.submission_pending = true;
+    }
+
+    fn clear_submission_pending(&mut self) {
+        self.submission_pending = false;
+    }
+
     /// 标记模型开始生成（仅在尚未置位时记录起点，保持已用时长连续）。
     fn mark_busy(&mut self) {
+        self.clear_submission_pending();
         if self.busy_since.is_none() {
             self.busy_since = Some(Instant::now());
         }
@@ -2934,12 +2950,13 @@ impl AppState {
 
     /// 清除生成态（任务/回复终态或等待用户输入时调用）。
     fn clear_busy(&mut self) {
+        self.clear_submission_pending();
         self.busy_since = None;
     }
 
-    /// 当前是否处于模型生成态。
+    /// 当前是否处于已提交待确认或模型生成态。
     pub fn is_busy(&self) -> bool {
-        self.busy_since.is_some()
+        self.submission_pending || self.busy_since.is_some()
     }
 
     pub fn generation_phase_label(&self) -> &'static str {

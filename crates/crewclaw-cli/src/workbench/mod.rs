@@ -609,21 +609,27 @@ fn await_engine_boot<W: io::Write>(
             Ok(WorkbenchMessage::Event(event)) => {
                 if matches!(event, TaskEvent::ProtocolReady { .. }) && !client_ready_sent {
                     // 镜像 live loop 的协商：回 client.ready，dream/v1 家族的 opt-in 才生效。
-                    if write_user_action(
+                    if let Err(error) = write_user_action(
                         child_stdin,
                         &UserAction::client_ready(vec![
                             "core/v1".to_string(),
                             "dream/v1".to_string(),
                         ]),
-                    )
-                    .is_ok()
-                    {
-                        client_ready_sent = true;
+                    ) {
+                        diagnostics.push(format!("client.ready 启动握手失败：{error}"));
+                        return BootOutcome::Failed { diagnostics };
                     }
+                    client_ready_sent = true;
                 }
                 let ready = event.event_type() == "session.ready";
                 seed_events.push(event);
                 if ready {
+                    if !client_ready_sent {
+                        diagnostics.push(
+                            "收到 session.ready，但 client.ready 启动握手尚未成功。".to_string(),
+                        );
+                        return BootOutcome::Failed { diagnostics };
+                    }
                     return BootOutcome::Ready {
                         seed_events,
                         client_ready_sent,
@@ -722,8 +728,15 @@ fn run_live_loop(
         .as_deref()
         .map(str::trim)
         .filter(|message| !message.is_empty())
+        && !send_initial_user_message_unless_cancelled(
+            child_stdin,
+            &mut state,
+            &mut ui_state,
+            message.to_string(),
+            crate::cancel_requested,
+        )?
     {
-        send_plain_user_message(child_stdin, &mut state, &mut ui_state, message.to_string())?;
+        return Ok(LiveLoopExit::Interrupted);
     }
     refresh_persisted_insights(root, employee_id, &mut state, &mut ui_state);
     let mut next_persisted_refresh = Instant::now() + Duration::from_secs(2);
@@ -733,6 +746,12 @@ fn run_live_loop(
 
     loop {
         if crate::cancel_requested() {
+            if state.is_busy() {
+                // The signal may arrive after user.message was written but before the runtime
+                // acknowledged task.started. Best-effort cancellation closes that race; the
+                // outer teardown still sends /exit and reaps the child if stdin is already gone.
+                let _ = write_user_action(child_stdin, &UserAction::generation_cancel());
+            }
             return Ok(LiveLoopExit::Interrupted);
         }
         if ui_state.persisted_refresh_requested || Instant::now() >= next_persisted_refresh {
@@ -848,6 +867,7 @@ fn run_live_loop(
                             &UserAction::user_message_with_parts(submitted.clone(), refs, parts),
                         )?;
                         state.push_user_message(submitted.clone());
+                        state.mark_submission_pending();
                         ui_state.follow = true;
                         state.debug.push(format!("user input sent: {submitted}"));
                     }
@@ -942,9 +962,30 @@ fn send_plain_user_message<W: Write + ?Sized>(
         &UserAction::user_message(message.clone(), refs),
     )?;
     state.push_user_message(message.clone());
+    state.mark_submission_pending();
     ui_state.follow = true;
     state.debug.push(format!("user input sent: {message}"));
     Ok(())
+}
+
+fn send_initial_user_message_unless_cancelled<W, C>(
+    child_stdin: &mut W,
+    state: &mut AppState,
+    ui_state: &mut UiState,
+    message: String,
+    cancel_requested: C,
+) -> Result<bool, String>
+where
+    W: Write + ?Sized,
+    C: FnOnce() -> bool,
+{
+    // Check immediately before the write. Once it succeeds, send_plain_user_message marks the
+    // submission busy so both keyboard and process-level cancellation target the generation.
+    if cancel_requested() {
+        return Ok(false);
+    }
+    send_plain_user_message(child_stdin, state, ui_state, message)?;
+    Ok(true)
 }
 
 fn handle_terminal_event(
@@ -2632,7 +2673,86 @@ mod tests {
     }
 
     #[test]
-    fn initial_run_task_is_sent_as_a_visible_user_message() {
+    fn await_engine_boot_fails_when_client_ready_cannot_be_written() {
+        struct FailingWriter;
+
+        impl io::Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "engine stdin closed",
+                ))
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "engine stdin closed",
+                ))
+            }
+        }
+
+        let (etx, erx) = mpsc::channel();
+        let (_dtx, drx) = mpsc::channel();
+        etx.send(WorkbenchMessage::Event(TaskEvent::from_parts(
+            "protocol.ready",
+            1,
+            json!({ "protocol": "crewclaw.task-event/v1" }),
+        )))
+        .expect("send protocol.ready");
+        etx.send(WorkbenchMessage::Event(TaskEvent::from_parts(
+            "session.ready",
+            2,
+            json!({ "employee": { "name": "AI 落地鲸" } }),
+        )))
+        .expect("send session.ready");
+
+        match await_engine_boot(&erx, &drx, &mut FailingWriter) {
+            BootOutcome::Failed { diagnostics } => assert!(
+                diagnostics
+                    .iter()
+                    .any(|line| line.contains("client.ready") && line.contains("stdin")),
+                "client.ready write failure must be surfaced, got: {diagnostics:?}"
+            ),
+            BootOutcome::Ready { .. } => {
+                panic!("session.ready must not bypass a failed client.ready handshake")
+            }
+            BootOutcome::Cancelled => panic!("expected handshake failure, got cancellation"),
+        }
+    }
+
+    #[test]
+    fn await_engine_boot_rejects_session_ready_before_protocol_handshake() {
+        let (etx, erx) = mpsc::channel();
+        let (_dtx, drx) = mpsc::channel();
+        etx.send(WorkbenchMessage::Event(TaskEvent::from_parts(
+            "session.ready",
+            1,
+            json!({ "employee": { "name": "AI 落地鲸" } }),
+        )))
+        .expect("send premature session.ready");
+
+        let mut sink = Vec::new();
+        match await_engine_boot(&erx, &drx, &mut sink) {
+            BootOutcome::Failed { diagnostics } => assert!(
+                diagnostics.iter().any(|line| {
+                    line.contains("session.ready") && line.contains("client.ready")
+                }),
+                "premature session.ready must explain the incomplete handshake, got: {diagnostics:?}"
+            ),
+            BootOutcome::Ready { .. } => {
+                panic!("session.ready before client.ready must fail closed")
+            }
+            BootOutcome::Cancelled => panic!("expected handshake failure, got cancellation"),
+        }
+        assert!(
+            sink.is_empty(),
+            "no action should be written without protocol.ready"
+        );
+    }
+
+    #[test]
+    fn initial_run_task_is_visible_and_cancellable_before_runtime_ack() {
         let mut state = AppState::default();
         let mut ui = UiState::default();
         let mut sink = Vec::new();
@@ -2655,6 +2775,52 @@ mod tests {
             Some(state::ConversationItem::User(text)) if text == "write a launch report"
         ));
         assert!(ui.follow, "the injected task should stay in view");
+        assert!(
+            state.is_busy(),
+            "a submitted task must be cancellable before task.started arrives"
+        );
+
+        let mut input = InputBuffer::default();
+        let cancel = handle_key_event(
+            &mut state,
+            &mut ui,
+            &mut input,
+            false,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        )
+        .expect("pending submission cancel handled");
+        assert!(matches!(
+            cancel,
+            TerminalAction::SendAction(UserAction { action_type, .. })
+                if action_type == "generation.cancel"
+        ));
+    }
+
+    #[test]
+    fn cancelled_initial_run_task_never_reaches_runtime() {
+        let mut state = AppState::default();
+        let mut ui = UiState::default();
+        let mut sink = Vec::new();
+
+        let sent = send_initial_user_message_unless_cancelled(
+            &mut sink,
+            &mut state,
+            &mut ui,
+            "must not run".to_string(),
+            || true,
+        )
+        .expect("cancel check");
+
+        assert!(!sent, "cancelled startup must skip submission");
+        assert!(
+            sink.is_empty(),
+            "cancelled startup must not write user.message"
+        );
+        assert!(
+            state.conversation.is_empty(),
+            "cancelled startup must not render a message that was never sent"
+        );
+        assert!(!state.is_busy());
     }
 
     #[test]
