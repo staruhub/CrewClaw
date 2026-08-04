@@ -21,26 +21,21 @@ test("employee detail is organized as an expandable resume directory", async ({
   await expect(directory.getByRole("button")).toHaveCount(6);
 
   const overview = page.getByTestId("profile-module-overview");
-  await expect(overview.getByRole("button")).toHaveAttribute(
-    "aria-expanded",
-    "true"
-  );
+  const overviewTrigger = overview.locator('[data-slot="accordion-trigger"]');
+  await expect(overviewTrigger).toHaveAttribute("aria-expanded", "true");
   await expect(
     overview.getByRole("heading", { name: "Core skills", exact: true })
   ).toBeVisible();
 
   const permissions = page.getByTestId("profile-module-permission-boundary");
-  await expect(permissions.getByRole("button")).toHaveAttribute(
-    "aria-expanded",
-    "false"
+  const permissionTrigger = permissions.locator(
+    '[data-slot="accordion-trigger"]'
   );
+  await expect(permissionTrigger).toHaveAttribute("aria-expanded", "false");
   await directory
     .getByRole("button", { name: /permission boundaries/i })
     .click();
-  await expect(permissions.getByRole("button")).toHaveAttribute(
-    "aria-expanded",
-    "true"
-  );
+  await expect(permissionTrigger).toHaveAttribute("aria-expanded", "true");
   await expect(
     permissions.getByRole("heading", {
       name: "Role capability contract",
@@ -48,11 +43,8 @@ test("employee detail is organized as an expandable resume directory", async ({
     })
   ).toBeVisible();
 
-  await permissions.getByRole("button").click();
-  await expect(permissions.getByRole("button")).toHaveAttribute(
-    "aria-expanded",
-    "false"
-  );
+  await permissionTrigger.click();
+  await expect(permissionTrigger).toHaveAttribute("aria-expanded", "false");
   expect(consoleErrors).toEqual([]);
 });
 
@@ -65,7 +57,7 @@ test("resume modules remain usable on a narrow viewport", async ({ page }) => {
   await expect(directory).not.toHaveCSS("position", "sticky");
 
   const trial = page.getByTestId("profile-module-trial-tasks");
-  await trial.getByRole("button").click();
+  await trial.locator('[data-slot="accordion-trigger"]').click();
   await expect(trial.getByText("Copy and run a bounded trial")).toBeVisible();
   await expect(
     trial.getByRole("button", { name: /^try$/i }).first()
