@@ -25,7 +25,9 @@ test("employee detail is organized as an expandable resume directory", async ({
     "aria-expanded",
     "true"
   );
-  await expect(overview.getByText("Core skills")).toBeVisible();
+  await expect(
+    overview.getByRole("heading", { name: "Core skills", exact: true })
+  ).toBeVisible();
 
   const permissions = page.getByTestId("profile-module-permission-boundary");
   await expect(permissions.getByRole("button")).toHaveAttribute(
@@ -39,7 +41,12 @@ test("employee detail is organized as an expandable resume directory", async ({
     "aria-expanded",
     "true"
   );
-  await expect(permissions.getByText("Role capability contract")).toBeVisible();
+  await expect(
+    permissions.getByRole("heading", {
+      name: "Role capability contract",
+      exact: true,
+    })
+  ).toBeVisible();
 
   await permissions.getByRole("button").click();
   await expect(permissions.getByRole("button")).toHaveAttribute(
