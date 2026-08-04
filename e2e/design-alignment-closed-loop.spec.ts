@@ -267,9 +267,30 @@ test("discovery carries a visitor from landing to marketplace comparison and a r
   await page.getByRole("link", { name: employeeName }).first().click();
   await expect(page).toHaveURL(new RegExp(`/employee/${employeeId}$`));
   await expect(page.getByRole("heading", { name: employeeName })).toBeVisible();
-  await expect(page.getByText("Role capability contract")).toBeVisible();
-  await expect(page.getByText("Local KPI record")).toBeVisible();
-  await expect(page.getByText("Receipt-backed local KPI")).toBeVisible();
+  const permissionModule = page.getByTestId(
+    "profile-module-permission-boundary"
+  );
+  await permissionModule.getByRole("button").click();
+  await expect(
+    permissionModule.getByRole("heading", {
+      name: "Role capability contract",
+      exact: true,
+    })
+  ).toBeVisible();
+
+  const evidenceModule = page.getByTestId(
+    "profile-module-evidence-performance"
+  );
+  await evidenceModule.getByRole("button").click();
+  await expect(
+    evidenceModule.getByRole("heading", {
+      name: "Local KPI record",
+      exact: true,
+    })
+  ).toBeVisible();
+  await expect(
+    evidenceModule.getByText("Receipt-backed local KPI", { exact: true })
+  ).toBeVisible();
 });
 
 test("activation gates require Doctor and accepted trial before hire intent", async ({

@@ -72,6 +72,10 @@ test("a visitor can prepare a local hire handoff without faking roster state", a
   await expect(
     page.getByRole("heading", { name: displayName }).first()
   ).toBeVisible();
+  await page
+    .getByTestId("profile-module-permission-boundary")
+    .getByRole("button")
+    .click();
   await expect(page.getByText("contacts.read", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Optional - Off by default", { exact: true }).first()

@@ -210,9 +210,14 @@ test("production Landing v4 exposes truthful hire handoff and evaluation provena
   await page.goto("/employee/code-review-shrimp");
   const detailBody = await page.locator("body").innerText();
   expect(detailBody).not.toContain("pnpm dlx @chaogeek/hermes");
+  expect(detailBody).not.toContain("mock:false");
+  await page
+    .getByTestId("profile-module-evidence-performance")
+    .locator('[data-slot="accordion-trigger"]')
+    .click();
   await expect(
     page.getByText(
-      /no registry-published (?:signed )?mock:false (?:lab credential|evaluation)/i
+      /no registry-published signed lab credential from real profile runs exists yet/i
     )
   ).toBeVisible();
 

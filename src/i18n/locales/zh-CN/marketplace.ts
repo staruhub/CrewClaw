@@ -107,7 +107,7 @@ export const marketplaceZhCN = {
   trustedEyebrow: "可信",
   trustedTitle: "实验室认证员工",
   trustedDescription:
-    "这里只显示拥有注册表发布、签名 mock:false 凭证的员工。仅包验证通过是 C1，不等于认证。",
+    "这里只显示拥有注册表发布、且来自真实 profile 运行的签名凭证员工。仅包验证通过是 C1，不等于认证。",
   noCertifiedEmployees:
     "当前没有员工拥有已发布的签名实验室凭证。通过验证的 C1 包仍可用于试用工作，并会明确显示其状态。",
   exploreAllEmployees: "探索全部员工",
@@ -258,9 +258,27 @@ export const marketplaceZhCN = {
   evaluationSource: "评估来源",
   issued: "签发时间",
   verifiedSample: "已验证样本",
-  verifiedSampleValue: "{count} 次运行 - 置信下限 {percent}% - mock:false",
+  verifiedSampleValue: "{count} 次真实 profile 运行 - 置信下限 {percent}%",
   noSignedCredential:
-    "包验证可用，但尚无注册表发布的签名 mock:false 实验室凭证。该员工是 C1，不是已认证；只有在重复 profile 运行通过并发布可验证凭证后才能达到 C2。",
+    "包验证可用，但尚无注册表发布、来自真实 profile 运行的签名实验室凭证。该员工是 C1，不是已认证；只有在重复 profile 运行通过并发布可验证凭证后才能达到 C2。",
+  resumeDirectory: "简历目录",
+  resumeDirectoryDescription:
+    "按雇佣决策所需信息快速浏览；可以只打开一项，也可以同时对照多项。",
+  moduleOverview: "职位概览",
+  moduleOverviewSummary: "职责、适合任务、核心技能与入职预期。",
+  moduleAbilities: "能力与交付",
+  moduleAbilitiesSummary: "声明技能、预期交付物、包来源与分发方式。",
+  modulePermissions: "权限边界",
+  modulePermissionsSummary: "运行时兼容性、能力授权、访问范围与安全限制。",
+  moduleTrial: "试工任务",
+  moduleTrialSummary: "在员工加入团队前，复制并运行一次有边界的试工。",
+  moduleEvidence: "证据与绩效",
+  moduleEvidenceSummary: "注册表证据、本地 KPI、回执与证明包警告。",
+  moduleVersionReviews: "版本与评价",
+  moduleVersionReviewsSummary:
+    "生命周期变更，以及关联已接受 TaskRun 回执的评价。",
+  sectionOpen: "已展开",
+  sectionClosed: "已收起",
   manifest: "清单",
   hiringContractRuntime: "雇佣合约和运行时快照",
   manifestId: "清单 ID",

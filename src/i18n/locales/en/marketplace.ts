@@ -110,7 +110,7 @@ export const marketplaceEn = {
   trustedEyebrow: "Trusted",
   trustedTitle: "Lab-certified employees",
   trustedDescription:
-    "Only employees with a registry-published, signed mock:false credential appear here. A validated package alone is C1, not certification.",
+    "Only employees with a registry-published, signed credential from real profile runs appear here. A validated package alone is C1, not certification.",
   noCertifiedEmployees:
     "No employee currently has a published signed lab credential. Validated C1 packages remain hireable for trial work, with their status shown explicitly.",
   exploreAllEmployees: "Explore all employees",
@@ -274,9 +274,32 @@ export const marketplaceEn = {
   issued: "Issued",
   verifiedSample: "Verified sample",
   verifiedSampleValue:
-    "{count} runs - confidence floor {percent}% - mock:false",
+    "{count} real profile runs - confidence floor {percent}%",
   noSignedCredential:
-    "Package validation is available, but no registry-published signed mock:false lab credential exists yet. This employee is C1, not certified; it can reach C2 only after repeated profile runs pass and a verifiable credential is published.",
+    "Package validation is available, but no registry-published signed lab credential from real profile runs exists yet. This employee is C1, not certified; it can reach C2 only after repeated profile runs pass and a verifiable credential is published.",
+  resumeDirectory: "Resume directory",
+  resumeDirectoryDescription:
+    "Jump between the hiring facts that matter. Open one section or compare several.",
+  moduleOverview: "Role overview",
+  moduleOverviewSummary:
+    "Responsibilities, best-fit tasks, core skills, and onboarding expectations.",
+  moduleAbilities: "Capabilities and delivery",
+  moduleAbilitiesSummary:
+    "Declared skills, expected deliverables, package source, and distribution.",
+  modulePermissions: "Permission boundaries",
+  modulePermissionsSummary:
+    "Runtime compatibility, capability authorization, access scopes, and safety limits.",
+  moduleTrial: "Trial tasks",
+  moduleTrialSummary:
+    "Copy and run a bounded trial before this employee joins your crew.",
+  moduleEvidence: "Evidence and performance",
+  moduleEvidenceSummary:
+    "Registry evidence, local KPI records, receipts, and proof-pack warnings.",
+  moduleVersionReviews: "Version and reviews",
+  moduleVersionReviewsSummary:
+    "Lifecycle changes plus reviews linked to accepted TaskRun receipts.",
+  sectionOpen: "Open",
+  sectionClosed: "Collapsed",
   manifest: "Manifest",
   hiringContractRuntime: "Hiring contract and runtime snapshot",
   manifestId: "Manifest id",
