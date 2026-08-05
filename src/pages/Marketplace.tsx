@@ -29,15 +29,12 @@ import {
   localizeEmployees,
 } from "@/i18n/employee-content";
 import {
-  acceptanceText,
-  averageCostText,
   availabilityText,
   categoryLabel,
+  employeeEvidenceLevel,
   evidenceFilterLabel,
   type MarketplaceT,
-  reputationText,
   runtimeText,
-  taskCountText,
 } from "@/i18n/marketplace-format";
 import {
   marketplaceMessages,
@@ -57,7 +54,6 @@ import {
   matchesEmployeeQuery,
   type EmployeeEvidenceFilter,
 } from "@/components/employee/employeeSignals";
-import { useEmployeePerformance } from "@/components/employee/useEmployeePerformance";
 import type { Employee } from "@/data/employees";
 
 const categoryLinks = [
@@ -113,7 +109,6 @@ function CompareEmployeeColumn({
   employee: Employee;
   t: MarketplaceT;
 }) {
-  const { loading, performance } = useEmployeePerformance(employee.employee_id);
   const runtime = runtimeText(employee, t);
 
   return (
@@ -130,21 +125,13 @@ function CompareEmployeeColumn({
         </p>
       </CompareCell>
       <CompareCell>{employee.certification}</CompareCell>
-      <CompareCell>
-        {loading ? t("loadingLocalKpi") : taskCountText(performance, t)}
-      </CompareCell>
-      <CompareCell>
-        {loading ? t("loadingLocalKpi") : acceptanceText(performance, t)}
-      </CompareCell>
-      <CompareCell>
-        {loading ? t("loadingLocalKpi") : averageCostText(performance, t)}
-      </CompareCell>
+      <CompareCell>{employee.demo_tasks.length}</CompareCell>
       <CompareCell>
         <span className="block text-crew-heading">{runtime.label}</span>
         <span className="text-xs text-crew-muted">{runtime.detail}</span>
       </CompareCell>
       <CompareCell>{availabilityText(employee, t)}</CompareCell>
-      <CompareCell>{reputationText(performance, t)}</CompareCell>
+      <CompareCell>Apache-2.0</CompareCell>
       <CompareCell>
         <Button
           asChild
@@ -166,9 +153,7 @@ function MarketplaceConsoleRow({
   employee: Employee;
   t: MarketplaceT;
 }) {
-  const { performance } = useEmployeePerformance(employee.employee_id);
   const runtime = runtimeText(employee, t);
-  const hasLocalPerformance = performance?.kpi.state === "available";
 
   return (
     <Link
@@ -182,16 +167,12 @@ function MarketplaceConsoleRow({
         {employee.identity.title}
       </span>
       <span>
-        {hasLocalPerformance
-          ? taskCountText(performance, t)
-          : `${employee.demo_tasks.length} ${t("demos")}`}
+        {employee.demo_tasks.length} {t("demos")}
       </span>
       <span className="text-emerald-300">
-        {hasLocalPerformance ? acceptanceText(performance, t) : t("noLedger")}
+        {employeeEvidenceLevel(employee, t)}
       </span>
-      <span>
-        {hasLocalPerformance ? averageCostText(performance, t) : "Apache-2.0"}
-      </span>
+      <span>Apache-2.0</span>
       <span className="flex items-center justify-between gap-2">
         <span>{runtime.label}</span>
         <span className="text-emerald-300" aria-hidden="true">
@@ -248,17 +229,15 @@ function ComparePanel({
         </p>
       ) : (
         <div className="mt-5 overflow-x-auto">
-          <table className="min-w-[920px] w-full border-collapse">
+          <table className="min-w-[760px] w-full border-collapse">
             <thead>
               <tr className="text-left font-mono text-[11px] uppercase tracking-[0.14em] text-crew-muted">
                 <th className="px-3 py-2">{t("employee")}</th>
                 <th className="px-3 py-2">{t("cert")}</th>
-                <th className="px-3 py-2">{t("tasks")}</th>
-                <th className="px-3 py-2">{t("acceptance")}</th>
-                <th className="px-3 py-2">{t("avgCost")}</th>
+                <th className="px-3 py-2">{t("demoTasks")}</th>
                 <th className="px-3 py-2">{t("runtime")}</th>
                 <th className="px-3 py-2">{t("availability")}</th>
-                <th className="px-3 py-2">{t("reputation")}</th>
+                <th className="px-3 py-2">{t("license")}</th>
                 <th className="px-3 py-2">{t("next")}</th>
               </tr>
             </thead>
@@ -632,7 +611,7 @@ export default function Marketplace() {
             <span>{t("employee")}</span>
             <span>{t("role")}</span>
             <span>{t("tasksDemos")}</span>
-            <span>{t("fieldKpi")}</span>
+            <span>{t("evidence")}</span>
             <span>{t("license")}</span>
             <span>{t("runtime")}</span>
           </div>

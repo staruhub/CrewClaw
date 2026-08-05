@@ -26,18 +26,13 @@ import { useSavedEmployees } from "@/hooks/use-saved";
 import { useI18n, useMessages } from "@/i18n";
 import { localizeEmployeeContent } from "@/i18n/employee-content";
 import {
-  acceptanceText,
-  averageCostText,
   availabilityText,
   employeeEvidenceBadge,
   employeeEvidenceLevel,
-  kpiStateText,
   runtimeText,
-  taskCountText,
 } from "@/i18n/marketplace-format";
 import { marketplaceMessages } from "@/i18n/locales/marketplace";
 import { cn } from "@/lib/utils";
-import { useEmployeePerformance } from "./useEmployeePerformance";
 
 type EmployeeCardProps = {
   employee: Employee;
@@ -61,12 +56,7 @@ export function EmployeeCard({
   const displayEmployee = localizeEmployeeContent(employee, locale);
   const saved = useSavedEmployees();
   const isSaved = saved.isSaved(employee.employee_id);
-  const performanceState = useEmployeePerformance(employee.employee_id);
-  const performance = performanceState.performance;
   const runtime = runtimeText(employee, t);
-  const kpiCopy = performanceState.loading
-    ? t("loadingLocalKpiLong")
-    : kpiStateText(performance, t);
 
   return (
     <Card
@@ -180,32 +170,10 @@ export function EmployeeCard({
         <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
             <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-              {t("formalTasks")}
+              {t("demoTasks")}
             </dt>
             <dd className="mt-1 text-sm font-semibold text-crew-heading">
-              {performanceState.loading
-                ? t("loading")
-                : taskCountText(performance, t)}
-            </dd>
-          </div>
-          <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
-            <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-              {t("acceptance")}
-            </dt>
-            <dd className="mt-1 text-sm font-semibold text-crew-heading">
-              {performanceState.loading
-                ? t("loading")
-                : acceptanceText(performance, t)}
-            </dd>
-          </div>
-          <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
-            <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-              {t("avgCost")}
-            </dt>
-            <dd className="mt-1 text-sm font-semibold text-crew-heading">
-              {performanceState.loading
-                ? t("loading")
-                : averageCostText(performance, t)}
+              {employee.demo_tasks.length}
             </dd>
           </div>
           <div className="rounded-[8px] border border-white/10 bg-white/[0.025] p-3">
@@ -218,8 +186,7 @@ export function EmployeeCard({
           </div>
         </dl>
         <p className="mt-3 text-xs leading-5 text-crew-muted">
-          {t("cardKpiSummary", {
-            kpi: kpiCopy,
+          {t("cardRuntimeSummary", {
             risk: runtime.highestRisk,
             runtimeDetail: runtime.detail,
           })}

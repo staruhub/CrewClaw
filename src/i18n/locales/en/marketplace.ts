@@ -23,7 +23,7 @@ export const marketplaceEn = {
   role: "Role",
   tasks: "Tasks",
   tasksDemos: "Tasks / examples",
-  fieldKpi: "Field KPI",
+  demoTasks: "Example tasks",
   license: "License",
   openSource: "Open source",
   runtime: "Runtime",
@@ -77,7 +77,7 @@ export const marketplaceEn = {
   consoleCategoryAria: "Marketplace category",
   consoleEvidenceAria: "Marketplace evidence",
   consoleFooter:
-    "{count} published - receipt-backed fields stay unavailable until local work exists",
+    "{count} published - public cards show registry-backed package facts",
   consoleCommand: "$ crewclaw market --open ->",
   featuredEyebrow: "Featured",
   featuredTitle: "Recommended employees",
@@ -118,12 +118,11 @@ export const marketplaceEn = {
   compareEyebrow: "Compare",
   compareTitle: "Evidence-backed shortlist",
   compareDescription:
-    "Select two or three employees to compare package evidence, runtime readiness, receipt-backed KPI data, permission risk, and hiring availability without leaving the marketplace.",
+    "Select two or three employees to compare package evidence, example tasks, runtime readiness, license, and hiring availability without leaving the marketplace.",
   compareNeedMore:
     "Add at least one more employee. Comparison starts at two and stops at three so the table remains readable.",
   compare: "Compare",
   compared: "Compared",
-  noLedger: "no ledger",
   demos: "examples",
   localKpiUnavailable: "Local KPI unavailable",
   localKpiInvalid: "Local KPI invalid",
@@ -151,7 +150,7 @@ export const marketplaceEn = {
   clearSearch: "Clear search",
   searchComparisonTitle: "Search comparison",
   searchComparisonDescription:
-    "Compare two or three results using registry fields and receipt-backed local KPI data when it exists.",
+    "Compare two or three results using public registry fields, runtime readiness, availability, and license.",
   searchCompareNeedMore: "Add at least one more employee to compare.",
   noSearchResultsTitle: "No employees found",
   noSearchResultsDescription:
@@ -163,7 +162,7 @@ export const marketplaceEn = {
   growthStartTitle:
     "Every hire starts in manual-review mode. Three explicit acceptances unlock trust-auto eligibility; tool permissions remain governed by P0-P4.",
   formalTasks: "Formal tasks",
-  cardKpiSummary: "{kpi}. {runtimeDetail}. Highest enabled risk is {risk}.",
+  cardRuntimeSummary: "{runtimeDetail}. Highest enabled risk is {risk}.",
   noToolsDeclared: "No tools declared",
   runtimeBacked: "{ready}/{total} runtime-backed",
   adapterRequiredOne: "{count} adapter-required capability",

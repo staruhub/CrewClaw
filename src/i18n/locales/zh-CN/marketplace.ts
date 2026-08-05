@@ -25,7 +25,7 @@ export const marketplaceZhCN = {
   role: "角色",
   tasks: "任务",
   tasksDemos: "任务 / 示例",
-  fieldKpi: "现场 KPI",
+  demoTasks: "示例任务",
   license: "许可证",
   openSource: "开源",
   runtime: "运行时",
@@ -77,7 +77,7 @@ export const marketplaceZhCN = {
   consoleTitle: "CrewClaw 市场",
   consoleCategoryAria: "市场类别",
   consoleEvidenceAria: "市场证据",
-  consoleFooter: "{count} 个已发布 - 本地工作存在前，带回执字段会保持不可用",
+  consoleFooter: "{count} 个已发布 - 公开卡片仅展示注册表中的包信息",
   consoleCommand: "$ crewclaw market --open ->",
   featuredEyebrow: "精选",
   featuredTitle: "推荐员工",
@@ -115,12 +115,11 @@ export const marketplaceZhCN = {
   compareEyebrow: "比较",
   compareTitle: "证据背书的候选名单",
   compareDescription:
-    "选择两到三名员工，在不离开市场的情况下比较包证据、运行时就绪度、带回执 KPI 数据、权限风险和雇佣可用性。",
+    "选择两到三名员工，在不离开市场的情况下比较包证据、示例任务、运行时就绪度、许可证和雇佣可用性。",
   compareNeedMore:
     "至少再添加一名员工。比较从两名开始，最多三名，以保持表格可读。",
   compare: "比较",
   compared: "已比较",
-  noLedger: "无台账",
   demos: "示例",
   localKpiUnavailable: "本地 KPI 不可用",
   localKpiInvalid: "本地 KPI 无效",
@@ -147,7 +146,7 @@ export const marketplaceZhCN = {
   clearSearch: "清除搜索",
   searchComparisonTitle: "搜索结果比较",
   searchComparisonDescription:
-    "用注册表字段和存在时的带回执本地 KPI 数据比较两到三个结果。",
+    "用公开注册表字段、运行时就绪度、可用性和许可证比较两到三个结果。",
   searchCompareNeedMore: "至少再添加一名员工进行比较。",
   noSearchResultsTitle: "未找到员工",
   noSearchResultsDescription:
@@ -159,7 +158,7 @@ export const marketplaceZhCN = {
   growthStartTitle:
     "每次雇佣都从人工评审模式开始。三次明确接受会解锁 trust-auto 资格；工具权限仍由 P0-P4 管控。",
   formalTasks: "正式任务",
-  cardKpiSummary: "{kpi}。{runtimeDetail}。最高启用风险为 {risk}。",
+  cardRuntimeSummary: "{runtimeDetail}。最高启用风险为 {risk}。",
   noToolsDeclared: "未声明工具",
   runtimeBacked: "{ready}/{total} 个运行时支持",
   adapterRequiredOne: "{count} 个需适配器的能力",
