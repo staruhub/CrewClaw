@@ -20,13 +20,11 @@ import { track } from "@/hooks/use-analytics";
 import { useI18n, useMessages } from "@/i18n";
 import { localizeEmployees } from "@/i18n/employee-content";
 import {
-  acceptanceText,
-  averageCostText,
+  availabilityText,
   categoryLabel,
   evidenceFilterLabel,
   type MarketplaceT,
   runtimeText,
-  taskCountText,
 } from "@/i18n/marketplace-format";
 import {
   marketplaceMessages,
@@ -45,7 +43,6 @@ import {
   matchesEmployeeQuery,
   type EmployeeEvidenceFilter,
 } from "@/components/employee/employeeSignals";
-import { useEmployeePerformance } from "@/components/employee/useEmployeePerformance";
 
 const categoryLinks = [
   { value: "" },
@@ -85,7 +82,6 @@ function SearchCompareRow({
   employee: Employee;
   t: MarketplaceT;
 }) {
-  const { loading, performance } = useEmployeePerformance(employee.employee_id);
   const runtime = runtimeText(employee, t);
 
   return (
@@ -112,26 +108,10 @@ function SearchCompareRow({
       <dl className="mt-4 grid gap-2 text-xs sm:grid-cols-4">
         <div>
           <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-            {t("tasks")}
+            {t("demoTasks")}
           </dt>
           <dd className="mt-1 text-crew-heading">
-            {loading ? t("loading") : taskCountText(performance, t)}
-          </dd>
-        </div>
-        <div>
-          <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-            {t("acceptance")}
-          </dt>
-          <dd className="mt-1 text-crew-heading">
-            {loading ? t("loading") : acceptanceText(performance, t)}
-          </dd>
-        </div>
-        <div>
-          <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
-            {t("cost")}
-          </dt>
-          <dd className="mt-1 text-crew-heading">
-            {loading ? t("loading") : averageCostText(performance, t)}
+            {employee.demo_tasks.length}
           </dd>
         </div>
         <div>
@@ -139,6 +119,20 @@ function SearchCompareRow({
             {t("runtime")}
           </dt>
           <dd className="mt-1 text-crew-heading">{runtime.label}</dd>
+        </div>
+        <div>
+          <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
+            {t("availability")}
+          </dt>
+          <dd className="mt-1 text-crew-heading">
+            {availabilityText(employee, t)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-mono uppercase tracking-[0.12em] text-crew-muted">
+            {t("license")}
+          </dt>
+          <dd className="mt-1 text-crew-heading">Apache-2.0</dd>
         </div>
       </dl>
     </article>
