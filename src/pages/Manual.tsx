@@ -35,7 +35,7 @@ export default function Manual() {
             className="inline-flex items-center gap-2 text-sm text-crew-copper transition-colors hover:text-crew-copper/80"
             to="/"
           >
-            ← {t("nav.title")}
+            ← {t("nav.backHome")}
           </Link>
         </div>
       </header>
@@ -122,7 +122,10 @@ export default function Manual() {
           title={t("section.install.title")}
         >
           <div className="space-y-4">
-            <StepWithCode label={t("section.install.clone")} code={codeBlocks.clone} />
+            <StepWithCode
+              label={t("section.install.clone")}
+              code={codeBlocks.clone}
+            />
             <StepWithCode
               label={t("section.install.setup")}
               code={codeBlocks.install}
@@ -131,8 +134,14 @@ export default function Manual() {
               label={t("section.install.verify")}
               code={codeBlocks.verify}
             />
-            <StepWithCode label={t("section.install.build")} code={codeBlocks.build} />
-            <StepWithCode label={t("section.install.start")} code={codeBlocks.dev} />
+            <StepWithCode
+              label={t("section.install.build")}
+              code={codeBlocks.build}
+            />
+            <StepWithCode
+              label={t("section.install.start")}
+              code={codeBlocks.dev}
+            />
             <p className="pt-2 text-sm leading-6 text-crew-muted">
               {t("section.install.open")}
             </p>
@@ -145,13 +154,25 @@ export default function Manual() {
         >
           <p className="mb-4 leading-7">{t("section.hire.intro")}</p>
           <div className="space-y-4">
-            <StepWithCode label={t("section.hire.list")} code={codeBlocks.list} />
+            <StepWithCode
+              label={t("section.hire.list")}
+              code={codeBlocks.list}
+            />
             <p className="text-sm leading-6 text-crew-muted">
               {t("section.hire.interactive")}
             </p>
-            <StepWithCode label={t("section.hire.direct")} code={codeBlocks.hire} />
-            <StepWithCode label={t("section.hire.trial")} code={codeBlocks.trial} />
-            <StepWithCode label={t("section.hire.check")} code={codeBlocks.doctor} />
+            <StepWithCode
+              label={t("section.hire.direct")}
+              code={codeBlocks.hire}
+            />
+            <StepWithCode
+              label={t("section.hire.trial")}
+              code={codeBlocks.trial}
+            />
+            <StepWithCode
+              label={t("section.hire.check")}
+              code={codeBlocks.doctor}
+            />
           </div>
         </Section>
 
@@ -208,11 +229,15 @@ export default function Manual() {
             </li>
             <li className="flex gap-3">
               <span className="mt-1 text-crew-copper">•</span>
-              <span className="leading-7">{t("section.beta.openwork.scope")}</span>
+              <span className="leading-7">
+                {t("section.beta.openwork.scope")}
+              </span>
             </li>
             <li className="flex gap-3">
               <span className="mt-1 text-crew-copper">•</span>
-              <span className="leading-7">{t("section.beta.stateChanges")}</span>
+              <span className="leading-7">
+                {t("section.beta.stateChanges")}
+              </span>
             </li>
             <li className="flex gap-3">
               <span className="mt-1 text-crew-copper">•</span>
@@ -309,7 +334,7 @@ export default function Manual() {
       <footer className="border-t border-white/10 bg-crew-card/50 px-5 py-6 sm:px-6">
         <div className="mx-auto max-w-4xl text-center text-sm text-crew-muted">
           <Link className="text-crew-copper hover:underline" to="/">
-            ← Back to Home
+            ← {t("footer.backHome")}
           </Link>
         </div>
       </footer>
@@ -327,7 +352,10 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="mb-12 scroll-mt-8" id={title.toLowerCase().replace(/\s+/g, "-")}>
+    <section
+      className="mb-12 scroll-mt-8"
+      id={title.toLowerCase().replace(/\s+/g, "-")}
+    >
       <div className="mb-4 flex items-center gap-3 border-b border-white/10 pb-3">
         <span className="text-crew-copper">{icon}</span>
         <h2 className="text-2xl font-light text-crew-heading">{title}</h2>

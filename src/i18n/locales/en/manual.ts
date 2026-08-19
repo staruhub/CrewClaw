@@ -1,5 +1,5 @@
 export const manualEn = {
-  "nav.title": "User Handbook",
+  "nav.backHome": "Back to Home",
   "hero.title": "CrewClaw User Handbook",
   "hero.subtitle":
     "Everything you need to discover, hire, supervise, and improve AI employees.",
@@ -12,15 +12,13 @@ export const manualEn = {
   "section.what.not.replacement":
     "Not a replacement for OpenWork (CrewClaw hires employees; OpenWork is the desktop workbench)",
   "section.what.not.hosted": "Not a hosted service or SaaS product",
-  "section.what.not.paid":
-    "Not a paid product—fully Apache-2.0 open source",
+  "section.what.not.paid": "Not a paid product—fully Apache-2.0 open source",
 
   "section.requirements.title": "System Requirements",
   "section.requirements.git": "Git",
   "section.requirements.nodejs": "Node.js 22.22.0 or higher",
   "section.requirements.pnpm": "pnpm 10.33.2 (pinned by package.json)",
-  "section.requirements.rust":
-    "Stable Rust toolchain with rustfmt and clippy",
+  "section.requirements.rust": "Stable Rust toolchain with rustfmt and clippy",
   "section.requirements.chromium": "Chromium (for browser end-to-end tests)",
   "section.requirements.hermes":
     "Hermes (only when installing employees or running model tasks)",
@@ -108,4 +106,6 @@ export const manualEn = {
   "section.resources.security": "Security Policy",
   "section.resources.contributing": "Contributing Guide",
   "section.resources.demo": "57-second concept video",
+
+  "footer.backHome": "Back to Home",
 };

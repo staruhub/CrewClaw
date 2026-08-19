@@ -1,17 +1,17 @@
 export const manualZhCN = {
-  "nav.title": "用户手册",
+  "nav.backHome": "返回首页",
   "hero.title": "CrewClaw 用户手册",
-  "hero.subtitle": "发现、雇佣、监督并改进 AI 员工所需的一切知识。",
+  "hero.subtitle": "从发现、雇佣到监督、复盘，按现在已经有的能力一步步用。",
 
   "section.what.title": "什么是 CrewClaw？",
   "section.what.description":
-    "CrewClaw 是一个本地优先的 AI 员工操作系统。它将 Agent 转变为负责任的数字员工，具有可验证的角色合同、范围化能力、Doctor 预检、有界试工、基于证据的交付、人工审批和可衡量的本地绩效。",
+    "CrewClaw 是一个本地优先的 AI 员工平台：从市场发现候选人，审查合同与权限，完成 Doctor 检查和试工，再监督任务、检查证据、人工验收并用真实表现更新 KPI。",
   "section.what.not": "CrewClaw 不是：",
   "section.what.not.chat": "不是通用 AI 聊天界面",
   "section.what.not.replacement":
     "不是 OpenWork 的替代品（CrewClaw 负责雇佣员工；OpenWork 是桌面工作台）",
   "section.what.not.hosted": "不是托管服务或 SaaS 产品",
-  "section.what.not.paid": "不是付费产品——完整 Apache-2.0 开源",
+  "section.what.not.paid": "不是付费产品。完整 Apache-2.0 开源。",
 
   "section.requirements.title": "系统要求",
   "section.requirements.git": "Git",
@@ -41,10 +41,11 @@ export const manualZhCN = {
   "section.hire.check": "检查系统就绪状态：",
 
   "section.lifecycle.title": "员工生命周期",
-  "section.lifecycle.intro": "CrewClaw 中的每位 AI 员工都遵循完整的、可审计的生命周期：",
+  "section.lifecycle.intro":
+    "CrewClaw 中的每位 AI 员工都遵循完整的、可审计的生命周期：",
   "section.lifecycle.discover.title": "1. 发现",
   "section.lifecycle.discover.body":
-    "浏览市场，按角色、认证级别和能力需求查找员工。",
+    "浏览市场，按角色、证据级别和能力需求查找员工。",
   "section.lifecycle.review.title": "2. 审查合同",
   "section.lifecycle.review.body":
     "检查 hire.yaml（角色、权限、工具）和 crewclaw.employee.yaml（运行时规范、成果标准和评估套件）。",
@@ -53,7 +54,7 @@ export const manualZhCN = {
     "开工前，Doctor 验证合同完整性、权限边界、工具可用性、记忆设置、预算限制、运行时兼容性和证据捕获就绪状态。",
   "section.lifecycle.trial.title": "4. 试工",
   "section.lifecycle.trial.body":
-    "新员工可以在范围化权限下运行首个任务，以验证合同并展示核心能力。",
+    "新员工可以在限定权限下运行首个任务，以验证合同并展示核心能力。",
   "section.lifecycle.supervise.title": "5. 监督",
   "section.lifecycle.supervise.body":
     "Node TaskEvent 运行时记录任务事件。Rust/Ratatui Workbench 实时显示动作、成本、证据、产物和审批门禁。",
@@ -65,7 +66,8 @@ export const manualZhCN = {
     "审批后更新 KPI。Dream 复盘捕获有效做法和改进方向。所有数据保留在本地。",
 
   "section.beta.title": "Beta 0.8 限制",
-  "section.beta.intro": "CrewClaw Beta 0.8 是预发布版本。接口和本地状态格式可能变化。已知限制包括：",
+  "section.beta.intro":
+    "CrewClaw Beta 0.8 是预发布版本。接口和本地状态格式可能变化。已知限制包括：",
   "section.beta.validation":
     "注册表验证（C1）确认包结构，但不是签名的实验室认证。",
   "section.beta.openwork":
@@ -74,7 +76,7 @@ export const manualZhCN = {
     "OpenWork 当前提供本地桌面任务、计划审批、Hermes 单次执行、持久历史、员工包导入、工作区选择、记忆事实和只读技能索引。浏览器自动化、Office 编辑、调度和多 Agent 编排不属于当前发布。",
   "section.beta.stateChanges": "接口和本地状态格式在 Beta 阶段可能仍会变化。",
   "section.beta.modelUsage":
-    "提供商和模型用量（配置后）由这些提供商向您自己的账户收费。",
+    "提供商和模型用量（配置后）由这些提供商向你自己的账户收费。",
 
   "section.support.title": "支持与安全",
   "section.support.intro":
@@ -85,7 +87,7 @@ export const manualZhCN = {
   "section.support.search": "搜索已存在的 issue",
   "section.support.doctor": "当涉及 CLI 时运行 pnpm run crewclaw -- doctor",
   "section.support.info":
-    "包含您的操作系统、Node.js 版本、pnpm 版本、Rust 版本、CrewClaw 版本以及相关的已清理日志",
+    "包含你的操作系统、Node.js 版本、pnpm 版本、Rust 版本、CrewClaw 版本以及相关的已清理日志",
   "section.support.sanitize": "移除凭据、个人数据、本地路径和员工工作产物",
   "section.support.security": "对于安全漏洞：",
   "section.support.securityNote":
@@ -98,4 +100,6 @@ export const manualZhCN = {
   "section.resources.security": "安全政策",
   "section.resources.contributing": "贡献指南",
   "section.resources.demo": "57 秒概念片",
+
+  "footer.backHome": "返回首页",
 };
