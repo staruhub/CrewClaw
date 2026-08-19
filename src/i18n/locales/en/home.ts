@@ -112,6 +112,7 @@ export const homeEn = {
     "Every task event keeps actor, time, status, cost, and decision context.",
   "footer.brand": "CREWCLAW / AI EMPLOYEE OPERATING SYSTEM",
   "footer.marketplace": "Marketplace",
+  "footer.manual": "Manual",
   "footer.team": "My crew",
   "footer.metrics": "Metrics",
   "footer.source": "Source",

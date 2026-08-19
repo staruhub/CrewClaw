@@ -101,6 +101,7 @@ export const homeZhCN = {
     "每个任务事件都保留执行者、时间、状态、成本和决策上下文。",
   "footer.brand": "CREWCLAW / AI 员工操作系统",
   "footer.marketplace": "市场",
+  "footer.manual": "手册",
   "footer.team": "我的团队",
   "footer.metrics": "指标",
   "footer.source": "源码",

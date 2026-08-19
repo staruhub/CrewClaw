@@ -550,6 +550,7 @@ export default function Home() {
               {t("footer.releases")}
             </a>
             <Link to="/marketplace">{t("footer.marketplace")}</Link>
+            <Link to="/manual">{t("footer.manual")}</Link>
             <Link to="/team">{t("footer.team")}</Link>
             <Link to="/metrics">{t("footer.metrics")}</Link>
           </div>

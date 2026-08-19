@@ -5,6 +5,7 @@ import CreatorConsole from "./pages/CreatorConsole";
 import CrewMode from "./pages/CrewMode";
 import HireConfirm from "./pages/HireConfirm";
 import Home from "./pages/Home";
+import Manual from "./pages/Manual";
 import Marketplace from "./pages/Marketplace";
 import Metrics from "./pages/Metrics";
 import Performance from "./pages/Performance";
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/search" element={<Search />} />
         <Route path="/employee/:id" element={<EmployeeDetail />} />
         <Route path="/hire/:id" element={<HireConfirm />} />
+        <Route path="/manual" element={<Manual />} />
         <Route path="/team" element={<TeamDashboard />} />
         <Route path="/task-run/:id" element={<TaskRun />} />
         <Route path="/crew" element={<CrewMode />} />
