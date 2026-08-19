@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hireEn } from "./locales/en/hire";
 import { homeEn } from "./locales/en/home";
+import { manualEn } from "./locales/en/manual";
 import { marketplaceEn } from "./locales/en/marketplace";
 import { hireZhCN } from "./locales/zh-CN/hire";
 import { homeZhCN } from "./locales/zh-CN/home";
+import { manualZhCN } from "./locales/zh-CN/manual";
 import { marketplaceZhCN } from "./locales/zh-CN/marketplace";
 
 const retiredCommerceCopy =
@@ -18,6 +20,8 @@ describe("open-source product positioning", () => {
       homeZhCN,
       hireEn,
       hireZhCN,
+      manualEn,
+      manualZhCN,
       marketplaceEn,
       marketplaceZhCN,
     ];

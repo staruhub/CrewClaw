@@ -4,6 +4,7 @@ import { adminEn } from "./locales/en/admin";
 import { commonEn } from "./locales/en/common";
 import { hireEn } from "./locales/en/hire";
 import { homeEn } from "./locales/en/home";
+import { manualEn } from "./locales/en/manual";
 import { marketplaceEn } from "./locales/en/marketplace";
 import { operationsEn } from "./locales/en/operations";
 import { workbenchEn } from "./locales/en/workbench";
@@ -11,6 +12,7 @@ import { adminZhCN } from "./locales/zh-CN/admin";
 import { commonZhCN } from "./locales/zh-CN/common";
 import { hireZhCN } from "./locales/zh-CN/hire";
 import { homeZhCN } from "./locales/zh-CN/home";
+import { manualZhCN } from "./locales/zh-CN/manual";
 import { marketplaceZhCN } from "./locales/zh-CN/marketplace";
 import { operationsZhCN } from "./locales/zh-CN/operations";
 import { workbenchZhCN } from "./locales/zh-CN/workbench";
@@ -62,6 +64,7 @@ describe("catalog parity", () => {
     ["home", homeEn, homeZhCN],
     ["marketplace", marketplaceEn, marketplaceZhCN],
     ["hire", hireEn, hireZhCN],
+    ["manual", manualEn, manualZhCN],
     ["operations", operationsEn, operationsZhCN],
     ["admin", adminEn, adminZhCN],
     ["workbench", workbenchEn, workbenchZhCN],
